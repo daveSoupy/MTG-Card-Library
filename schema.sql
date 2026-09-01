@@ -222,6 +222,13 @@ CREATE INDEX idx_print_set_num  ON card_printings(set_code, collector_number_num
 CREATE INDEX idx_print_rarity   ON card_printings(set_code, rarity);
 CREATE INDEX idx_print_price    ON card_printings(price_usd);
 
+-- Search filters like `set:blb r:mythic` correlate a subquery on oracle_id and
+-- then narrow by set or rarity. Without these the planner falls back to
+-- idx_print_rarity, which leads on set_code, and the query degrades into a full
+-- scan of oracle_cards — measured at 5 seconds on a 38k-card database.
+CREATE INDEX idx_print_oracle_set    ON card_printings(oracle_id, set_code);
+CREATE INDEX idx_print_oracle_rarity ON card_printings(oracle_id, rarity);
+
 -- Now that card_printings exists, oracle_cards.default_printing_id has a
 -- target. SQLite can't ALTER in a FK, so it is enforced by trigger.
 CREATE TRIGGER trg_oracle_default_printing_ins
