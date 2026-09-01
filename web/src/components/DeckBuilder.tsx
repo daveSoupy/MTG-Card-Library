@@ -4,16 +4,10 @@ import {
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
-
-/** Decklist grouping, in the order a printed decklist reads. */
-const TYPE_ORDER = [
-  'Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery',
-  'Artifact', 'Enchantment', 'Land',
-] as const;
-
-function groupOf(card: DeckCard): string {
-  return TYPE_ORDER.find((type) => card.typeLine.includes(type)) ?? 'Other';
-}
+import {
+  DECK_SORTS, groupCards, loadViewPreference, saveViewPreference,
+  type DeckSort, type DeckViewMode,
+} from '../deckView.ts';
 
 const BOARD_LABEL: Record<Board, string> = {
   command: 'Command zone',
@@ -106,6 +100,16 @@ export function DeckBuilder({
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
   const [renaming, setRenaming] = useState(false);
+
+  const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
+  const setView = (next: DeckViewMode) => {
+    setViewPref({ view: next, sort: cardSort });
+    saveViewPreference(next, cardSort);
+  };
+  const setCardSort = (next: DeckSort) => {
+    setViewPref({ view, sort: next });
+    saveViewPreference(view, next);
+  };
 
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -211,19 +215,30 @@ export function DeckBuilder({
 
       <div className="deck-panes">
         <div className="decklist" ref={listRef}>
+          <div className="deck-toolbar">
+            <div className="tabs small">
+              <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
+                List
+              </button>
+              <button className={view === 'cards' ? 'on' : ''} onClick={() => setView('cards')}>
+                Cards
+              </button>
+            </div>
+            <label className="toolbar-sort">
+              <span>Sort</span>
+              <select value={cardSort} onChange={(e) => setCardSort(e.target.value as DeckSort)}>
+                {DECK_SORTS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           {boardsToShow.map((board) => {
             const cards = deck.cards.filter((c) => c.board === board);
             if (cards.length === 0 && board !== 'main') return null;
             const count = cards.reduce((total, c) => total + c.quantity, 0);
-
-            const groups = new Map<string, DeckCard[]>();
-            for (const card of cards) {
-              const key = board === 'main' ? groupOf(card) : BOARD_LABEL[board];
-              groups.set(key, [...(groups.get(key) ?? []), card]);
-            }
-            const ordered = [...groups.entries()].sort(
-              (a, b) => TYPE_ORDER.indexOf(a[0] as any) - TYPE_ORDER.indexOf(b[0] as any),
-            );
+            const groups = groupCards(cards, cardSort);
 
             return (
               <section className="board" key={board}>
@@ -231,34 +246,78 @@ export function DeckBuilder({
                 {cards.length === 0 && (
                   <p className="note">Search on the right to add cards.</p>
                 )}
-                {ordered.map(([group, groupCards]) => (
-                  <div key={group}>
-                    {board === 'main' && (
-                      <h4>
-                        {group}
-                        <span className="count">
-                          {groupCards.reduce((t, c) => t + c.quantity, 0)}
-                        </span>
-                      </h4>
+
+                {groups.map((group) => (
+                  <div key={group.key}>
+                    {/* A single "All cards" heading adds nothing over the board
+                        heading directly above it. */}
+                    {group.key !== 'all' && (
+                      <h4>{group.label}<span className="count">{group.count}</span></h4>
                     )}
-                    {groupCards.map((card) => (
-                      <div data-oracle={card.oracleId} key={card.id}>
-                        <CardRow
-                          card={card}
-                          problem={problemFor(card)}
-                          onQuantity={(delta) =>
-                            apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }))}
-                          onBoard={(next) => apply(() => updateDeckCard(deck.id, card.id, { board: next }))}
-                          onRemove={() => apply(() => removeDeckCard(deck.id, card.id))}
-                          onToggleOwned={() =>
-                            apply(() => updateDeckCard(deck.id, card.id, {
-                              fromCollection: card.quantityFromCollection > 0 ? 0 : card.quantity,
-                            }))}
-                          onPreview={() =>
-                            card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
-                        />
+
+                    {view === 'list' ? (
+                      group.cards.map((card) => (
+                        <div data-oracle={card.oracleId} key={card.id}>
+                          <CardRow
+                            card={card}
+                            problem={problemFor(card)}
+                            onQuantity={(delta) =>
+                              apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }))}
+                            onBoard={(next) => apply(() => updateDeckCard(deck.id, card.id, { board: next }))}
+                            onRemove={() => apply(() => removeDeckCard(deck.id, card.id))}
+                            onToggleOwned={() =>
+                              apply(() => updateDeckCard(deck.id, card.id, {
+                                fromCollection: card.quantityFromCollection > 0 ? 0 : card.quantity,
+                              }))}
+                            onPreview={() =>
+                              card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
+                          />
+                        </div>
+                      ))
+                    ) : (
+                      <div className="deck-grid">
+                        {group.cards.map((card) => (
+                          <div
+                            className={`deck-tile${problemFor(card) ? ` ${problemFor(card)}` : ''}`}
+                            data-oracle={card.oracleId}
+                            key={card.id}
+                            title={`${card.name} — ${card.typeLine}`}
+                          >
+                            {card.printingId && card.imageSmall ? (
+                              <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" />
+                            ) : (
+                              <div className="placeholder">{card.name}</div>
+                            )}
+
+                            <span className="tile-qty">{card.quantity}</span>
+                            {card.quantityFromCollection > 0 && (
+                              <span className="tile-owned" title="Claimed from your collection">
+                                {card.quantityFromCollection}
+                              </span>
+                            )}
+
+                            {/* Controls sit over the art on hover so the grid
+                                stays scannable when you are only reading it. */}
+                            <div className="tile-controls">
+                              <button
+                                onClick={() =>
+                                  apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity - 1 }))}
+                                aria-label={`One fewer ${card.name}`}
+                              >−</button>
+                              <button
+                                onClick={() =>
+                                  apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity + 1 }))}
+                                aria-label={`One more ${card.name}`}
+                              >+</button>
+                              <button
+                                onClick={() => apply(() => removeDeckCard(deck.id, card.id))}
+                                aria-label={`Remove ${card.name}`}
+                              >×</button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </div>
                 ))}
               </section>

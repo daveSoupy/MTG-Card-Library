@@ -554,3 +554,70 @@ input[type='number'] { width: 72px; }
   border-radius: 6px; padding: 6px 8px; outline: none; width: 100%;
 }
 .preset-save .btn { padding: 6px 10px; font-size: 13px; }
+
+/* ---------- deck view toolbar ---------- */
+.deck-toolbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line);
+}
+.tabs.small button { padding: 4px 11px; font-size: 12px; }
+.toolbar-sort { display: flex; align-items: center; gap: 7px; }
+.toolbar-sort > span {
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-3); font-family: var(--mono);
+}
+.toolbar-sort select { width: 132px; padding: 4px 6px; font-size: 12.5px; }
+
+/* ---------- deck card view ---------- */
+.deck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+  margin: 6px 0 14px;
+}
+.deck-tile { position: relative; border-radius: 9px; }
+.deck-tile img,
+.deck-tile .placeholder {
+  width: 100%; aspect-ratio: 488 / 680; border-radius: 8px; display: block;
+  background: var(--panel-2); object-fit: cover;
+}
+.deck-tile .placeholder {
+  display: grid; place-items: center; padding: 8px; text-align: center;
+  font-size: 11px; color: var(--text-3); border: 1px solid var(--line);
+}
+.deck-tile.error img, .deck-tile.error .placeholder { outline: 2px solid var(--bad); outline-offset: 1px; }
+.deck-tile.warning img, .deck-tile.warning .placeholder { outline: 2px solid var(--warn); outline-offset: 1px; }
+.deck-tile.flash { animation: tileflash 1.2s ease; }
+@keyframes tileflash { from { box-shadow: 0 0 0 4px var(--accent); } to { box-shadow: none; } }
+
+.tile-qty {
+  position: absolute; top: 5px; left: 5px;
+  background: rgba(8, 10, 14, .82); color: #fff;
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  border-radius: 5px; padding: 1px 7px;
+}
+.tile-owned {
+  position: absolute; top: 5px; right: 5px;
+  background: var(--good); color: #06231a;
+  font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+}
+.tile-controls {
+  position: absolute; inset: auto 0 0 0;
+  display: flex; justify-content: center; gap: 4px;
+  padding: 6px; opacity: 0;
+  background: linear-gradient(to top, rgba(8, 10, 14, .9), transparent);
+  border-radius: 0 0 8px 8px;
+  transition: opacity .12s ease;
+}
+.deck-tile:hover .tile-controls,
+.deck-tile:focus-within .tile-controls { opacity: 1; }
+.tile-controls button {
+  width: 26px; height: 24px; border-radius: 5px; line-height: 1;
+  border: 1px solid rgba(255, 255, 255, .25);
+  background: rgba(20, 24, 32, .9); color: #e7ecf5;
+}
+.tile-controls button:hover { border-color: var(--accent); color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .tile-controls { transition: none; }
+  .deck-tile.flash { animation: none; }
+}

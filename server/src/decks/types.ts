@@ -50,6 +50,7 @@ export interface DeckCard {
 
   printingId: string | null;
   setCode: string | null;
+  rarity: string | null;
   imageSmall: string | null;
   priceUsd: number | null;
 }
