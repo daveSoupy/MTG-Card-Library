@@ -16,6 +16,13 @@ This file is auto-loaded by Claude Code at the start of every session. Keep it l
 ## Repo Layout
 
 - `CLAUDE.md` — this file, project root, auto-loaded every session.
+- `schema.sql` — the complete SQLite schema, source of truth. Loaded verbatim at
+  bootstrap; there is no second copy of the DDL to drift out of sync with it.
+- `server/` — Fastify API. `src/db`, `src/sync`, `src/search`, `src/routes`, `src/model`.
+- `server/scripts/` — `check-sqlite.mjs` (verify the SQLite build has FTS5 and
+  trigram — run after any `npm rebuild`), `sync.mjs`, `search-check.mjs`.
+- `web/` — React + Vite client.
+- `deploy/` — systemd unit and install notes.
 - `phases/phase-1-core-database-search.md`
 - `phases/phase-2-deck-building-format-rules.md`
 - `phases/phase-3-commander-specific-rules.md`
@@ -26,13 +33,22 @@ This file is auto-loaded by Claude Code at the start of every session. Keep it l
 
 ## Overview
 
-Native macOS application for browsing the full Magic: The Gathering card database, building and managing multiple decks, tracking a personal card collection and its value, and interacting with TCGplayer and Card Kingdom for pricing and purchasing. Single-user, local-first, personal use.
+Self-hosted web application for browsing the full Magic: The Gathering card database, building and managing multiple decks, tracking a personal card collection and its value, and interacting with TCGplayer and Card Kingdom for pricing and purchasing. Single-user, personal use, running on a machine at home.
 
 ## Tech Stack
 
-- **Platform:** Native macOS app in SwiftUI.
-- **Local storage:** SQLite (or Core Data) for the cached card database, collection, and decks. All search/filtering happens against this local store — never against a live API call per keystroke.
-- **Networking:** URLSession for Scryfall API and bulk data sync.
+- **Shape:** One server owns the data *and the rules*; clients only render. Deck validation, search parsing, allocation maths and format rules all live server-side — never duplicated into a client.
+- **Server:** Node 22+ with TypeScript, Fastify, and `better-sqlite3`. REST + JSON under `/api/v1`.
+- **Storage:** SQLite. All search and filtering runs against the local database — never a live API call per keystroke.
+- **Client:** React + Vite, one codebase with two real layouts — a multi-pane deck builder at desktop widths, and one-handed views for trades and want lists on a phone.
+- **Networking:** `fetch` for the Scryfall API and bulk sync; `DecompressionStream` for the gzipped bulk files.
+- **Hosting:** An always-on Linux box under systemd, reached over Tailscale.
+
+### Rules that keep the architecture honest
+
+- **The bulk sync runs in a `worker_thread`.** `better-sqlite3` is synchronous and a full import takes ~17s; on the main thread that blocks every HTTP request for the duration. WAL lets the main process keep serving reads while the worker writes. Progress reaches the browser over Server-Sent Events.
+- **Tailscale is the security perimeter, so there is no login.** The server is never exposed publicly. Moving to Cloudflare Tunnel or port-forwarding would make authentication mandatory.
+- **A native iOS client stays cheap by construction** — it would consume the same endpoints rather than reimplementing any rules. Keep business logic server-side, keep responses resource-shaped, return `updated_at`, and use a token header rather than cookies if auth is ever added.
 
 ## Data Source: Scryfall
 
@@ -68,10 +84,17 @@ A physical card can only be in one deck at a time, so the app should track not j
 
 ## Non-Functional Requirements
 
-- App should work offline for search/deck-building once the initial sync has completed; only price refresh and new-card sync need network access.
-- Autosave decks and collection changes locally; no account/login system needed (single local user).
+- Search and deck-building must never hit the network — everything runs against the local SQLite store. Only the bulk sync and price refresh reach out to Scryfall, and a stale cache must stay fully usable when they fail.
+- Autosave decks and collection changes on the server; no account/login system needed (single user behind Tailscale).
 - Basic error handling for sync failures (stale cache is fine, don't block the app).
 
-## Scope Note: Single-Device for v1
+## Scope Note: One Server, Many Clients
 
-This spec is local-first on one Mac, with no sync to other devices. That's a deliberate v1 scope choice, not an oversight — worth naming so it's decided on purpose. Practical effect: no way to check your collection or want lists from a phone while at a card shop or trade meetup. If that matters later, the cheapest add-on is a read-only export (e.g., a periodically-generated file or simple web view of the Collection/Want Lists) rather than building full multi-device sync — but that's out of scope here and can be revisited after the phases above are working.
+This was originally specced as a native macOS app, single-device by design. That was revisited during Phase 1: recording a trade at a card shop is a *write*, so the read-only export the old scope note proposed would never have covered it.
+
+The app is now a self-hosted server that owns the database and the rules, with clients against it. Practical effects:
+
+- **Any device on the tailnet works** — phone at a card shop, desktop at home — with no sync layer, because there is only ever one database.
+- **The server has to be up.** Clients are always-connected by design; there is no offline mode and no local cache to reconcile. This is a deliberate trade for having zero conflict-resolution code.
+- **A native iOS client is left open, not built.** It would be another consumer of the same API. Keep rules on the server and that stays a small project; move rules into a client and it stops being one.
+- **Backups are one file.** `library.sqlite` plus the phase docs is the whole of it; the card cache re-downloads from Scryfall in about 17 seconds.
