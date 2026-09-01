@@ -366,3 +366,25 @@ export const updateDeckCard = (
 
 export const removeDeckCard = (deckId: number, cardId: number) =>
   send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'DELETE').then((r) => r.deck);
+
+// ------------------------------------------------------- filter presets
+
+export interface FilterPreset {
+  id: number;
+  name: string;
+  filters: Record<string, unknown>;
+  queryText: string | null;
+  sortOrder: number;
+  updatedAt: string;
+}
+
+export const fetchPresets = (signal?: AbortSignal) =>
+  getJson<{ presets: FilterPreset[] }>('/api/v1/filter-presets', signal).then((r) => r.presets);
+
+/** Saving over an existing name updates that preset rather than duplicating it. */
+export const savePreset = (name: string, filters: unknown, queryText: string | null) =>
+  send<{ presets: FilterPreset[] }>('/api/v1/filter-presets', 'POST', { name, filters, queryText })
+    .then((r) => r.presets);
+
+export const deletePreset = (id: number) =>
+  send<{ presets: FilterPreset[] }>(`/api/v1/filter-presets/${id}`, 'DELETE').then((r) => r.presets);

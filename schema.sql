@@ -5,6 +5,8 @@
 -- plus allocation tracking), not just Phase 1, so later phases add code
 -- rather than migrations.
 --
+-- v3 changes: filter_presets stores saved search + filter combinations.
+--
 -- v2 changes: collection_items is now LOT-grained (one row per purchase,
 -- carrying its own cost basis) rather than one merged row per stack;
 -- printing_price_history records per-card prices for owned/wanted cards;
@@ -22,7 +24,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 
 
 -- =====================================================================
@@ -71,6 +73,27 @@ CREATE TABLE formats (
     enforces_color_id   INTEGER NOT NULL DEFAULT 0,   -- restrict deck to commander's color identity
     is_active           INTEGER NOT NULL DEFAULT 1,   -- show in the format picker
     sort_order          INTEGER NOT NULL DEFAULT 0
+);
+
+
+-- Saved filter sets.
+--
+-- Rebuilding the same colour/format/rarity combination on every deck-building
+-- session is the kind of friction that stops people using filters at all. The
+-- filter payload is JSON rather than columns because nothing ever queries
+-- *inside* it — it is handed back to the client exactly as it was saved, and
+-- the set of filters will grow with later phases.
+CREATE TABLE filter_presets (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    -- The structured filters, in the shape the search API accepts.
+    filters     TEXT    NOT NULL,
+    -- The Scryfall-syntax box, saved alongside so a preset can capture
+    -- something like "cmc<=2" that has no structured equivalent.
+    query_text  TEXT,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
 
@@ -1165,7 +1188,7 @@ INSERT INTO want_lists  (name, is_default, sort_order) VALUES ('Wants',  1, 0);
 INSERT INTO trade_lists (name, is_default, sort_order) VALUES ('Trades', 1, 0);
 
 INSERT INTO app_settings (key, value) VALUES
-    ('schema_version',        '2'),
+    ('schema_version',        '3'),
     ('bulk_data_type',        'default_cards'),
     ('display_currency',      'usd'),
     ('last_bulk_sync_at',     ''),

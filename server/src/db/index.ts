@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MIGRATIONS } from './migrations.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 /** Walk up out of src/db (or dist/db) to the repository root. */
@@ -85,10 +86,16 @@ function bootstrap(db: Database.Database): void {
 }
 
 function migrate(db: Database.Database, from: number, to: number): void {
-  // No released version predates the current schema, so there is nothing to
-  // migrate yet. Each future step goes here guarded by `if (from < N)`, and the
-  // version is only bumped once every step has succeeded.
-  db.pragma(`user_version = ${to}`);
+  const pending = MIGRATIONS
+    .filter((m) => m.version > from && m.version <= to)
+    .sort((a, b) => a.version - b.version);
+
+  // One transaction for the whole run: a half-migrated database with a bumped
+  // version would be worse than one that simply refuses to start.
+  db.transaction(() => {
+    for (const migration of pending) db.exec(migration.sql);
+    db.pragma(`user_version = ${to}`);
+  })();
 }
 
 // -- settings -----------------------------------------------------------------
