@@ -228,3 +228,141 @@ export function subscribeToSync(
   source.addEventListener('finished', onFinished as EventListener);
   return () => source.close();
 }
+
+// ---------------------------------------------------------------- decks
+
+export type Board = 'main' | 'side' | 'command' | 'maybe';
+
+export interface DeckCard {
+  id: number;
+  oracleId: string;
+  name: string;
+  board: Board;
+  quantity: number;
+  quantityFromCollection: number;
+  commanderRole: string | null;
+  cmc: number;
+  typeLine: string;
+  manaCost: string | null;
+  colorIdentity: string;
+  isBasicLand: boolean;
+  canBeCommander: boolean;
+  legality: string | null;
+  ownedQuantity: number;
+  availableQuantity: number;
+  printingId: string | null;
+  setCode: string | null;
+  imageSmall: string | null;
+  priceUsd: number | null;
+}
+
+export interface DeckIssue {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  oracleId?: string;
+  cardName?: string;
+}
+
+export interface DeckValidation {
+  formatCode: string | null;
+  formatName: string | null;
+  countedTotal: number;
+  mainCount: number;
+  sideboardCount: number;
+  commandCount: number;
+  maybeCount: number;
+  requiredExactSize: number | null;
+  requiredMinSize: number | null;
+  sideboardLimit: number | null;
+  issues: DeckIssue[];
+  isLegal: boolean;
+}
+
+export interface DeckStats {
+  totalCards: number;
+  mainCount: number;
+  sideboardCount: number;
+  commandCount: number;
+  uniqueCards: number;
+  averageManaValue: number | null;
+  manaCurve: Array<{ cmc: number; label: string; count: number }>;
+  colorDistribution: Array<{ color: string; count: number }>;
+  colorIdentity: string;
+  typeDistribution: Array<{ type: string; count: number }>;
+  estimatedValueUsd: number | null;
+  ownedCount: number;
+  needToBuyCount: number;
+}
+
+export interface Deck {
+  id: number;
+  name: string;
+  formatCode: string | null;
+  description: string | null;
+  notes: string | null;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  cards: DeckCard[];
+  validation: DeckValidation;
+  stats: DeckStats;
+}
+
+export interface DeckSummary {
+  id: number;
+  name: string;
+  formatCode: string | null;
+  formatName: string | null;
+  cardCount: number;
+  uniqueCards: number;
+  colorIdentity: string;
+  commanderNames: string[];
+  isArchived: boolean;
+  updatedAt: string;
+}
+
+async function send<T>(url: string, method: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail?.error ?? `Request failed with status ${response.status}`);
+  }
+  return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);
+}
+
+export const fetchDecks = (signal?: AbortSignal) =>
+  getJson<{ decks: DeckSummary[] }>('/api/v1/decks', signal).then((r) => r.decks);
+
+export const fetchDeck = (id: number, signal?: AbortSignal) =>
+  getJson<{ deck: Deck }>(`/api/v1/decks/${id}`, signal).then((r) => r.deck);
+
+export const createDeck = (name: string, formatCode: string | null) =>
+  send<{ deck: Deck }>('/api/v1/decks', 'POST', { name, formatCode }).then((r) => r.deck);
+
+export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived'>>) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${id}`, 'PATCH', changes).then((r) => r.deck);
+
+export const duplicateDeck = (id: number) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${id}/duplicate`, 'POST', {}).then((r) => r.deck);
+
+export const deleteDeck = (id: number) => send<void>(`/api/v1/decks/${id}`, 'DELETE');
+
+export const addDeckCard = (
+  deckId: number,
+  oracleId: string,
+  options: { board?: Board; quantity?: number } = {},
+) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards`, 'POST', { oracleId, ...options }).then((r) => r.deck);
+
+export const updateDeckCard = (
+  deckId: number,
+  cardId: number,
+  changes: { quantity?: number; fromCollection?: number; board?: Board },
+) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
+
+export const removeDeckCard = (deckId: number, cardId: number) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'DELETE').then((r) => r.deck);

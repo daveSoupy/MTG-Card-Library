@@ -6,6 +6,8 @@ import {
 import { EMPTY_FILTERS, FilterPanel, filtersAreActive, type Filters } from './components/FilterPanel.tsx';
 import { CardDetailPane } from './components/CardDetailPane.tsx';
 import { SyncGate } from './components/SyncGate.tsx';
+import { DeckList } from './components/DeckList.tsx';
+import { DeckBuilder } from './components/DeckBuilder.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -18,9 +20,12 @@ const SORTS = [
 
 const PAGE_SIZE = 60;
 
+type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number };
+
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showSync, setShowSync] = useState(false);
+  const [view, setView] = useState<View>({ name: 'browse' });
 
   const [text, setText] = useState('');
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -121,7 +126,18 @@ export default function App() {
       <header className="topbar">
         <div className="brand">MTG <span>Library</span></div>
 
-        <div className="searchbox">
+        <nav className="tabs">
+          <button
+            className={view.name === 'browse' ? 'on' : ''}
+            onClick={() => setView({ name: 'browse' })}
+          >Browse</button>
+          <button
+            className={view.name !== 'browse' ? 'on' : ''}
+            onClick={() => setView({ name: 'decks' })}
+          >Decks</button>
+        </nav>
+
+        {view.name === 'browse' && <div className="searchbox">
           <input
             ref={searchInput}
             value={text}
@@ -131,20 +147,37 @@ export default function App() {
             aria-label="Search cards"
           />
           <span className="hint">press /</span>
-        </div>
+        </div>}
 
-        <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ width: 140 }}>
-          {SORTS.map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-
-        <button className="btn secondary" onClick={() => setFiltersOpen((v) => !v)}>
-          Filters{filtersAreActive(filters) ? ' •' : ''}
-        </button>
+        {view.name === 'browse' && (
+          <>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ width: 140 }}>
+              {SORTS.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <button className="btn secondary" onClick={() => setFiltersOpen((v) => !v)}>
+              Filters{filtersAreActive(filters) ? ' •' : ''}
+            </button>
+          </>
+        )}
+        {view.name !== 'browse' && <div style={{ flex: 1 }} />}
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
+      {view.name === 'decks' && (
+        <DeckList formats={formats} onOpen={(id) => setView({ name: 'deck', id })} />
+      )}
+
+      {view.name === 'deck' && (
+        <DeckBuilder
+          deckId={view.id}
+          formats={formats}
+          onBack={() => setView({ name: 'decks' })}
+        />
+      )}
+
+      {view.name === 'browse' && (
       <div className="panes">
         <FilterPanel
           filters={filters}
@@ -204,6 +237,7 @@ export default function App() {
           onClose={() => setSelected(null)}
         />
       </div>
+      )}
 
       {showSync && status && (
         <SyncGate

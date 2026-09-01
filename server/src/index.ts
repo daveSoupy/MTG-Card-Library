@@ -7,10 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { resolveDataDir, resolveHost, resolvePort } from './config.ts';
 import { openLibrary, libraryStatus } from './db/index.ts';
 import { CardSearchStore } from './search/store.ts';
+import { DeckStore } from './decks/store.ts';
 import { SyncManager } from './sync/syncManager.ts';
 import { registerCardRoutes } from './routes/cards.ts';
 import { registerSyncRoutes } from './routes/sync.ts';
 import { registerImageRoutes } from './routes/images.ts';
+import { registerDeckRoutes } from './routes/decks.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(moduleDir, '..', '..');
@@ -18,6 +20,7 @@ const repoRoot = join(moduleDir, '..', '..');
 const dataDir = resolveDataDir();
 const library = openLibrary({ dataDir });
 const store = new CardSearchStore(library.db);
+const decks = new DeckStore(library.db);
 const sync = new SyncManager(dataDir);
 
 const app = Fastify({
@@ -27,6 +30,7 @@ const app = Fastify({
 registerCardRoutes(app, store);
 registerSyncRoutes(app, library.db, sync);
 registerImageRoutes(app, library.db, library.imageDir);
+registerDeckRoutes(app, decks);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 
