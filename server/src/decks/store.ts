@@ -131,7 +131,7 @@ export class DeckStore {
              COALESCE(owned.qty, 0)
                - COALESCE(claimed.qty, 0)
                + COALESCE(mine.qty, 0) AS available_qty,
-             dp.id AS printing_id, dp.set_code, dp.price_usd,
+             dp.id AS printing_id, dp.set_code, dp.rarity, dp.price_usd,
              COALESCE(dp.image_small, ff.image_small) AS image_small
       FROM deck_cards dc
       JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
@@ -178,6 +178,7 @@ export class DeckStore {
       availableQuantity: row.available_qty,
       printingId: row.printing_id,
       setCode: row.set_code,
+      rarity: row.rarity,
       imageSmall: row.image_small,
       priceUsd: row.price_usd,
     }));

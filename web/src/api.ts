@@ -252,6 +252,7 @@ export interface DeckCard {
   availableQuantity: number;
   printingId: string | null;
   setCode: string | null;
+  rarity: string | null;
   imageSmall: string | null;
   priceUsd: number | null;
 }
