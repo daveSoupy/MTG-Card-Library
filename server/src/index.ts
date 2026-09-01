@@ -13,6 +13,7 @@ import { registerCardRoutes } from './routes/cards.ts';
 import { registerSyncRoutes } from './routes/sync.ts';
 import { registerImageRoutes } from './routes/images.ts';
 import { registerDeckRoutes } from './routes/decks.ts';
+import { registerPresetRoutes } from './routes/presets.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(moduleDir, '..', '..');
@@ -31,6 +32,7 @@ registerCardRoutes(app, store);
 registerSyncRoutes(app, library.db, sync);
 registerImageRoutes(app, library.db, library.imageDir);
 registerDeckRoutes(app, decks);
+registerPresetRoutes(app, library.db);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 

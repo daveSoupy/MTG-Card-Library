@@ -121,15 +121,29 @@ export class CardSearchStore {
       where.push('COALESCE(owned.qty, 0) > 0');
     }
     if (filters.colors && filters.colors.length > 0) {
-      const mask = maskOf(filters.colors);
-      if (filters.colorsExact) {
-        where.push('o.color_identity_mask = ?');
+      // "C" is a sixth choice alongside WUBRG, not the absence of a choice.
+      // Colourless artifacts belong in almost every deck, so a mono-white
+      // filter that silently hid Sol Ring was wrong.
+      const includeColorless = filters.colors.some((c) => c.toUpperCase() === 'C');
+      const mask = maskOf(filters.colors.filter((c) => c.toUpperCase() !== 'C'));
+
+      if (mask === 0 && includeColorless) {
+        // Colourless on its own means exactly that, in either mode.
+        where.push('o.color_identity_mask = 0');
+      } else if (filters.colorsExact) {
+        where.push(includeColorless
+          ? '(o.color_identity_mask = ? OR o.color_identity_mask = 0)'
+          : 'o.color_identity_mask = ?');
+        params.push(mask);
       } else {
         // Cards that fit *inside* the chosen colours — the deck-building
-        // question, not "mentions this colour".
-        where.push('(o.color_identity_mask & ~?) = 0 AND o.color_identity_mask <> 0');
+        // question, not "mentions this colour". Colourless cards fit inside
+        // everything, so they are only excluded when C is not selected.
+        where.push(includeColorless
+          ? '(o.color_identity_mask & ~?) = 0'
+          : '(o.color_identity_mask & ~?) = 0 AND o.color_identity_mask <> 0');
+        params.push(mask);
       }
-      params.push(mask);
     }
     if (filters.rarities && filters.rarities.length > 0) {
       const placeholders = filters.rarities.map(() => '?').join(',');

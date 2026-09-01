@@ -185,6 +185,11 @@ export default function App() {
           sets={sets}
           formats={formats}
           open={filtersOpen}
+          queryText={text}
+          onApplyPreset={(nextFilters, nextQuery) => {
+            setFilters(nextFilters);
+            setText(nextQuery);
+          }}
         />
 
         <main className="results">

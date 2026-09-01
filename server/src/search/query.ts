@@ -1,4 +1,4 @@
-import { colorMask, expandRarity, normalizeName, parseColors } from '../model/mtg.ts';
+import { colorMask, expandRarity, isColorlessSpec, normalizeName, parseColors } from '../model/mtg.ts';
 
 /**
  * Parses Scryfall-style search syntax into SQL.
@@ -108,6 +108,14 @@ interface Fragment {
  * integer expression rather than string matching.
  */
 function colorFragment(column: string, term: Term, defaultToSubset: boolean): Fragment {
+  // "colorless" is a value, not an empty selection. Without this, `c:c` builds
+  // `(colors_mask & 0) = 0`, which is true of every card in the database.
+  if (isColorlessSpec(term.value)) {
+    return term.comparison === '!='
+      ? { sql: `${column} <> 0`, params: [] }
+      : { sql: `${column} = 0`, params: [] };
+  }
+
   const mask = colorMask(parseColors(term.value));
   let comparison = term.comparison;
   // Deck building asks "does this fit in my commander's colours", so identity

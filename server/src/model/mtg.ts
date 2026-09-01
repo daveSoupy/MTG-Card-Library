@@ -53,6 +53,12 @@ export function colorsFromMask(mask: number): Color[] {
   return COLORS.filter((c) => mask & COLOR_BITS[c]);
 }
 
+/** The spellings that mean "no colour at all" rather than "no colours given". */
+const COLORLESS_WORDS = new Set(['c', 'colorless', 'colourless']);
+
+export const isColorlessSpec = (text: string): boolean =>
+  COLORLESS_WORDS.has(text.toLowerCase().trim());
+
 /** Parses "wu", "azorius" or "colorless" into a set of colours. */
 export function parseColors(text: string): Color[] {
   const lower = text.toLowerCase().trim();
@@ -67,11 +73,6 @@ export function parseColors(text: string): Color[] {
 }
 
 /**
- * Folds a card name into a matching form: lowercase, no accents, no
- * punctuation. Lets "Jötun Grunt", "jotun grunt" and "Jotun  Grunt" all resolve
- * to the same card during import, search and OCR.
- */
-/**
  * Precomposed letters that NFD will not decompose, so they would otherwise be
  * deleted outright by the punctuation strip. Current Scryfall names no longer
  * use \u00c6 \u2014 Wizards de-ligatured them \u2014 but old decklists pasted into import and
@@ -83,6 +84,11 @@ const LIGATURES: ReadonlyArray<[RegExp, string]> = [
   [/\u00f8/g, 'o'], [/\u0111/g, 'd'], [/\u00f0/g, 'd'], [/\u0142/g, 'l'], [/\u00fe/g, 'th'],
 ];
 
+/**
+ * Folds a card name into a matching form: lowercase, no accents, no
+ * punctuation. Lets "Jötun Grunt", "jotun grunt" and "Jotun  Grunt" all resolve
+ * to the same card during import, search and OCR.
+ */
 export function normalizeName(text: string): string {
   // Decompose, then strip the combining marks NFD leaves behind.
   let folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
