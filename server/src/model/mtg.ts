@@ -134,3 +134,14 @@ export function expandRarity(value: string): string {
     default: return lower;
   }
 }
+
+/**
+ * Layouts that are not playable cards at all — art cards, tokens, emblems and
+ * the "front_card" display entries. 3,612 of them, and they share names with
+ * real cards: an unfiltered lookup of "Delver of Secrets" finds the art card
+ * rather than the creature. Planar, vanguard and scheme are deliberately *not*
+ * here; they are genuine cards, merely not legal in the formats this app tracks.
+ *
+ * Shared by search and by import, which need exactly the same exclusion.
+ */
+export const EXTRA_LAYOUTS = ['art_series', 'token', 'double_faced_token', 'emblem', 'front_card'];

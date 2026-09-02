@@ -608,3 +608,157 @@ export const pushToWantList = (deckId: number, oracleIds?: string[]) =>
 
 export const fetchWantList = (id: number, signal?: AbortSignal) =>
   getJson<{ id: number; name: string; items: WantListItem[] }>(`/api/v1/want-lists/${id}`, signal);
+
+// -- Phase 5: import, export and backup ---------------------------------------
+
+export type ExportFormat = 'simple' | 'withSet' | 'arena' | 'mtgo';
+export type ImportBoard = 'main' | 'side' | 'command' | 'maybe';
+
+export interface ResolvedCard {
+  oracleId: string;
+  name: string;
+  via: 'exact' | 'face' | 'fuzzy';
+  confidence: number;
+}
+
+export interface DeckExport {
+  format: ExportFormat;
+  text: string;
+  tcgplayerUrl: string | null;
+  tcgplayerTooLong: boolean;
+  cardKingdomUrl: string;
+}
+
+export interface PreviewLine {
+  lineNumber: number;
+  raw: string;
+  quantity: number;
+  name: string;
+  setCode: string | null;
+  collectorNumber: string | null;
+  board: ImportBoard;
+  match: ResolvedCard | null;
+  candidates: ResolvedCard[];
+}
+
+export interface ImportCounts {
+  total: number; resolved: number; uncertain: number; unresolved: number;
+}
+
+export interface DecklistPreview {
+  lines: PreviewLine[];
+  unparsed: Array<{ lineNumber: number; raw: string }>;
+  counts: ImportCounts;
+}
+
+export type ColumnRole =
+  | 'name' | 'setCode' | 'setName' | 'collectorNumber' | 'quantity'
+  | 'finish' | 'condition' | 'language' | 'price' | 'ignore';
+
+export interface CsvPreviewRow {
+  lineNumber: number;
+  name: string;
+  quantity: number;
+  setCode: string | null;
+  collectorNumber: string | null;
+  finish: 'nonfoil' | 'foil' | 'etched';
+  condition: string;
+  language: string;
+  price: number | null;
+  match: ResolvedCard | null;
+  candidates: ResolvedCard[];
+  printingId: string | null;
+  printingExact: boolean;
+}
+
+export interface CsvPreview {
+  headers: string[];
+  mapping: ColumnRole[];
+  rows: CsvPreviewRow[];
+  skipped: Array<{ lineNumber: number; reason: string }>;
+  counts: ImportCounts & { cards: number };
+}
+
+export interface ImportBatch {
+  id: number;
+  source: string;
+  fileName: string | null;
+  importedAt: string;
+  rowsTotal: number | null;
+  rowsImported: number | null;
+  rowsUnmatched: number | null;
+  cardsRemaining: number;
+}
+
+export interface RestoreReport {
+  restored: Array<{ table: string; rows: number }>;
+  skipped: Array<{ table: string; reason: string }>;
+  totalRows: number;
+  pendingCardReferences: number;
+}
+
+export interface ScheduledBackup { name: string; bytes: number; takenAt: string }
+
+export const fetchDeckExport = (id: number, format: ExportFormat, signal?: AbortSignal) =>
+  getJson<DeckExport>(`/api/v1/decks/${id}/export?format=${format}`, signal);
+
+export const deckExportFileUrl = (id: number, format: ExportFormat) =>
+  `/api/v1/decks/${id}/export.txt?format=${format}`;
+
+export const previewDecklist = (text: string) =>
+  send<DecklistPreview>('/api/v1/decks/import/preview', 'POST', { text });
+
+export const importIntoDeck = (
+  id: number,
+  entries: Array<{ oracleId: string; quantity: number; board: ImportBoard }>,
+) => send<{ added: number; cards: number; deck: Deck }>(`/api/v1/decks/${id}/import`, 'POST', { entries });
+
+export const importAsNewDeck = (
+  name: string,
+  formatCode: string | null,
+  entries: Array<{ oracleId: string; quantity: number; board: ImportBoard }>,
+) => send<{ deck: Deck }>('/api/v1/decks/import', 'POST', { name, formatCode, entries });
+
+export const previewCollectionCsv = (text: string, mapping?: ColumnRole[]) =>
+  send<CsvPreview>('/api/v1/collection/import/preview', 'POST', { text, mapping });
+
+export const importCollectionCsv = (input: {
+  locationId: number;
+  rows: Array<{
+    printingId: string; quantity: number; finish: string;
+    condition: string; language: string; acquiredUnitCost: number | null;
+  }>;
+  fileName: string | null;
+  unmatched: number;
+}) => send<{ batchId: number; lots: number; cards: number; value: CollectionValue }>(
+  '/api/v1/collection/import', 'POST', input);
+
+export const collectionCsvUrl = '/api/v1/collection/export.csv';
+
+export const fetchImportBatches = (signal?: AbortSignal) =>
+  getJson<{ batches: ImportBatch[] }>('/api/v1/imports', signal).then((r) => r.batches);
+
+export const undoImportBatch = (id: number) =>
+  send<{ removed: number; batches: ImportBatch[] }>(`/api/v1/imports/${id}/undo`, 'POST');
+
+export const backupDownloadUrl = '/api/v1/backup';
+
+export const fetchScheduledBackups = (signal?: AbortSignal) =>
+  getJson<{ directory: string | null; backups: ScheduledBackup[] }>('/api/v1/backup/scheduled', signal);
+
+export const takeScheduledBackup = () =>
+  send<{ backups: ScheduledBackup[] }>('/api/v1/backup/scheduled', 'POST');
+
+/** Uploads the file as a raw body; the server writes it to a temp file. */
+export async function restoreBackup(file: File): Promise<RestoreReport> {
+  const response = await fetch('/api/v1/backup/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail?.error ?? `Restore failed with status ${response.status}`);
+  }
+  return response.json() as Promise<RestoreReport>;
+}

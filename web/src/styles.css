@@ -846,3 +846,135 @@ input[type='number'] { width: 72px; }
   font-family: var(--mono); font-size: 10px;
   letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
 }
+
+/* -- Phase 5: import, export and backup ------------------------------------ */
+
+.porting-dialog {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 20px 22px; width: min(720px, 100%); max-height: 88vh;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+}
+.porting-dialog.wide { width: min(940px, 100%); }
+.porting-dialog h3 { margin: 0; font-size: 16px; }
+
+.format-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.format-choice {
+  text-align: left; padding: 9px 11px; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  cursor: pointer; display: grid; gap: 3px;
+}
+.format-choice:hover { border-color: var(--line-strong); }
+.format-choice.active { border-color: var(--accent); background: var(--accent-dim); }
+.format-choice strong { font-size: 12.5px; font-weight: 600; }
+.format-choice span { font-size: 11px; color: var(--text-3); line-height: 1.35; }
+.format-choice.active span { color: var(--text-2); }
+
+.export-text {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+}
+
+.import-counts { display: flex; gap: 8px; flex-wrap: wrap; }
+.tally {
+  font-size: 11px; font-family: var(--mono); padding: 3px 8px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2);
+}
+.tally.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--line)); }
+.tally.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.tally.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+
+.import-rows {
+  display: grid; gap: 2px; max-height: 46vh; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 6px;
+  background: var(--bg);
+}
+.import-row {
+  display: grid; grid-template-columns: auto 34px minmax(90px, 1fr) minmax(140px, 1.4fr) auto;
+  align-items: center; gap: 8px; padding: 5px 7px; border-radius: 6px;
+  font-size: 12.5px; border-left: 3px solid transparent;
+}
+.import-row.ok { border-left-color: var(--good); }
+.import-row.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 7%, transparent); }
+.import-row.bad { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.import-row.skipped { opacity: .45; }
+.import-qty { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); text-align: right; }
+.import-raw { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-match { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-match em, .import-note em { font-style: normal; color: var(--warn); font-size: 11px; }
+.import-note { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+.import-line { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.import-choice, .import-board { font-size: 12px; }
+.import-board { width: 118px; }
+.import-newdeck { gap: 14px; flex-wrap: wrap; }
+.import-newdeck label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-3); }
+
+.mapping-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.mapping-cell { display: flex; flex-direction: column; gap: 4px; }
+.mapping-header {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-3); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.data-page {
+  padding: 22px 26px; overflow-y: auto; display: grid; gap: 20px;
+  align-content: start; max-width: 860px;
+}
+.data-section {
+  border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
+  background: var(--panel); display: grid; gap: 10px; align-content: start;
+}
+.data-section h3 { margin: 0; font-size: 15px; }
+.data-section h4 { margin: 6px 0 0; font-size: 12px; color: var(--text-2); font-weight: 600; }
+.data-section.danger { border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+.data-section .hint { margin: 0; line-height: 1.5; }
+.mono { font-family: var(--mono); font-size: 11px; }
+.dim { color: var(--text-3); }
+
+.backup-list { display: grid; gap: 2px; }
+.backup-row {
+  display: grid; grid-template-columns: 160px minmax(80px, 1fr) auto auto;
+  gap: 10px; align-items: center; font-size: 12px;
+  padding: 5px 7px; border-radius: 6px; background: var(--panel-2);
+}
+.btn.small { padding: 3px 9px; font-size: 11px; }
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+.restore-confirm {
+  border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line));
+  border-radius: var(--radius); padding: 12px 14px;
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+}
+.restore-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.5; }
+.restore-report { border-left: 3px solid var(--good); padding-left: 12px; }
+.restore-report p { margin: 0 0 4px; font-size: 13px; }
+
+/*
+ * Narrow widths. The topbar still sets the page's minimum width until the
+ * phone layouts land in Phase 6, but the Phase 5 views are self-contained, so
+ * they can stop being the thing that overflows.
+ */
+@media (max-width: 620px) {
+  .data-page { padding: 14px; gap: 14px; }
+  .data-section { padding: 13px 14px; }
+  .backup-row { grid-template-columns: 1fr auto; gap: 4px 10px; }
+  .backup-row .mono { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; }
+  .porting-dialog { padding: 15px 16px; }
+  .format-picker { grid-template-columns: 1fr 1fr; }
+
+  /* The row's columns become two lines rather than a horizontal scroll. */
+  .import-row {
+    grid-template-columns: auto 34px minmax(0, 1fr);
+    grid-template-areas: "tick qty name" ". . match" ". . note";
+    row-gap: 2px;
+  }
+  .import-row > input[type="checkbox"] { grid-area: tick; }
+  .import-qty { grid-area: qty; }
+  .import-raw { grid-area: name; }
+  .import-match, .import-choice { grid-area: match; }
+  .import-note { grid-area: note; }
+  .import-board { grid-area: note; justify-self: start; width: auto; }
+  .mapping-grid { grid-template-columns: 1fr 1fr; }
+}

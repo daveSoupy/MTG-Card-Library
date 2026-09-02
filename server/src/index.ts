@@ -16,6 +16,8 @@ import { registerImageRoutes } from './routes/images.ts';
 import { registerDeckRoutes } from './routes/decks.ts';
 import { registerPresetRoutes } from './routes/presets.ts';
 import { registerCollectionRoutes } from './routes/collection.ts';
+import { registerPortingRoutes } from './routes/porting.ts';
+import { startBackupSchedule } from './porting/schedule.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(moduleDir, '..', '..');
@@ -26,6 +28,7 @@ const store = new CardSearchStore(library.db);
 const decks = new DeckStore(library.db);
 const collection = new CollectionStore(library.db);
 const sync = new SyncManager(dataDir);
+const backups = startBackupSchedule(library.db, dataDir);
 
 const app = Fastify({
   logger: { level: process.env.MTG_LOG_LEVEL ?? 'info' },
@@ -37,6 +40,7 @@ registerImageRoutes(app, library.db, library.imageDir);
 registerDeckRoutes(app, decks);
 registerPresetRoutes(app, library.db);
 registerCollectionRoutes(app, library.db, collection);
+registerPortingRoutes(app, library.db, decks, collection, backups);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 

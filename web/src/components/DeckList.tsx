@@ -1,3 +1,4 @@
+import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { useCallback, useEffect, useState } from 'react';
 import {
   createDeck, deleteDeck, duplicateDeck, fetchDecks,
@@ -25,6 +26,7 @@ export function DeckList({
 }) {
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [name, setName] = useState('');
   const [formatCode, setFormatCode] = useState('commander');
   const [confirming, setConfirming] = useState<number | null>(null);
@@ -59,6 +61,13 @@ export function DeckList({
 
   return (
     <main className="decks-page">
+      {importing && (
+        <DeckImportDialog
+          formats={formats}
+          onClose={() => setImporting(false)}
+          onImported={(id) => { setImporting(false); onOpen(id); }}
+        />
+      )}
       <div className="decks-head">
         <h1>Decks</h1>
         <div className="new-deck">
@@ -76,6 +85,7 @@ export function DeckList({
             ))}
           </select>
           <button className="btn" onClick={create} disabled={!name.trim()}>Create</button>
+          <button className="btn secondary" onClick={() => setImporting(true)}>Paste a list</button>
         </div>
       </div>
 

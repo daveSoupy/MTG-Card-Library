@@ -4,6 +4,8 @@ import {
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
+import { DeckExportDialog } from './DeckExportDialog.tsx';
+import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import {
@@ -104,6 +106,8 @@ export function DeckBuilder({
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [shopping, setShopping] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
   const setView = (next: DeckViewMode) => {
@@ -233,12 +237,26 @@ export function DeckBuilder({
           Shopping list
           {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
         </button>
+        <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
+        <button className="btn secondary" onClick={() => setImporting(true)}>Import</button>
         {busy && <span className="count">saving…</span>}
       </div>
 
       {error && <div className="error">{error}</div>}
 
       {playtesting && <PlaytestPanel deck={deck} onClose={() => setPlaytesting(false)} />}
+      {exporting && (
+        <DeckExportDialog deckId={deck.id} deckName={deck.name} onClose={() => setExporting(false)} />
+      )}
+      {importing && (
+        <DeckImportDialog
+          deckId={deck.id}
+          deckName={deck.name}
+          formats={formats}
+          onClose={() => setImporting(false)}
+          onImported={() => { setImporting(false); load(); }}
+        />
+      )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
 
       <div className="deck-panes">
