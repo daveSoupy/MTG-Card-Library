@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  fetchFormats, fetchSets, fetchStatus, imageUrl, searchCards,
+  fetchFormats, fetchLocations, fetchSets, fetchStatus, imageUrl, searchCards,
   type CardSummary, type FormatRecord, type SetRecord, type StatusResponse,
+  type StorageLocation,
 } from './api.ts';
 import { EMPTY_FILTERS, FilterPanel, filtersAreActive, type Filters } from './components/FilterPanel.tsx';
 import { CardDetailPane } from './components/CardDetailPane.tsx';
@@ -10,6 +11,7 @@ import { DeckList } from './components/DeckList.tsx';
 import { DeckBuilder } from './components/DeckBuilder.tsx';
 import { SyntaxHelp } from './components/SyntaxHelp.tsx';
 import { CollectionPage } from './components/CollectionPage.tsx';
+import { DataPage } from './components/DataPage.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -22,7 +24,8 @@ const SORTS = [
 
 const PAGE_SIZE = 60;
 
-type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number } | { name: 'collection' };
+type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
+  | { name: 'collection' } | { name: 'data' };
 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -43,6 +46,9 @@ export default function App() {
   const [showSyntax, setShowSyntax] = useState(false);
 
   const [sets, setSets] = useState<SetRecord[]>([]);
+  const [locations, setLocations] = useState<StorageLocation[]>([]);
+  // Bumped after a restore or an import, so the collection view refetches.
+  const [dataEpoch, setDataEpoch] = useState(0);
   const [formats, setFormats] = useState<FormatRecord[]>([]);
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
 
@@ -71,6 +77,7 @@ export default function App() {
     if (!status?.library.hasCardData) return;
     fetchSets().then(setSets).catch(() => undefined);
     fetchFormats().then(setFormats).catch(() => undefined);
+    fetchLocations().then(setLocations).catch(() => undefined);
   }, [status?.library.hasCardData]);
 
   // Debounced search. Every keystroke aborts the previous request so results
@@ -146,6 +153,10 @@ export default function App() {
             className={view.name === 'collection' ? 'on' : ''}
             onClick={() => setView({ name: 'collection' })}
           >Collection</button>
+          <button
+            className={view.name === 'data' ? 'on' : ''}
+            onClick={() => setView({ name: 'data' })}
+          >Data</button>
         </nav>
 
         {view.name === 'browse' && <div className="searchbox">
@@ -178,7 +189,14 @@ export default function App() {
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
-      {view.name === 'collection' && <CollectionPage />}
+      {view.name === 'collection' && <CollectionPage key={dataEpoch} />}
+
+      {view.name === 'data' && (
+        <DataPage
+          locations={locations}
+          onCollectionChanged={() => { setDataEpoch((n) => n + 1); loadStatus(); }}
+        />
+      )}
 
       {view.name === 'decks' && (
         <DeckList formats={formats} onOpen={(id) => setView({ name: 'deck', id })} />

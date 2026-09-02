@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { compileQuery, mentionsDigital } from './query.ts';
-import { normalizeName } from '../model/mtg.ts';
+import { normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
 
 export interface SearchFilters {
   ownedOnly?: boolean;
@@ -17,15 +17,6 @@ export interface SearchFilters {
   /** Art series, tokens and emblems are hidden unless asked for. */
   includeExtras?: boolean;
 }
-
-/**
- * Layouts that are not playable cards at all — art cards, tokens, emblems and
- * the "front_card" display entries. 3,612 of them, and they otherwise crowd out
- * real results: searching "Delver of Secrets" returned the art card rather than
- * the creature. Planar, vanguard and scheme are deliberately *not* here; they
- * are genuine cards, merely not legal in the formats this app tracks.
- */
-const EXTRA_LAYOUTS = ['art_series', 'token', 'double_faced_token', 'emblem', 'front_card'];
 
 export type SortOrder = 'relevance' | 'name' | 'manaValue' | 'newest' | 'price' | 'edhrec';
 

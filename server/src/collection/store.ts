@@ -253,6 +253,7 @@ export class CollectionStore {
     acquisitionKind?: AcquisitionKind;
     acquiredFrom?: string | null;
     notes?: string | null;
+    importBatchId?: number | null;
   }): number {
     const finish = input.finish ?? 'nonfoil';
     const condition = input.condition ?? 'NM';
@@ -266,10 +267,15 @@ export class CollectionStore {
           AND language = ?
           AND COALESCE(acquired_unit_cost, -1) = COALESCE(?, -1)
           AND COALESCE(acquired_at, '') = COALESCE(?, '')
-          AND COALESCE(price_override, -1) = COALESCE(?, -1)`)
+          AND COALESCE(price_override, -1) = COALESCE(?, -1)
+          -- Batch is part of the identity so an import stays undoable: merging
+          -- its rows into pre-existing ones would make the undo take copies
+          -- the import never added.
+          AND COALESCE(import_batch_id, -1) = COALESCE(?, -1)`)
         .get(input.printingId, input.locationId, finish, condition, language,
              input.acquiredUnitCost ?? null, input.acquiredAt ?? null,
-             input.priceOverride ?? null) as { id: number; quantity: number } | undefined;
+             input.priceOverride ?? null, input.importBatchId ?? null,
+        ) as { id: number; quantity: number } | undefined;
 
       if (existing) {
         this.db.prepare('UPDATE collection_items SET quantity = ? WHERE id = ?')
@@ -280,12 +286,14 @@ export class CollectionStore {
       const result = this.db.prepare(`
         INSERT INTO collection_items
           (printing_id, location_id, quantity, finish, condition, language, price_override,
-           acquired_at, acquired_unit_cost, acquisition_kind, acquired_from, notes)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+           acquired_at, acquired_unit_cost, acquisition_kind, acquired_from, notes,
+           import_batch_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .run(input.printingId, input.locationId, quantity, finish, condition, language,
              input.priceOverride ?? null, input.acquiredAt ?? null,
              input.acquiredUnitCost ?? null, input.acquisitionKind ?? 'unknown',
-             input.acquiredFrom ?? null, input.notes ?? null);
+             input.acquiredFrom ?? null, input.notes ?? null,
+             input.importBatchId ?? null);
       return Number(result.lastInsertRowid);
     })();
   }
