@@ -420,3 +420,191 @@ export const savePreset = (name: string, filters: unknown, queryText: string | n
 
 export const deletePreset = (id: number) =>
   send<{ presets: FilterPreset[] }>(`/api/v1/filter-presets/${id}`, 'DELETE').then((r) => r.presets);
+
+// ------------------------------------------------------------ collection
+
+export interface StorageLocation {
+  id: number;
+  name: string;
+  kind: string;
+  notes: string | null;
+  is_default: number;
+  is_archived: number;
+  card_count: number;
+  distinct_printings: number;
+  value_usd: number;
+}
+
+export interface CollectionCard {
+  oracleId: string;
+  name: string;
+  manaCost: string | null;
+  cmc: number;
+  typeLine: string;
+  colorIdentity: string;
+  ownedQuantity: number;
+  allocatedQuantity: number;
+  availableQuantity: number;
+  valueUsd: number;
+  costUsd: number | null;
+  gainUsd: number | null;
+  printingCount: number;
+  locationCount: number;
+  lotCount: number;
+  printingId: string | null;
+  imageSmall: string | null;
+}
+
+export interface CollectionLot {
+  id: number;
+  printing_id: string;
+  quantity: number;
+  finish: string;
+  condition: string;
+  language: string;
+  unit_value_usd: number | null;
+  line_value_usd: number | null;
+  is_overridden: number;
+  price_override: number | null;
+  acquired_unit_cost: number | null;
+  acquired_at: string | null;
+  acquisition_kind: string;
+  acquired_from: string | null;
+  notes: string | null;
+  unrealized_gain_usd: number | null;
+  location_id: number;
+  location_name: string;
+  set_code: string;
+  set_name: string | null;
+  collector_number: string;
+}
+
+export interface CollectionCardDetail {
+  printings: Array<{
+    printing_id: string; finish: string; set_code: string; set_name: string | null;
+    collector_number: string; rarity: string | null; price_usd: number | null;
+    price_usd_foil: number | null; image_small: string | null;
+    owned_qty: number; value_usd: number | null; cost_usd: number | null;
+  }>;
+  lots: CollectionLot[];
+  decks: Array<{
+    deck_id: number; deck_name: string; board: string;
+    qty_from_collection: number; deck_home_location: string | null;
+  }>;
+  availability: { owned_qty: number; allocated_qty: number; available_qty: number } | null;
+}
+
+export interface CollectionValue {
+  value: Record<string, number | null>;
+  history: Array<{
+    captured_on: string; total_value_usd: number; total_cost_basis_usd: number | null;
+    realized_gain_to_date_usd: number | null; total_cards: number; distinct_cards: number;
+  }>;
+}
+
+export interface ShoppingListEntry {
+  oracleId: string; name: string; needed: number;
+  unitPriceUsd: number | null; estimatedUsd: number | null;
+  printingId: string | null; imageSmall: string | null; setCode: string | null;
+  availableElsewhere: number;
+}
+
+export interface ShoppingList {
+  deckId: number; deckName: string; entries: ShoppingListEntry[];
+  totalCards: number; totalUsd: number; unpricedCards: number;
+}
+
+export interface WantListItem {
+  id: number; oracleId: string; name: string; manaCost: string | null;
+  colorIdentity: string; quantity: number; targetPriceUsd: number | null;
+  priority: number; status: string; notes: string | null; priceUsd: number;
+  printingId: string | null; imageSmall: string | null; ownedQuantity: number;
+  neededFor: Array<{ deckId: number; deckName: string; quantity: number }>;
+}
+
+export interface AddLotInput {
+  printingId: string;
+  locationId: number;
+  quantity: number;
+  finish?: string;
+  condition?: string;
+  priceOverride?: number | null;
+  acquiredAt?: string | null;
+  acquiredUnitCost?: number | null;
+  acquisitionKind?: string;
+  acquiredFrom?: string | null;
+  notes?: string | null;
+}
+
+export const fetchLocations = (signal?: AbortSignal) =>
+  getJson<{ locations: StorageLocation[] }>('/api/v1/locations', signal).then((r) => r.locations);
+
+export const createLocation = (name: string, kind: string) =>
+  send<{ locations: StorageLocation[] }>('/api/v1/locations', 'POST', { name, kind })
+    .then((r) => r.locations);
+
+export const updateLocation = (id: number, changes: { name?: string; kind?: string }) =>
+  send<{ locations: StorageLocation[] }>(`/api/v1/locations/${id}`, 'PATCH', changes)
+    .then((r) => r.locations);
+
+/** `moveTo` relocates the contents first; without it a non-empty location 409s. */
+export const deleteLocation = (id: number, moveTo?: number) =>
+  send<{ locations: StorageLocation[] }>(
+    `/api/v1/locations/${id}${moveTo ? `?moveTo=${moveTo}` : ''}`, 'DELETE',
+  ).then((r) => r.locations);
+
+export interface CollectionQuery {
+  location?: number; set?: string; q?: string;
+  unallocatedOnly?: boolean; sort?: string; limit?: number; offset?: number;
+}
+
+export function fetchCollection(params: CollectionQuery = {}, signal?: AbortSignal) {
+  const query = new URLSearchParams();
+  if (params.location !== undefined) query.set('location', String(params.location));
+  if (params.set) query.set('set', params.set);
+  if (params.q) query.set('q', params.q);
+  if (params.unallocatedOnly) query.set('unallocatedOnly', 'true');
+  if (params.sort) query.set('sort', params.sort);
+  query.set('limit', String(params.limit ?? 100));
+  if (params.offset) query.set('offset', String(params.offset));
+  return getJson<{
+    cards: CollectionCard[]; distinctCards: number; totalCards: number;
+    totalValue: number; limit: number; offset: number;
+  }>(`/api/v1/collection?${query}`, signal);
+}
+
+export const fetchCollectionCard = (oracleId: string, signal?: AbortSignal) =>
+  getJson<CollectionCardDetail>(`/api/v1/collection/cards/${encodeURIComponent(oracleId)}`, signal);
+
+export const addCollectionLot = (input: AddLotInput) =>
+  send<{ id: number }>('/api/v1/collection/items', 'POST', input);
+
+export const updateCollectionLot = (id: number, changes: Record<string, unknown>) =>
+  send<{ ok: true }>(`/api/v1/collection/items/${id}`, 'PATCH', changes);
+
+export const removeCollectionLot = (id: number) =>
+  send<void>(`/api/v1/collection/items/${id}`, 'DELETE');
+
+export const fetchCollectionValue = (signal?: AbortSignal) =>
+  getJson<CollectionValue>('/api/v1/collection/value', signal);
+
+export const fetchSetCompletion = (signal?: AbortSignal) =>
+  getJson<{ sets: Array<{ set_code: string; set_name: string; total_cards: number; owned_printings: number; percent_complete: number | null }> }>(
+    '/api/v1/collection/sets', signal).then((r) => r.sets);
+
+export const fetchSetChecklist = (setCode: string, signal?: AbortSignal) =>
+  getJson<{ cards: Array<{
+    printing_id: string; collector_number: string; rarity: string | null;
+    price_usd: number | null; image_small: string | null; oracle_id: string;
+    name: string; mana_cost: string | null; owned_qty: number;
+  }> }>(`/api/v1/collection/sets/${encodeURIComponent(setCode)}`, signal).then((r) => r.cards);
+
+export const fetchShoppingList = (deckId: number, signal?: AbortSignal) =>
+  getJson<ShoppingList>(`/api/v1/decks/${deckId}/shopping-list`, signal);
+
+export const pushToWantList = (deckId: number, oracleIds?: string[]) =>
+  send<{ added: number; updated: number; listName: string }>(
+    `/api/v1/decks/${deckId}/shopping-list/want`, 'POST', { oracleIds });
+
+export const fetchWantList = (id: number, signal?: AbortSignal) =>
+  getJson<{ id: number; name: string; items: WantListItem[] }>(`/api/v1/want-lists/${id}`, signal);

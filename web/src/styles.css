@@ -707,3 +707,142 @@ input[type='number'] { width: 72px; }
   display: grid; place-items: center; padding: 6px; text-align: center;
   font-size: 10.5px; color: var(--text-3); border: 1px solid var(--line);
 }
+
+/* ---------- collection ---------- */
+.section-title { margin: 0 0 12px; font-size: 15px; }
+.loc-row { display: flex; align-items: center; gap: 2px; }
+.loc {
+  flex: 1; min-width: 0; display: flex; justify-content: space-between; gap: 8px;
+  background: none; border: 0; text-align: left; padding: 5px 7px;
+  border-radius: 6px; font-size: 13px; color: var(--text-2);
+}
+.loc:hover { background: var(--panel-2); color: var(--text); }
+.loc.on { background: var(--accent-dim); color: var(--text); }
+.loc > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loc-del { background: none; border: 0; color: var(--text-3); padding: 0 5px; font-size: 14px; }
+.loc-del:hover { color: var(--bad); }
+
+.card .cvalue { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
+.split-badge {
+  position: absolute; top: 6px; left: 6px;
+  background: rgba(8, 10, 14, .82); color: #e7ecf5;
+  font-size: 10px; border-radius: 4px; padding: 1px 5px;
+}
+
+.lot {
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; margin-bottom: 6px; background: var(--panel-2);
+}
+.lot-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.lot-head span:nth-child(2) { flex: 1; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lot-value { font-family: var(--mono); color: var(--text-3); }
+.lot-meta {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--text-3); margin-top: 5px;
+}
+.lot-meta select { width: auto; padding: 2px 5px; font-size: 11.5px; }
+.lot-actions { display: flex; gap: 10px; margin-top: 6px; }
+.note-inline { font-style: italic; color: var(--text-3); }
+
+/* ---------- set-scoped entry ---------- */
+.set-entry { display: flex; flex-direction: column; min-height: 0; }
+.entry-bar {
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
+  padding: 10px 12px; margin-bottom: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  position: sticky; top: 0; z-index: 5;
+}
+.entry-bar label { display: flex; flex-direction: column; gap: 4px; }
+.entry-bar label > span {
+  font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--text-3); font-family: var(--mono);
+}
+.entry-bar select { width: auto; min-width: 128px; }
+.entry-bar label.check { flex-direction: row; align-items: center; }
+
+.entry-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px;
+}
+.entry-tile { position: relative; background: none; border: 0; padding: 0; border-radius: 9px; }
+.entry-tile img, .entry-tile .placeholder {
+  width: 100%; aspect-ratio: 488 / 680; border-radius: 8px; display: block;
+  background: var(--panel-2); object-fit: cover;
+}
+.entry-tile .placeholder {
+  display: grid; place-items: center; padding: 6px; text-align: center;
+  font-size: 10px; color: var(--text-3); border: 1px solid var(--line);
+}
+.entry-tile:hover img, .entry-tile:hover .placeholder { outline: 2px solid var(--accent); outline-offset: 1px; }
+.entry-tile.owned img, .entry-tile.owned .placeholder { opacity: .45; }
+.entry-number {
+  position: absolute; bottom: 4px; left: 4px;
+  background: rgba(8,10,14,.8); color: #e7ecf5;
+  font-family: var(--mono); font-size: 10px; border-radius: 4px; padding: 1px 5px;
+}
+
+/* ---------- value ---------- */
+.value-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.gain-up { color: var(--good); }
+.gain-down { color: var(--bad); }
+.value-chart {
+  width: 100%; height: auto; display: block;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.chart-axis {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 11px; color: var(--text-3); margin-top: 6px;
+}
+.setrow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 180px auto;
+  gap: 12px; align-items: center; padding: 5px 0;
+}
+.setrow-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- add dialog ---------- */
+.add-card-dialog {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 20px 22px; width: min(720px, 100%); max-height: 88vh; overflow-y: auto;
+}
+.add-card-body { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 18px; margin-top: 12px; }
+@media (max-width: 620px) { .add-card-body { grid-template-columns: 1fr; } }
+.add-card-art img { width: 100%; border-radius: 10px; display: block; }
+.add-card-form { display: grid; gap: 10px; align-content: start; }
+.add-card-form label { display: flex; flex-direction: column; gap: 4px; }
+.add-card-form label > span {
+  font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--text-3); font-family: var(--mono);
+}
+.add-card-form input {
+  background: var(--panel-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 6px 8px; width: 100%; outline: none;
+}
+.add-card-form input:focus { border-color: var(--accent); }
+
+/* ---------- shopping list ---------- */
+.shopping-rows { display: grid; gap: 4px; margin-bottom: 14px; }
+.shopping-row {
+  display: grid; grid-template-columns: 34px minmax(0, 1fr) 72px auto;
+  gap: 10px; align-items: center;
+  padding: 5px 8px; border-radius: 7px; background: var(--panel-2);
+}
+.shopping-row img { width: 34px; border-radius: 4px; display: block; }
+.shopping-name { display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
+.shopping-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shopping-name .note-inline { font-size: 11px; color: var(--warn); }
+.shopping-price { font-family: var(--mono); font-size: 12.5px; text-align: right; color: var(--text-2); }
+
+/* Summary tiles. Used by the collection value view; the class was previously
+   referenced without ever being defined, so the figures ran together. */
+.stat {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+  padding: 10px 15px 11px; min-width: 118px;
+}
+.stat b {
+  display: block; font-size: 22px; line-height: 1.15;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+}
+.stat span {
+  display: block; margin-top: 3px;
+  font-family: var(--mono); font-size: 10px;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
+}

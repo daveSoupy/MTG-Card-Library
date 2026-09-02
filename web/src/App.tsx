@@ -9,6 +9,7 @@ import { SyncGate } from './components/SyncGate.tsx';
 import { DeckList } from './components/DeckList.tsx';
 import { DeckBuilder } from './components/DeckBuilder.tsx';
 import { SyntaxHelp } from './components/SyntaxHelp.tsx';
+import { CollectionPage } from './components/CollectionPage.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -21,7 +22,7 @@ const SORTS = [
 
 const PAGE_SIZE = 60;
 
-type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number };
+type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number } | { name: 'collection' };
 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -138,9 +139,13 @@ export default function App() {
             onClick={() => setView({ name: 'browse' })}
           >Browse</button>
           <button
-            className={view.name !== 'browse' ? 'on' : ''}
+            className={view.name === 'decks' || view.name === 'deck' ? 'on' : ''}
             onClick={() => setView({ name: 'decks' })}
           >Decks</button>
+          <button
+            className={view.name === 'collection' ? 'on' : ''}
+            onClick={() => setView({ name: 'collection' })}
+          >Collection</button>
         </nav>
 
         {view.name === 'browse' && <div className="searchbox">
@@ -172,6 +177,8 @@ export default function App() {
         {view.name !== 'browse' && <div style={{ flex: 1 }} />}
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
+
+      {view.name === 'collection' && <CollectionPage />}
 
       {view.name === 'decks' && (
         <DeckList formats={formats} onOpen={(id) => setView({ name: 'deck', id })} />

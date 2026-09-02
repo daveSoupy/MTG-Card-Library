@@ -5,6 +5,7 @@ import {
 } from '../api.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
+import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import {
   DECK_SORTS, groupCards, loadViewPreference, saveViewPreference,
   type DeckSort, type DeckViewMode,
@@ -102,6 +103,7 @@ export function DeckBuilder({
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
+  const [shopping, setShopping] = useState(false);
 
   const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
   const setView = (next: DeckViewMode) => {
@@ -227,12 +229,17 @@ export function DeckBuilder({
         <button className="btn secondary" onClick={() => setPlaytesting(true)}>
           Playtest
         </button>
+        <button className="btn secondary" onClick={() => setShopping(true)}>
+          Shopping list
+          {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
+        </button>
         {busy && <span className="count">saving…</span>}
       </div>
 
       {error && <div className="error">{error}</div>}
 
       {playtesting && <PlaytestPanel deck={deck} onClose={() => setPlaytesting(false)} />}
+      {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
 
       <div className="deck-panes">
         <div className="decklist" ref={listRef}>
