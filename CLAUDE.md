@@ -30,6 +30,8 @@ This file is auto-loaded by Claude Code at the start of every session. Keep it l
 - `phases/phase-5-import-export-backup.md`
 - `phases/phase-6-trades-want-trade-lists.md`
 - `phases/phase-7-ocr-assisted-entry.md` (optional stretch goal)
+- `phases/phase-8-deck-templates.md` (optional, not sequenced — depends only on
+  Phases 2 and 3, so it can be built at any point)
 
 ## Overview
 
