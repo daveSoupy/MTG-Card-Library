@@ -66,10 +66,15 @@ const FROM_CLAUSE = `
   LEFT JOIN sets s ON s.code = dp.set_code
   LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
   LEFT JOIN (
-      SELECT p.oracle_id, SUM(ci.quantity) AS qty
+      -- Written as a correlated lookup rather than a join to card_printings,
+      -- because the planner reads the join form as licence to scan all 117,620
+      -- printings and probe the collection for each — backwards, and paid on
+      -- every search whether or not the collection is even involved. Driving
+      -- from collection_items instead costs one primary-key lookup per lot.
+      SELECT (SELECT cp.oracle_id FROM card_printings cp WHERE cp.id = ci.printing_id) AS oracle_id,
+             SUM(ci.quantity) AS qty
       FROM collection_items ci
-      JOIN card_printings p ON p.id = ci.printing_id
-      GROUP BY p.oracle_id
+      GROUP BY 1
   ) owned ON owned.oracle_id = o.oracle_id`;
 
 /**
