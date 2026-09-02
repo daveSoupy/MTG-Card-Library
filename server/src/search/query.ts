@@ -316,6 +316,20 @@ export function mentionsLegality(text: string): boolean {
   });
 }
 
+/**
+ * True when the query explicitly asks about crossover cards.
+ *
+ * Same reason as mentionsLegality: crossovers are hidden by default, so
+ * without this `is:ub` would ask for exactly the set the default removes and
+ * always come back empty.
+ */
+export function mentionsUniversesBeyond(text: string): boolean {
+  return parseQuery(text).terms.some(
+    (t) => (t.key === 'is' || t.key === 'not') &&
+           ['ub', 'universesbeyond'].includes(t.value.toLowerCase()),
+  );
+}
+
 /** True when the query explicitly asks about digital cards either way. */
 export function mentionsDigital(text: string): boolean {
   return parseQuery(text).terms.some(
