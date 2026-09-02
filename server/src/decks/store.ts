@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { validateDeck, canLeadDeck, pairingIsLegal } from './validate.ts';
+import { validateDeck, canLeadDeck, isSignatureSpell, pairingIsLegal } from './validate.ts';
 import { deckStats } from './stats.ts';
 import { analyseManaBase } from './manabase.ts';
 import type { ManaBase } from './manabase.ts';
@@ -57,6 +57,7 @@ export class DeckStore {
       requiresCommander: Boolean(row.requires_commander),
       enforcesColorIdentity: Boolean(row.enforces_color_id),
       commanderKind: (row.commander_kind ?? 'legendary') as FormatRules['commanderKind'],
+      usesSignatureSpell: Boolean(row.uses_signature_spell),
     };
   }
 
@@ -177,7 +178,17 @@ export class DeckStore {
           WHERE deck_id = ? AND board IN ('main','side','command') GROUP BY oracle_id
       ) mine ON mine.oracle_id = dc.oracle_id
       WHERE dc.deck_id = ?
-      ORDER BY dc.board, o.cmc, o.name COLLATE NOCASE`).all(formatCode, deckId, deckId) as any[];
+      -- Inside the command zone the leader comes first and Oathbreaker's
+      -- signature spell last; elsewhere commander_role is NULL, so every card
+      -- falls into the same bucket and the old cmc/name order is unchanged.
+      ORDER BY dc.board,
+               CASE dc.commander_role
+                 WHEN 'commander' THEN 0
+                 WHEN 'partner' THEN 1
+                 WHEN 'background' THEN 1
+                 WHEN 'signature_spell' THEN 2
+                 ELSE 3 END,
+               o.cmc, o.name COLLATE NOCASE`).all(formatCode, deckId, deckId) as any[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -478,6 +489,13 @@ export class DeckStore {
         : main;
     }
 
+    // Oathbreaker's second card is a signature spell, not a partner.
+    if (rules.usesSignatureSpell) {
+      return isSignatureSpell(incoming) && !canLeadDeck(incoming, rules)
+        ? { board: 'command', role: 'signature_spell' }
+        : main;
+    }
+
     if (!pairingIsLegal(command[0], incoming)) return main;
     return {
       board: 'command',
@@ -492,7 +510,7 @@ export class DeckStore {
   private cardForPlacement(oracleId: string): DeckCard | null {
     const row = this.db.prepare(`
       SELECT o.name, o.type_line, o.is_legendary, o.can_be_commander,
-             o.partner_kind, o.partner_with,
+             o.partner_kind, o.partner_with, o.color_identity_mask,
              EXISTS (SELECT 1 FROM card_printings ucp
                      WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon')
                AS has_uncommon_printing
@@ -507,6 +525,7 @@ export class DeckStore {
       hasUncommonPrinting: Boolean(row.has_uncommon_printing),
       partnerKind: row.partner_kind,
       partnerWith: row.partner_with,
+      colorIdentityMask: row.color_identity_mask ?? 0,
     } as DeckCard;
   }
 

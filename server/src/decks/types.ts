@@ -3,7 +3,8 @@ export type Board = 'main' | 'side' | 'command' | 'maybe';
 
 export const BOARDS: Board[] = ['main', 'side', 'command', 'maybe'];
 
-export type CommanderRole = 'commander' | 'partner' | 'background' | 'companion';
+export type CommanderRole =
+  | 'commander' | 'partner' | 'background' | 'companion' | 'signature_spell';
 
 /** The rules for one format, read from the seeded `formats` table. */
 export interface FormatRules {
@@ -19,6 +20,12 @@ export interface FormatRules {
   enforcesColorIdentity: boolean;
   /** What may lead the deck; see the formats table comment in schema.sql. */
   commanderKind: CommanderKind;
+  /**
+   * Oathbreaker: the command zone also holds a signature spell — an instant or
+   * sorcery inside the leader's colour identity. It is not a second leader, so
+   * the partner rules must not be applied to it.
+   */
+  usesSignatureSpell: boolean;
 }
 
 export type CommanderKind =

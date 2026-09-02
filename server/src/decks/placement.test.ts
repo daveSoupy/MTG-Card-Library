@@ -42,6 +42,8 @@ const CARDS: Fixture[] = [
     legendary: 1, commander: 1, partnerKind: 'choose_background' },
   { id: 'guild', name: 'Guild Artisan', type: 'Legendary Enchantment — Background',
     legendary: 1, commander: 0, partnerKind: 'background' },
+  { id: 'bolt', name: 'Lightning Bolt', type: 'Instant', identity: 8 },
+  { id: 'counter', name: 'Counterspell', type: 'Instant', identity: 2 },
 ];
 
 function fixture() {
@@ -192,5 +194,44 @@ test('the auto-placed commander sets the colour identity for what follows', () =
   decks.addCard(id, 'krenko');
   // Identity comes from the command board, so it is live from the first click.
   assert.equal(decks.get(id)!.validation.commanderIdentity, 'R');
+  db.close();
+});
+
+
+test('an Oathbreaker signature spell takes the second slot', () => {
+  const { db, decks } = fixture();
+  const id = decks.create({ name: 'Oath', formatCode: 'oathbreaker' });
+  decks.addCard(id, 'teferi');
+  decks.addCard(id, 'bolt');
+  assert.deepEqual(zone(decks, id), [['teferi', 'commander'], ['bolt', 'signature_spell']]);
+  db.close();
+});
+
+test('a creature does not become a signature spell', () => {
+  const { db, decks } = fixture();
+  const id = decks.create({ name: 'Oath', formatCode: 'oathbreaker' });
+  decks.addCard(id, 'teferi');
+  decks.addCard(id, 'krenko');
+  assert.equal(boardOf(decks, id, 'krenko'), 'main');
+  db.close();
+});
+
+test('a second instant stays in the deck once the zone is full', () => {
+  const { db, decks } = fixture();
+  const id = decks.create({ name: 'Oath', formatCode: 'oathbreaker' });
+  decks.addCard(id, 'teferi');
+  decks.addCard(id, 'bolt');
+  decks.addCard(id, 'counter');
+  assert.equal(boardOf(decks, id, 'counter'), 'main');
+  db.close();
+});
+
+test('Commander does not take an instant as a second commander', () => {
+  const { db, decks } = fixture();
+  const id = decks.create({ name: 'EDH', formatCode: 'commander' });
+  decks.addCard(id, 'atraxa');
+  // Signature spells are an Oathbreaker idea; here Lightning Bolt is just a card.
+  decks.addCard(id, 'bolt');
+  assert.equal(boardOf(decks, id, 'bolt'), 'main');
   db.close();
 });
