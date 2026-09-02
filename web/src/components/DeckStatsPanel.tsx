@@ -1,4 +1,4 @@
-import type { DeckStats, DeckValidation } from '../api.ts';
+import type { DeckStats, DeckValidation, ManaBase } from '../api.ts';
 
 const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
@@ -51,13 +51,58 @@ const COLOR_CLASS: Record<string, string> = {
   White: 'W', Blue: 'U', Black: 'B', Red: 'R', Green: 'G', Colourless: 'C',
 };
 
+/**
+ * Sources against pips.
+ *
+ * Colour distribution says how many cards are green; this says whether the
+ * lands can cast them, which is the question that actually changes a deck.
+ */
+function ManaBasePanel({ manaBase }: { manaBase: ManaBase }) {
+  if (manaBase.requirements.length === 0) {
+    return <p className="note">Add some cards to see the mana base.</p>;
+  }
+  const pct = (value: number) => `${Math.round(value * 100)}%`;
+
+  return (
+    <>
+      <div className="manabase-head">
+        <span>Colour</span><span>Pips</span><span>Sources</span>
+      </div>
+      {manaBase.requirements.map((requirement) => (
+        <div className={`manabase-row${requirement.isShort ? ' short' : ''}`} key={requirement.color}>
+          <span className={`manabase-name c${requirement.color}`}>{requirement.colorName}</span>
+          <span className="manabase-num" title={`${pct(requirement.pipShare)} of coloured pips`}>
+            {requirement.pips}
+          </span>
+          <span className="manabase-num" title={`${pct(requirement.sourceShare)} of mana sources`}>
+            {requirement.sources}
+            {requirement.isShort && <span className="tag warn">short</span>}
+          </span>
+        </div>
+      ))}
+
+      <div className="kv"><span>Lands</span><span>{manaBase.landCount}</span></div>
+      <div className="kv"><span>Other mana sources</span><span>{manaBase.nonLandSources}</span></div>
+      {manaBase.colorlessSources > 0 && (
+        <div className="kv"><span>Colourless-only sources</span><span>{manaBase.colorlessSources}</span></div>
+      )}
+      <p className="note">
+        A colour is flagged when its share of your mana sources falls well below its
+        share of your coloured pips. Hybrid symbols count toward both colours.
+      </p>
+    </>
+  );
+}
+
 export function DeckStatsPanel({
   stats,
   validation,
+  manaBase,
   onJumpToCard,
 }: {
   stats: DeckStats;
   validation: DeckValidation;
+  manaBase: ManaBase;
   onJumpToCard: (oracleId: string) => void;
 }) {
   const errors = validation.issues.filter((i) => i.severity === 'error');
@@ -79,6 +124,12 @@ export function DeckStatsPanel({
         ) : null}
         {validation.commandCount > 0 && (
           <div className="kv"><span>Command zone</span><span>{validation.commandCount}</span></div>
+        )}
+        {validation.commanderIdentity !== null && (
+          <div className="kv">
+            <span>Colour identity</span>
+            <span>{validation.commanderIdentity || 'Colourless'}</span>
+          </div>
         )}
       </div>
 
@@ -118,6 +169,11 @@ export function DeckStatsPanel({
           <span>{stats.averageManaValue ?? '—'}</span>
         </div>
         <p className="note">Lands are excluded from the curve and the average.</p>
+      </div>
+
+      <div className="fgroup">
+        <h3>Mana base</h3>
+        <ManaBasePanel manaBase={manaBase} />
       </div>
 
       <div className="fgroup">

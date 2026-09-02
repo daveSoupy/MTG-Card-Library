@@ -40,6 +40,11 @@ export interface DeckCard {
   isBasicLand: boolean;
   isLegendary: boolean;
   canBeCommander: boolean;
+  /** Colour symbols this card can produce, from Scryfall's produced_mana. */
+  producedMana: string[];
+  partnerKind: string | null;
+  /** Normalised name of the one card this may pair with, for 'partner_with'. */
+  partnerWith: string | null;
 
   /** Legality in *this deck's* format; null when the deck has no format set. */
   legality: string | null;
@@ -87,6 +92,8 @@ export interface DeckIssue {
     | 'missing_commander'
     | 'too_many_commanders'
     | 'over_allocated'
+    | 'color_identity'
+    | 'invalid_pairing'
     | 'no_format';
   message: string;
   oracleId?: string;
@@ -96,6 +103,9 @@ export interface DeckIssue {
 export interface DeckValidation {
   formatCode: string | null;
   formatName: string | null;
+  /** Colour identity the commander(s) permit, as a WUBRG string. Null when the
+   *  format does not enforce one or no commander is set. */
+  commanderIdentity: string | null;
   /** Counts the boards the format's size rule actually measures. */
   countedTotal: number;
   mainCount: number;

@@ -10,6 +10,7 @@ function card(overrides: Partial<DeckCard> = {}): DeckCard {
     board: 'main', quantity: 1, quantityFromCollection: 0, commanderRole: null,
     cmc: 2, typeLine: 'Creature — Human', manaCost: '{1}{G}', colorIdentity: 'G',
     isBasicLand: false, canBeCommander: false, legality: 'legal',
+    category: null, producedMana: [], partnerKind: null,
     ownedQuantity: 0, availableQuantity: 0,
     printingId: null, setCode: null, rarity: 'common', imageSmall: null, priceUsd: null,
     ...overrides,

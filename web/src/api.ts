@@ -247,6 +247,9 @@ export interface DeckCard {
   colorIdentity: string;
   isBasicLand: boolean;
   canBeCommander: boolean;
+  category: string | null;
+  producedMana: string[];
+  partnerKind: string | null;
   legality: string | null;
   ownedQuantity: number;
   availableQuantity: number;
@@ -265,9 +268,29 @@ export interface DeckIssue {
   cardName?: string;
 }
 
+export interface ColorRequirement {
+  color: string;
+  colorName: string;
+  pips: number;
+  pipShare: number;
+  sources: number;
+  sourceShare: number;
+  isShort: boolean;
+}
+
+export interface ManaBase {
+  requirements: ColorRequirement[];
+  totalPips: number;
+  totalSources: number;
+  landCount: number;
+  nonLandSources: number;
+  colorlessSources: number;
+}
+
 export interface DeckValidation {
   formatCode: string | null;
   formatName: string | null;
+  commanderIdentity: string | null;
   countedTotal: number;
   mainCount: number;
   sideboardCount: number;
@@ -308,6 +331,7 @@ export interface Deck {
   cards: DeckCard[];
   validation: DeckValidation;
   stats: DeckStats;
+  manaBase: ManaBase;
 }
 
 export interface DeckSummary {
@@ -362,8 +386,15 @@ export const addDeckCard = (
 export const updateDeckCard = (
   deckId: number,
   cardId: number,
-  changes: { quantity?: number; fromCollection?: number; board?: Board },
+  changes: {
+    quantity?: number; fromCollection?: number; board?: Board;
+    category?: string | null; preferredPrintingId?: string | null;
+  },
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
+
+export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
+    .then((r) => r.categories);
 
 export const removeDeckCard = (deckId: number, cardId: number) =>
   send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'DELETE').then((r) => r.deck);

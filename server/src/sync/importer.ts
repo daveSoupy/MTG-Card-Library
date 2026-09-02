@@ -2,6 +2,47 @@ import type Database from 'better-sqlite3';
 import type { SetRecord } from './scryfall.ts';
 import { canonicalColors, colorMask, normalizeName, splitCollectorNumber } from '../model/mtg.ts';
 
+export type PartnerKind =
+  | 'partner'
+  | 'partner_with'
+  | 'friends_forever'
+  | 'doctors_companion'
+  | 'choose_background'
+  | 'background';
+
+/**
+ * Works out how a card may pair as a second commander.
+ *
+ * These do not interchange: two plain Partner cards may pair with each other,
+ * but a "Partner with Chakram Slinger" pairs *only* with that card. Collapsing
+ * them into one boolean would wrongly let any two named-partner cards sit in
+ * the same command zone.
+ */
+export function partnerPairing(
+  typeLine: string,
+  combinedText: string,
+): { kind: PartnerKind | null; partnerWith: string | null } {
+  const lowerType = typeLine.toLowerCase();
+  if (lowerType.includes('background')) return { kind: 'background', partnerWith: null };
+  if (combinedText.includes('choose a background')) {
+    return { kind: 'choose_background', partnerWith: null };
+  }
+
+  // "Partner with Chakram Slinger (When this creature enters…)" — the name runs
+  // to the reminder text or the end of the line.
+  const named = /partner with ([^\n(]+)/i.exec(combinedText);
+  if (named) return { kind: 'partner_with', partnerWith: named[1].trim() };
+
+  if (combinedText.includes('friends forever')) return { kind: 'friends_forever', partnerWith: null };
+  if (combinedText.includes("doctor's companion")) {
+    return { kind: 'doctors_companion', partnerWith: null };
+  }
+  // Plain Partner. Checked last so the more specific variants win.
+  if (/\bpartner\b/i.test(combinedText)) return { kind: 'partner', partnerWith: null };
+
+  return { kind: null, partnerWith: null };
+}
+
 /** better-sqlite3 binds only numbers, strings, bigints, buffers and null. */
 const bit = (value: unknown): number => (value ? 1 : 0);
 const text = (value: unknown): string | null =>
@@ -78,8 +119,8 @@ export class CardImporter {
          colors_mask, color_identity_mask, colors, color_identity, color_identity_count,
          keywords, produced_mana, is_reserved, is_basic_land, is_legendary,
          can_be_commander, can_be_partner, can_be_background, edhrec_rank,
-         game_changer, scryfall_updated_at, synced_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+         game_changer, partner_kind, partner_with, scryfall_updated_at, synced_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
               strftime('%Y-%m-%dT%H:%M:%SZ','now'))
       ON CONFLICT(oracle_id) DO UPDATE SET
         name=excluded.name, name_normalized=excluded.name_normalized,
@@ -94,7 +135,9 @@ export class CardImporter {
         is_basic_land=excluded.is_basic_land, is_legendary=excluded.is_legendary,
         can_be_commander=excluded.can_be_commander, can_be_partner=excluded.can_be_partner,
         can_be_background=excluded.can_be_background, edhrec_rank=excluded.edhrec_rank,
-        game_changer=excluded.game_changer, scryfall_updated_at=excluded.scryfall_updated_at,
+        game_changer=excluded.game_changer, partner_kind=excluded.partner_kind,
+        partner_with=excluded.partner_with,
+        scryfall_updated_at=excluded.scryfall_updated_at,
         synced_at=excluded.synced_at`);
 
     this.insertPrinting = db.prepare(`
@@ -235,6 +278,7 @@ export class CardImporter {
       allText + ' ' + faces.map((f) => f?.type_line ?? '').join(' ')
     ).toLowerCase();
 
+    const pairing = partnerPairing(typeLine, combinedText);
     const isLegendary = lowerType.includes('legendary');
     // Commanders are not only legendary creatures: legendary Vehicles
     // (Shorikai) and Spacecraft qualify too, and Scryfall does not restate that
@@ -273,10 +317,12 @@ export class CardImporter {
       // should combine this with card_legalities and handle the remaining
       // corner cases, such as Grist.
       bit((isLegendary && isCommanderType) || combinedText.includes('can be your commander')),
-      bit(combinedText.includes('partner') || combinedText.includes('friends forever')),
+      bit(pairing.kind !== null && pairing.kind !== 'background'),
       bit(lowerType.includes('background') || combinedText.includes('choose a background')),
       num(card.edhrec_rank),
       bit(card.game_changer),
+      pairing.kind,
+      pairing.partnerWith,
       text(card.released_at),
     );
 

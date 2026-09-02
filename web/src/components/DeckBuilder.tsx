@@ -4,6 +4,7 @@ import {
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
+import { PlaytestPanel } from './PlaytestPanel.tsx';
 import {
   DECK_SORTS, groupCards, loadViewPreference, saveViewPreference,
   type DeckSort, type DeckViewMode,
@@ -100,6 +101,7 @@ export function DeckBuilder({
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [playtesting, setPlaytesting] = useState(false);
 
   const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
   const setView = (next: DeckViewMode) => {
@@ -112,6 +114,11 @@ export function DeckBuilder({
   };
 
   const listRef = useRef<HTMLDivElement>(null);
+
+  // A commander's identity as filter colours. 'C' is included so colourless
+  // cards — which fit in every deck — are not excluded along with off-colours.
+  const identity = deck?.validation.commanderIdentity ?? null;
+  const identityFilter = identity === null ? null : [...identity, 'C'];
 
   const load = useCallback(() => {
     fetchDeck(deckId).then(setDeck).catch((e) => setError(e.message));
@@ -140,7 +147,16 @@ export function DeckBuilder({
       if (!query && !ownedOnly) { setResults([]); return; }
       setSearching(true);
       searchCards(
-        { q: query, ownedOnly, format: deck?.formatCode ?? undefined, limit: 40, sort: 'relevance' },
+        {
+          q: query,
+          ownedOnly,
+          format: deck?.formatCode ?? undefined,
+          // Restrict to the commander's identity where the format enforces one,
+          // so the picker cannot offer a card that would be illegal on arrival.
+          colors: identityFilter ?? undefined,
+          limit: 40,
+          sort: 'relevance',
+        },
         controller.signal,
       )
         .then((r) => setResults(r.cards))
@@ -148,7 +164,7 @@ export function DeckBuilder({
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly, deck?.formatCode]);
+  }, [query, ownedOnly, deck?.formatCode, identityFilter]);
 
   if (!deck) {
     return (
@@ -208,10 +224,15 @@ export function DeckBuilder({
         <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
           {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
         </span>
+        <button className="btn secondary" onClick={() => setPlaytesting(true)}>
+          Playtest
+        </button>
         {busy && <span className="count">saving…</span>}
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      {playtesting && <PlaytestPanel deck={deck} onClose={() => setPlaytesting(false)} />}
 
       <div className="deck-panes">
         <div className="decklist" ref={listRef}>
@@ -340,7 +361,10 @@ export function DeckBuilder({
             Only cards I own
           </label>
           {deck.formatCode && (
-            <p className="note">Showing cards legal in {deck.validation.formatName}.</p>
+            <p className="note">
+              Showing cards legal in {deck.validation.formatName}
+              {identity !== null && ` and within ${identity || 'colourless'} colour identity`}.
+            </p>
           )}
 
           {searching && <p className="loading">Searching…</p>}
@@ -379,7 +403,12 @@ export function DeckBuilder({
           )}
         </div>
 
-        <DeckStatsPanel stats={deck.stats} validation={deck.validation} onJumpToCard={jumpToCard} />
+        <DeckStatsPanel
+          stats={deck.stats}
+          validation={deck.validation}
+          manaBase={deck.manaBase}
+          onJumpToCard={jumpToCard}
+        />
       </div>
     </div>
   );

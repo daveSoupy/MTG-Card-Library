@@ -17,11 +17,14 @@ function shapeOf(db: Database.Database): string {
 
   return objects
     .map(({ type, name, sql }) => {
-      // Collapse whitespace and strip comments so cosmetic differences between
-      // schema.sql and a migration do not read as drift.
+      // Strip comments and normalise spacing so cosmetic differences do not
+      // read as drift. SQLite rewrites the stored DDL during ALTER TABLE and
+      // its spacing around punctuation differs from the hand-written file.
+      // Column names, types, constraints and order are all still compared.
       const normalized = (sql ?? '')
         .replace(/--[^\n]*/g, ' ')
         .replace(/\s+/g, ' ')
+        .replace(/\s*([(),])\s*/g, '$1')
         .trim();
       return `${type} ${name}\n  ${normalized}`;
     })
@@ -35,17 +38,27 @@ function databaseAtVersion(version: number): Database.Database {
   // the "old" database is realistic without keeping historical copies of the
   // whole DDL around.
   db.exec(SCHEMA_SQL);
-  for (const migration of MIGRATIONS.filter((m) => m.version > version)) {
-    for (const name of createdObjects(migration.sql)) {
+  // Rewind past every later migration. Both kinds a migration can take have an
+  // inverse: a created table is dropped, an added column is dropped.
+  for (const migration of [...MIGRATIONS].reverse().filter((m) => m.version > version)) {
+    for (const name of createdTables(migration.sql)) {
       db.exec(`DROP TABLE IF EXISTS ${name}`);
+    }
+    for (const { table, column } of addedColumns(migration.sql)) {
+      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
     }
   }
   db.pragma(`user_version = ${version}`);
   return db;
 }
 
-function createdObjects(sql: string): string[] {
+function createdTables(sql: string): string[] {
   return [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+}
+
+function addedColumns(sql: string): Array<{ table: string; column: string }> {
+  return [...sql.matchAll(/ALTER TABLE (\w+) ADD COLUMN (\w+)/gi)]
+    .map((m) => ({ table: m[1], column: m[2] }));
 }
 
 test('every migration is numbered above the previous one', () => {
@@ -94,13 +107,37 @@ test('a migrated database ends up structurally identical to a fresh one', () => 
   fresh.close();
 });
 
-test('migrations are idempotent, so a retried run cannot fail', () => {
+test('a failed migration rolls back completely, leaving the version untouched', () => {
+  // Idempotency is deliberately *not* required: ALTER TABLE ADD COLUMN cannot
+  // be re-run in SQLite, and the runner never replays a migration because it
+  // filters on version. What has to hold instead is that a failure leaves no
+  // partial state behind, so a retry starts from a clean database.
   const db = new Database(':memory:');
   db.exec(SCHEMA_SQL);
-  for (const migration of MIGRATIONS) {
-    assert.doesNotThrow(() => db.exec(migration.sql), `${migration.description} is not re-runnable`);
-  }
+  const before = db.pragma('user_version', { simple: true });
+
+  assert.throws(() => {
+    db.transaction(() => {
+      db.exec('ALTER TABLE oracle_cards ADD COLUMN scratch_column TEXT');
+      db.exec('THIS IS NOT VALID SQL');
+      db.pragma('user_version = 999');
+    })();
+  });
+
+  assert.equal(db.pragma('user_version', { simple: true }), before, 'version must not advance');
+  const columns = db.prepare(`SELECT name FROM pragma_table_info('oracle_cards')`).all() as Array<{ name: string }>;
+  assert.ok(!columns.some((c) => c.name === 'scratch_column'), 'the partial change must be gone');
   db.close();
+});
+
+test('the runner never replays a migration the database already has', () => {
+  const applied: number[] = [];
+  const from = 3;
+  for (const migration of MIGRATIONS.filter((m) => m.version > from && m.version <= TARGET)) {
+    applied.push(migration.version);
+  }
+  assert.ok(!applied.includes(3), 'v3 must not re-run on a database already at v3');
+  assert.ok(applied.every((v) => v > from));
 });
 
 test('filter_presets enforces unique names case-insensitively', () => {

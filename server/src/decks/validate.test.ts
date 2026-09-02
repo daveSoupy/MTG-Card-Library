@@ -27,8 +27,9 @@ function card(overrides: Partial<DeckCard> = {}): DeckCard {
     cmc: 2, typeLine: 'Creature — Human', manaCost: '{1}{G}',
     colorIdentity: 'G', colorIdentityMask: 16, colorsMask: 16,
     isBasicLand: false, isLegendary: false, canBeCommander: false,
+    partnerKind: null, partnerWith: null,
     legality: 'legal', ownedQuantity: 0, availableQuantity: 0,
-    printingId: null, setCode: null, imageSmall: null, priceUsd: null,
+    printingId: null, setCode: null, rarity: 'common', imageSmall: null, priceUsd: null,
     ...overrides,
   };
 }
@@ -278,4 +279,131 @@ test('type distribution groups an artifact creature under Creature', () => {
   assert.equal(count('Creature'), 2);
   assert.equal(count('Instant'), 4);
   assert.equal(count('Land'), 20);
+});
+
+// ------------------------------------------------- colour identity (903.4)
+
+/** Kenrith: a mono-white card whose rules text gives it a WUBRG identity. */
+const KENRITH = { name: 'Kenrith, the Returned King', colorsMask: 1, colorIdentityMask: 31, colorIdentity: 'WUBRG' };
+/** Atraxa: WUBG. */
+const ATRAXA = { name: "Atraxa, Praetors' Voice", colorsMask: 23, colorIdentityMask: 23, colorIdentity: 'WUBG' };
+
+const commanderOf = (overrides: Partial<DeckCard>) =>
+  card({ board: 'command', canBeCommander: true, isLegendary: true, ...overrides });
+
+test('cards outside the commander colour identity are errors', () => {
+  const result = validateDeck([
+    commanderOf(ATRAXA),
+    card({ name: 'Lightning Bolt', colorIdentityMask: 8, colorIdentity: 'R' }),  // red
+    ...filler(98, { colorIdentityMask: 16 }),                                    // green, fits
+  ], COMMANDER);
+
+  const issue = result.issues.find((i) => i.code === 'color_identity');
+  assert.ok(issue, 'a red card under a WUBG commander must be flagged');
+  assert.match(issue!.message, /needs R/);
+  assert.match(issue!.message, /allows WUBG/);
+  assert.equal(issue!.cardName, 'Lightning Bolt');
+  assert.equal(result.commanderIdentity, 'WUBG');
+});
+
+test('identity comes from rules text, not just the commander’s colours', () => {
+  // Kenrith is a white card, so a colours-based check would reject red cards.
+  // His identity is WUBRG, so everything fits.
+  const result = validateDeck([
+    commanderOf(KENRITH),
+    card({ name: 'Lightning Bolt', colorIdentityMask: 8 }),
+    card({ name: 'Counterspell', colorIdentityMask: 2 }),
+    ...filler(97, { colorIdentityMask: 4 }),
+  ], COMMANDER);
+
+  assert.equal(result.issues.filter((i) => i.code === 'color_identity').length, 0);
+  assert.equal(result.commanderIdentity, 'WUBRG');
+});
+
+test('colourless cards fit inside any commander identity', () => {
+  const result = validateDeck([
+    commanderOf({ ...ATRAXA }),
+    card({ name: 'Sol Ring', colorIdentityMask: 0 }),
+    ...filler(98, { colorIdentityMask: 0 }),
+  ], COMMANDER);
+  assert.equal(result.issues.filter((i) => i.code === 'color_identity').length, 0);
+});
+
+test('two commanders combine their identities', () => {
+  const result = validateDeck([
+    commanderOf({ name: 'Tymna', colorIdentityMask: 1, partnerKind: 'partner' }),   // W
+    commanderOf({ name: 'Thrasios', colorIdentityMask: 2, partnerKind: 'partner' }), // U
+    card({ name: 'Azorius Charm', colorIdentityMask: 3 }),                           // WU — fits
+    ...filler(97, { colorIdentityMask: 1 }),
+  ], COMMANDER);
+  assert.equal(result.commanderIdentity, 'WU');
+  assert.equal(result.issues.filter((i) => i.code === 'color_identity').length, 0);
+});
+
+test('the maybeboard is exempt from the identity rule', () => {
+  const result = validateDeck([
+    commanderOf(ATRAXA),
+    card({ name: 'Off-colour idea', colorIdentityMask: 8, board: 'maybe' }),
+    ...filler(99, { colorIdentityMask: 16 }),
+  ], COMMANDER);
+  assert.equal(result.issues.filter((i) => i.code === 'color_identity').length, 0);
+});
+
+test('formats that do not enforce identity ignore the rule entirely', () => {
+  const result = validateDeck(
+    [card({ colorIdentityMask: 8 }), ...filler(59, { colorIdentityMask: 1 })],
+    MODERN,
+  );
+  assert.equal(result.commanderIdentity, null);
+  assert.equal(result.issues.filter((i) => i.code === 'color_identity').length, 0);
+});
+
+// ------------------------------------------------------- partner pairing
+
+const pairOf = (a: Partial<DeckCard>, b: Partial<DeckCard>) =>
+  validateDeck([commanderOf(a), commanderOf(b), ...filler(98)], COMMANDER)
+    .issues.filter((i) => i.code === 'invalid_pairing');
+
+test('two plain Partner cards may pair', () => {
+  assert.equal(pairOf({ partnerKind: 'partner' }, { partnerKind: 'partner' }).length, 0);
+});
+
+test('"Partner with" pairs only with the card it names', () => {
+  const brallin = { name: 'Brallin, Skyshark Rider', partnerKind: 'partner_with', partnerWith: 'shabraz, the skyshark' };
+  const shabraz = { name: 'Shabraz, the Skyshark', partnerKind: 'partner_with', partnerWith: 'brallin, skyshark rider' };
+  const other = { name: 'Alphinaud Leveilleur', partnerKind: 'partner_with', partnerWith: 'alisaie leveilleur' };
+
+  assert.equal(pairOf(brallin, shabraz).length, 0, 'the named pair is legal');
+  // The bug a single boolean would cause: any two named-partner cards pairing.
+  assert.equal(pairOf(brallin, other).length, 1, 'unrelated named partners must not pair');
+});
+
+test('a Background pairs only with a card that chooses one', () => {
+  const wilson = { name: 'Wilson, Refined Grizzly', partnerKind: 'choose_background' };
+  const background = { name: 'Raised by Giants', partnerKind: 'background' };
+
+  assert.equal(pairOf(wilson, background).length, 0);
+  assert.equal(pairOf(background, wilson).length, 0, 'order must not matter');
+  assert.equal(pairOf({ partnerKind: 'partner' }, background).length, 1,
+    'plain Partner cannot take a Background');
+});
+
+test('Friends forever and Doctor’s companion pair on their own terms', () => {
+  assert.equal(pairOf({ partnerKind: 'friends_forever' }, { partnerKind: 'friends_forever' }).length, 0);
+
+  const companion = { name: 'Ace, Fearless Rebel', partnerKind: 'doctors_companion' };
+  const doctor = { name: 'The Fourth Doctor', typeLine: 'Legendary Creature — Time Lord Doctor' };
+  assert.equal(pairOf(companion, doctor).length, 0);
+  assert.equal(pairOf(companion, { name: 'Not a Doctor', typeLine: 'Legendary Creature — Human' }).length, 1);
+});
+
+test('the four pairing mechanics do not interchange', () => {
+  assert.equal(pairOf({ partnerKind: 'partner' }, { partnerKind: 'friends_forever' }).length, 1);
+  assert.equal(pairOf({ partnerKind: 'doctors_companion' }, { partnerKind: 'partner' }).length, 1);
+  assert.equal(pairOf({ partnerKind: null }, { partnerKind: null }).length, 1);
+});
+
+test('a single commander needs no pairing at all', () => {
+  const result = validateDeck([commanderOf({ partnerKind: null }), ...filler(99)], COMMANDER);
+  assert.equal(result.issues.filter((i) => i.code === 'invalid_pairing').length, 0);
 });

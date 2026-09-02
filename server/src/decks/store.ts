@@ -1,6 +1,8 @@
 import type Database from 'better-sqlite3';
 import { validateDeck } from './validate.ts';
 import { deckStats } from './stats.ts';
+import { analyseManaBase } from './manabase.ts';
+import type { ManaBase } from './manabase.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
 } from './types.ts';
@@ -101,7 +103,11 @@ export class DeckStore {
     }));
   }
 
-  get(id: number): (DeckWithCards & { validation: DeckValidation; stats: DeckStats }) | null {
+  get(id: number): (DeckWithCards & {
+    validation: DeckValidation;
+    stats: DeckStats;
+    manaBase: ManaBase;
+  }) | null {
     const row = this.db.prepare('SELECT * FROM decks WHERE id = ?').get(id) as any;
     if (!row) return null;
 
@@ -114,6 +120,7 @@ export class DeckStore {
       cards,
       validation: validateDeck(cards, rules),
       stats: deckStats(cards),
+      manaBase: analyseManaBase(cards),
     };
   }
 
@@ -125,7 +132,7 @@ export class DeckStore {
              dc.commander_role, dc.category, dc.sort_order,
              o.name, o.cmc, o.type_line, o.mana_cost, o.color_identity,
              o.color_identity_mask, o.colors_mask, o.is_basic_land, o.is_legendary,
-             o.can_be_commander,
+             o.can_be_commander, o.partner_kind, o.partner_with, o.produced_mana,
              cl.legality,
              COALESCE(owned.qty, 0) AS owned_qty,
              COALESCE(owned.qty, 0)
@@ -173,6 +180,9 @@ export class DeckStore {
       isBasicLand: Boolean(row.is_basic_land),
       isLegendary: Boolean(row.is_legendary),
       canBeCommander: Boolean(row.can_be_commander),
+      producedMana: parseJsonArray(row.produced_mana),
+      partnerKind: row.partner_kind,
+      partnerWith: row.partner_with,
       legality: row.legality ?? null,
       ownedQuantity: row.owned_qty,
       availableQuantity: row.available_qty,
@@ -321,6 +331,33 @@ export class DeckStore {
   }
 
   /** Moves a slot between main, sideboard, command zone and maybeboard. */
+  /** A user-named section within the deck: Ramp, Removal, Draw. */
+  setCategory(deckId: number, cardId: number, category: string | null): void {
+    const trimmed = category?.trim();
+    this.db.prepare('UPDATE deck_cards SET category = ? WHERE id = ? AND deck_id = ?')
+      .run(trimmed ? trimmed : null, cardId, deckId);
+    this.touch(deckId);
+  }
+
+  /**
+   * Pins a slot to a specific printing, which decides the art shown and the set
+   * code a decklist export writes. Null falls back to the card's default.
+   */
+  setPreferredPrinting(deckId: number, cardId: number, printingId: string | null): void {
+    this.db.prepare('UPDATE deck_cards SET preferred_printing_id = ? WHERE id = ? AND deck_id = ?')
+      .run(printingId, cardId, deckId);
+    this.touch(deckId);
+  }
+
+  /** Every category used in a deck, for offering them again. */
+  categories(deckId: number): string[] {
+    return (this.db.prepare(`
+      SELECT DISTINCT category FROM deck_cards
+      WHERE deck_id = ? AND category IS NOT NULL AND category <> ''
+      ORDER BY category COLLATE NOCASE`).all(deckId) as Array<{ category: string }>)
+      .map((row) => row.category);
+  }
+
   setBoard(deckId: number, cardId: number, board: Board, commanderRole?: CommanderRole | null): void {
     this.db.transaction(() => {
       const card = this.db.prepare(
@@ -382,6 +419,17 @@ function toDeck(row: any): Deck {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** produced_mana is stored as a JSON array; a malformed one should not throw. */
+function parseJsonArray(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 function maskToColors(mask: number): string {
