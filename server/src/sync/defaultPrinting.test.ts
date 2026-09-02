@@ -160,3 +160,35 @@ test('ties break deterministically rather than by insertion order', () => {
   assert.equal(reversed.chosen, first.chosen, 'insertion order must not matter');
   first.db.close(); reversed.db.close();
 });
+
+test('English wins, even over a nicer printing in another language', () => {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO sets (code,name,set_type) VALUES ('exp','EXP','expansion')`).run();
+  db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout)
+              VALUES ('o1','Test','test',1,'Instant','x','normal')`).run();
+  const ins = db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,
+      collector_number_num,released_at,lang,image_normal) VALUES (?,'o1','exp',?,?,?,?,'http://img')`);
+  // The Japanese one is newer, so recency alone would take it.
+  ins.run('ja', '10', 10, '2026-01-01', 'ja');
+  ins.run('en', '11', 11, '2020-01-01', 'en');
+
+  new CardImporter(db).assignDefaultPrintings();
+  assert.equal((db.prepare('SELECT default_printing_id AS id FROM oracle_cards').get() as any).id, 'en');
+  db.close();
+});
+
+test('a card printed only in another language still gets its art', () => {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO sets (code,name,set_type) VALUES ('ren','Renaissance','expansion')`).run();
+  db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout)
+              VALUES ('o1','Marsh Gas','marsh gas',1,'Instant','x','normal')`).run();
+  db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,collector_number_num,
+      released_at,lang,image_normal) VALUES ('fr','o1','ren','59',59,'1995-01-01','fr','http://img')`).run();
+
+  new CardImporter(db).assignDefaultPrintings();
+  // Ranked, not filtered — otherwise these lose their art entirely.
+  assert.equal((db.prepare('SELECT default_printing_id AS id FROM oracle_cards').get() as any).id, 'fr');
+  db.close();
+});
