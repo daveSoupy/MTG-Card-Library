@@ -203,27 +203,24 @@ function ubStore() {
   return { store: new CardSearchStore(db), close: () => db.close() };
 }
 
-test('crossover cards are hidden by default, and the toggle brings them back', () => {
+test('crossover cards are shown by default — they are real tournament cards', () => {
   const { store, close } = ubStore();
-  const found = names(store.search('', {}, 'name', 50));
-  assert.deepEqual(found, ['Lightning Bolt', 'Sol Ring']);
-  assert.deepEqual(names(store.search('', { includeUniversesBeyond: true }, 'name', 50)),
+  assert.deepEqual(names(store.search('', {}, 'name', 50)),
                    ['Lightning Bolt', 'Orcish Bowmasters', 'Sol Ring', 'The One Ring']);
   close();
 });
 
-test('hiding crossovers keeps cards merely reprinted in one', () => {
+test('excluding crossovers keeps cards merely reprinted in one', () => {
   const { store, close } = ubStore();
-  const found = names(store.search('', {}, 'name', 50));
+  const found = names(store.search('', { excludeUniversesBeyond: true }, 'name', 50));
+  assert.deepEqual(found, ['Lightning Bolt', 'Sol Ring']);
   // Sol Ring has a Tales of Middle-earth printing; it is still a Sol Ring.
   assert.ok(found.includes('Sol Ring'), 'a reprint does not make it a crossover card');
-  assert.ok(!found.includes('The One Ring'));
   close();
 });
 
 test('is:ub names the crossover cards, and -is:ub the rest', () => {
   const { store, close } = ubStore();
-  // is:ub has to override the default, or it would always return nothing.
   assert.deepEqual(names(store.search('is:ub', {}, 'name', 50)),
                    ['Orcish Bowmasters', 'The One Ring']);
   assert.deepEqual(names(store.search('-is:ub', {}, 'name', 50)),
@@ -237,7 +234,7 @@ test('the crossover filter is independent of the unplayable one', () => {
   const { store, close } = ubStore();
   // Both filters on at once must not interfere: everything here is legal.
   assert.deepEqual(
-    names(store.search('', { includeUnplayable: true }, 'name', 50)),
+    names(store.search('', { excludeUniversesBeyond: true, includeUnplayable: true }, 'name', 50)),
     ['Lightning Bolt', 'Sol Ring'],
   );
   close();
