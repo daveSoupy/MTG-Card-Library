@@ -38,6 +38,7 @@ function filtersFrom(q: Record<string, unknown>): SearchFilters {
     maxCmc: asNumber(q.maxCmc),
     includeDigital: asBool(q.includeDigital),
     includeExtras: asBool(q.includeExtras),
+    includeUnplayable: asBool(q.includeUnplayable),
   };
 }
 

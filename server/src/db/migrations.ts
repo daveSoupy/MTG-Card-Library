@@ -104,4 +104,16 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 8,
+    description: 'Index for the legal-anywhere search filter',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_legal_playable ON card_legalities(oracle_id)
+          WHERE legality IN ('legal','restricted');
+
+      -- v5 learned this the hard way: the planner keeps its old choice until
+      -- the statistics say otherwise, so the index alone changes nothing.
+      ANALYZE;
+    `,
+  },
 ];

@@ -60,6 +60,8 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
       { syntax: 'f:modern  ·  legal:commander', meaning: 'Legal (or restricted) in a format' },
       { syntax: 'banned:legacy', meaning: 'Banned in a format' },
       { syntax: 'restricted:vintage', meaning: 'Restricted in a format' },
+      { syntax: 'is:playable  ·  is:unplayable',
+        meaning: 'Cards legal in no format — Un-sets, playtest cards — are hidden by default' },
     ],
   },
   {
@@ -73,6 +75,7 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
       { syntax: 'is:land  ·  is:creature  ·  is:spell', meaning: 'Broad type shortcuts' },
       { syntax: 'is:partner  ·  is:background', meaning: 'Can pair as a commander' },
       { syntax: 'is:digital  ·  is:paper', meaning: 'Alchemy and Arena-only cards are hidden by default' },
+      { syntax: 'is:hybrid', meaning: 'Hybrid mana in the cost' },
     ],
   },
   {

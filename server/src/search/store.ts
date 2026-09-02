@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { compileQuery, mentionsDigital } from './query.ts';
+import { compileQuery, mentionsDigital, mentionsLegality } from './query.ts';
 import { normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
 
 /**
@@ -33,6 +33,8 @@ export interface SearchFilters {
   includeDigital?: boolean;
   /** Art series, tokens and emblems are hidden unless asked for. */
   includeExtras?: boolean;
+  /** Cards legal in no format — Un-sets, playtest cards — hidden unless asked for. */
+  includeUnplayable?: boolean;
 }
 
 export type SortOrder = 'relevance' | 'name' | 'manaValue' | 'newest' | 'price' | 'edhrec';
@@ -144,6 +146,24 @@ export class CardSearchStore {
     // explicit is:digital / is:paper in the query wins over the default.
     if (!filters.includeDigital && !mentionsDigital(text)) {
       where.push('COALESCE(dp.is_digital, 0) = 0');
+    }
+
+    // Un-cards, "Unknown Event" cards and Mystery Booster playtest cards are
+    // legal nowhere and are 6% of the database. Tested by legality rather than
+    // by set, because joke sets are not uniformly illegal — Unfinity's
+    // non-acorn cards are legal in Legacy, Vintage and Commander.
+    //
+    // Planes, schemes and vanguards are spared: they are real cards for their
+    // own formats, and EXTRA_LAYOUTS already keeps them for the same reason.
+    //
+    // Switched off by an explicit legality term, or `banned:vintage` would
+    // return nothing — a card banned everywhere is legal nowhere by definition,
+    // which is exactly what makes it interesting to ask about.
+    if (!filters.includeUnplayable && !mentionsLegality(text)) {
+      where.push(`(o.layout IN ('planar','scheme','vanguard')
+                   OR EXISTS (SELECT 1 FROM card_legalities cl
+                              WHERE cl.oracle_id = o.oracle_id
+                                AND cl.legality IN ('legal','restricted')))`);
     }
 
     if (!filters.includeExtras) {

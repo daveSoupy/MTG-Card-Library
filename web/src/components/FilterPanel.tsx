@@ -14,6 +14,7 @@ export interface Filters {
   maxCmc: string;
   includeDigital: boolean;
   includeExtras: boolean;
+  includeUnplayable: boolean;
 }
 
 export const EMPTY_FILTERS: Filters = {
@@ -29,6 +30,7 @@ export const EMPTY_FILTERS: Filters = {
   maxCmc: '',
   includeDigital: false,
   includeExtras: false,
+  includeUnplayable: false,
 };
 
 /**
@@ -47,7 +49,7 @@ const RARITIES = ['common', 'uncommon', 'rare', 'mythic'];
 export const filtersAreActive = (f: Filters): boolean =>
   f.ownedOnly || f.colors.length > 0 || f.gold || f.hybrid ||
   f.rarities.length > 0 || f.set !== '' ||
-  f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras;
+  f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras || f.includeUnplayable;
 
 
 /** Says in words what the colour pills currently mean. */
@@ -233,6 +235,14 @@ export function FilterPanel({
             onChange={(e) => set('includeExtras', e.target.checked)}
           />
           Tokens, emblems and art cards
+        </label>
+        <label className="check" style={{ marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={filters.includeUnplayable}
+            onChange={(e) => set('includeUnplayable', e.target.checked)}
+          />
+          Un-sets, playtest and unplayable cards
         </label>
       </div>
 
