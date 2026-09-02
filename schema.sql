@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 6;
+PRAGMA user_version = 7;
 
 
 -- =====================================================================
@@ -609,6 +609,13 @@ CREATE TABLE printing_price_history (
 -- ON DELETE CASCADE + a view — no fix-up pass, and no way to leak.
 -- =====================================================================
 
+-- cover_printing_id is last because ALTER TABLE ADD COLUMN appends, and a
+-- migrated database has to match this file column for column. Its comment is
+-- out here rather than beside it because a comment inside the column list
+-- corrupts the DDL SQLite rewrites during DROP COLUMN.
+--
+-- cover_printing_id: the card whose art fronts this deck in the list. NULL
+-- means "work it out from the contents" — see DeckStore.list().
 CREATE TABLE decks (
     id              INTEGER PRIMARY KEY,
     name            TEXT    NOT NULL,
@@ -622,10 +629,45 @@ CREATE TABLE decks (
     is_archived     INTEGER NOT NULL DEFAULT 0,
     sort_order      INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-    updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    cover_printing_id TEXT REFERENCES card_printings(id) ON DELETE SET NULL
 );
 CREATE INDEX idx_decks_format ON decks(format_code);
 CREATE INDEX idx_decks_home   ON decks(home_location_id);
+
+-- Free-form labels on a deck: 'cEDH', 'budget', 'built', 'needs cards'. One
+-- table rather than a tag entity plus a link table, because with a single user
+-- renaming a tag is an UPDATE and there is nothing else to hang off it.
+CREATE TABLE deck_tags (
+    deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    tag     TEXT    NOT NULL,
+    PRIMARY KEY (deck_id, tag)
+);
+CREATE UNIQUE INDEX idx_deck_tag_ci ON deck_tags(deck_id, tag COLLATE NOCASE);
+CREATE INDEX idx_deck_tags_tag ON deck_tags(tag COLLATE NOCASE);
+
+-- A deck as it stood at a moment, so a rebuild is reversible. Deliberately a
+-- copy of the card rows rather than a diff: a diff chain has to be replayed to
+-- be read, and these are small.
+CREATE TABLE deck_snapshots (
+    id         INTEGER PRIMARY KEY,
+    deck_id    INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    name       TEXT    NOT NULL,
+    note       TEXT,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX idx_deck_snapshots_deck ON deck_snapshots(deck_id, created_at DESC);
+
+CREATE TABLE deck_snapshot_cards (
+    snapshot_id    INTEGER NOT NULL REFERENCES deck_snapshots(id) ON DELETE CASCADE,
+    oracle_id      TEXT    NOT NULL,
+    board          TEXT    NOT NULL,
+    quantity       INTEGER NOT NULL,
+    quantity_from_collection INTEGER NOT NULL DEFAULT 0,
+    category       TEXT,
+    commander_role TEXT,
+    PRIMARY KEY (snapshot_id, oracle_id, board)
+);
 
 CREATE TABLE deck_cards (
     id                      INTEGER PRIMARY KEY,

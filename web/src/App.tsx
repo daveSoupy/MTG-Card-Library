@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  fetchFormats, fetchLocations, fetchSets, fetchStatus, imageUrl, searchCards,
+  fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchStatus, imageUrl, searchCards,
   type CardSummary, type FormatRecord, type SetRecord, type StatusResponse,
   type StorageLocation,
 } from './api.ts';
@@ -23,6 +23,25 @@ const SORTS = [
 ] as const;
 
 const PAGE_SIZE = 60;
+
+type Theme = 'system' | 'light' | 'dark';
+const THEME_KEY = 'mtg.theme';
+const THEME_LABEL: Record<Theme, string> = { system: 'Auto', light: 'Light', dark: 'Dark' };
+
+/**
+ * Reads the saved theme.
+ *
+ * localStorage throws outright in some privacy modes rather than returning
+ * null, so this must not be the thing that stops the app rendering.
+ */
+function storedTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
+  } catch {
+    return 'system';
+  }
+}
 
 /** The filter panel's state as the search API wants it. Shared by the initial
  *  search and by "Load more", so the two cannot drift apart. */
@@ -73,6 +92,16 @@ export default function App() {
   const [dataEpoch, setDataEpoch] = useState(0);
   const [formats, setFormats] = useState<FormatRecord[]>([]);
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
+  const [theme, setTheme] = useState<Theme>(storedTheme);
+
+  // 'system' removes the attribute rather than setting one, so the stylesheet's
+  // prefers-color-scheme rule takes over again.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'system') root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', theme);
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
+  }, [theme]);
 
   const searchInput = useRef<HTMLInputElement>(null);
 
@@ -191,6 +220,27 @@ export default function App() {
           </>
         )}
         {view.name !== 'browse' && <div style={{ flex: 1 }} />}
+        {view.name === 'browse' && (
+          <button
+            className="btn secondary"
+            title="Show a random card matching the current filters"
+            onClick={() => {
+              fetchRandomCard(searchParamsFor(text, filters, sort))
+                .then((card) => setSelected(card.oracleId))
+                .catch((cause) => setError(cause.message));
+            }}
+          >
+            Random
+          </button>
+        )}
+        <button
+          className="btn secondary theme-toggle"
+          title={`Theme: ${THEME_LABEL[theme]} — click to change`}
+          onClick={() => setTheme((current) =>
+            current === 'system' ? 'light' : current === 'light' ? 'dark' : 'system')}
+        >
+          {theme === 'system' ? '◐' : theme === 'light' ? '☀' : '☾'}
+        </button>
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
