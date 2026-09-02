@@ -418,6 +418,11 @@ export class CardImporter {
            WHERE p.oracle_id = oracle_cards.oracle_id
            ORDER BY
              (COALESCE(p.image_normal, f.image_normal) IS NULL) ASC,
+             -- English first, above every other preference: a readable card in
+             -- the wrong frame beats an unreadable one in the right frame.
+             -- Ranked, not filtered, so the handful of cards printed only in
+             -- Japanese or French still get their art.
+             (COALESCE(p.lang, 'en') <> 'en') ASC,
              p.is_digital ASC,
              p.is_oversized ASC,
              p.is_promo ASC,
