@@ -39,7 +39,7 @@ function filtersFrom(q: Record<string, unknown>): SearchFilters {
     includeDigital: asBool(q.includeDigital),
     includeExtras: asBool(q.includeExtras),
     includeUnplayable: asBool(q.includeUnplayable),
-    includeUniversesBeyond: asBool(q.includeUniversesBeyond),
+    excludeUniversesBeyond: asBool(q.excludeUniversesBeyond),
   };
 }
 

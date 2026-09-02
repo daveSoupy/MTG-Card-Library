@@ -15,7 +15,7 @@ export interface Filters {
   includeDigital: boolean;
   includeExtras: boolean;
   includeUnplayable: boolean;
-  includeUniversesBeyond: boolean;
+  excludeUniversesBeyond: boolean;
 }
 
 export const EMPTY_FILTERS: Filters = {
@@ -32,7 +32,7 @@ export const EMPTY_FILTERS: Filters = {
   includeDigital: false,
   includeExtras: false,
   includeUnplayable: false,
-  includeUniversesBeyond: false,
+  excludeUniversesBeyond: false,
 };
 
 /**
@@ -52,7 +52,7 @@ export const filtersAreActive = (f: Filters): boolean =>
   f.ownedOnly || f.colors.length > 0 || f.gold || f.hybrid ||
   f.rarities.length > 0 || f.set !== '' ||
   f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras || f.includeUnplayable ||
-  f.includeUniversesBeyond;
+  f.excludeUniversesBeyond;
 
 
 /** Says in words what the colour pills currently mean. */
@@ -247,11 +247,21 @@ export function FilterPanel({
           />
           Un-sets, playtest and unplayable cards
         </label>
-        <label className="check" style={{ marginTop: 6 }}>
+      </div>
+
+      {/*
+        Its own group because it hides rather than shows. Putting an exclusion
+        among the "Include" boxes would mean two opposite meanings under one
+        heading, and a checkbox whose default state disagreed with its
+        neighbours for reasons nothing on screen explained.
+      */}
+      <div className="fgroup">
+        <h3>Exclude</h3>
+        <label className="check">
           <input
             type="checkbox"
-            checked={filters.includeUniversesBeyond}
-            onChange={(e) => set('includeUniversesBeyond', e.target.checked)}
+            checked={filters.excludeUniversesBeyond}
+            onChange={(e) => set('excludeUniversesBeyond', e.target.checked)}
           />
           Universes Beyond crossovers
         </label>

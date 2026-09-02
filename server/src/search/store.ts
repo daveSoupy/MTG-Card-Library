@@ -1,7 +1,5 @@
 import type Database from 'better-sqlite3';
-import {
-  compileQuery, mentionsDigital, mentionsLegality, mentionsUniversesBeyond,
-} from './query.ts';
+import { compileQuery, mentionsDigital, mentionsLegality } from './query.ts';
 import { normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
 
 /**
@@ -38,10 +36,12 @@ export interface SearchFilters {
   /** Cards legal in no format — Un-sets, playtest cards — hidden unless asked for. */
   includeUnplayable?: boolean;
   /**
-   * Crossover cards — Lord of the Rings, Final Fantasy, Marvel and the rest —
-   * hidden unless asked for, like the three above.
+   * Hide crossover cards — Lord of the Rings, Final Fantasy, Marvel and the
+   * rest. The opposite polarity to the three above, on purpose: those hide
+   * clutter by default, whereas crossover cards are real tournament cards and
+   * are shown until you ask for them to go.
    */
-  includeUniversesBeyond?: boolean;
+  excludeUniversesBeyond?: boolean;
 }
 
 export type SortOrder = 'relevance' | 'name' | 'manaValue' | 'newest' | 'price' | 'edhrec';
@@ -185,7 +185,7 @@ export class CardSearchStore {
                             AND cl.legality IN ('legal','restricted'))`);
     }
 
-    if (!filters.includeUniversesBeyond && !mentionsUniversesBeyond(text)) {
+    if (filters.excludeUniversesBeyond) {
       // A card counts as Universes Beyond when it has *no* ordinary printing.
       // Testing "has a UB printing" instead would take Sol Ring and Command
       // Tower with it, since those are reprinted in the crossover precons —
