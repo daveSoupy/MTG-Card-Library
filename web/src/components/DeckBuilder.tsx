@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addDeckCard, fetchDeck, imageUrl, removeDeckCard, searchCards, updateDeck, updateDeckCard,
+  addDeckCard, fetchDeck, imageUrl, removeDeckCard, searchCards, setDeckCover,
+  updateDeck, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
+import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
@@ -108,6 +110,8 @@ export function DeckBuilder({
   const [shopping, setShopping] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [history, setHistory] = useState(false);
+  const [coverNote, setCoverNote] = useState<string | null>(null);
 
   const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
   const setView = (next: DeckViewMode) => {
@@ -237,6 +241,7 @@ export function DeckBuilder({
           Shopping list
           {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
         </button>
+        <button className="btn secondary" onClick={() => setHistory(true)}>History</button>
         <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
         <button className="btn secondary" onClick={() => setImporting(true)}>Import</button>
         {busy && <span className="count">saving…</span>}
@@ -247,6 +252,13 @@ export function DeckBuilder({
       {playtesting && <PlaytestPanel deck={deck} onClose={() => setPlaytesting(false)} />}
       {exporting && (
         <DeckExportDialog deckId={deck.id} deckName={deck.name} onClose={() => setExporting(false)} />
+      )}
+      {history && (
+        <DeckHistoryPanel
+          deckId={deck.id}
+          onRestored={load}
+          onClose={() => setHistory(false)}
+        />
       )}
       {importing && (
         <DeckImportDialog
@@ -420,12 +432,26 @@ export function DeckBuilder({
           </div>
 
           {preview && (
-            <img
-              className="picker-preview"
-              src={imageUrl(preview.printingId, 'normal')}
-              alt={preview.name}
-              decoding="async"
-            />
+            <>
+              <img
+                className="picker-preview"
+                src={imageUrl(preview.printingId, 'normal')}
+                alt={preview.name}
+                decoding="async"
+              />
+              {/* Here rather than on the deck row: you are already looking at
+                  the art, which is the thing being chosen. */}
+              <button
+                className="btn secondary small"
+                onClick={() => setDeckCover(deck.id, preview.printingId)
+                  .then(() => setCoverNote(preview.name))
+                  .catch((cause: unknown) =>
+                    setError(cause instanceof Error ? cause.message : String(cause)))}
+              >
+                Use as deck cover
+              </button>
+              {coverNote && <p className="note">Cover set to {coverNote}.</p>}
+            </>
           )}
         </div>
 

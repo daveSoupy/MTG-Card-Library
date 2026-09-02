@@ -20,6 +20,9 @@ export interface DeckSummary extends Deck {
   colorIdentity: string;
   commanderNames: string[];
   formatName: string | null;
+  tags: string[];
+  /** Explicit if one was chosen, otherwise worked out from the contents. */
+  coverPrintingId: string | null;
 }
 
 /**
@@ -93,6 +96,15 @@ export class DeckStore {
       byDeck.set(row.deck_id, [...(byDeck.get(row.deck_id) ?? []), row.name]);
     }
 
+    const tags = new Map<number, string[]>();
+    for (const row of this.db.prepare(
+      'SELECT deck_id, tag FROM deck_tags ORDER BY tag COLLATE NOCASE',
+    ).all() as any[]) {
+      tags.set(row.deck_id, [...(tags.get(row.deck_id) ?? []), row.tag]);
+    }
+
+    const covers = this.coverPrintings(rows.map((r) => r.id));
+
     return rows.map((row) => ({
       ...toDeck(row),
       formatName: row.format_name ?? null,
@@ -100,6 +112,8 @@ export class DeckStore {
       uniqueCards: row.unique_cards,
       colorIdentity: maskToColors(row.identity_mask),
       commanderNames: byDeck.get(row.id) ?? [],
+      tags: tags.get(row.id) ?? [],
+      coverPrintingId: covers.get(row.id) ?? null,
     }));
   }
 
@@ -192,6 +206,109 @@ export class DeckStore {
       imageSmall: row.image_small,
       priceUsd: row.price_usd,
     }));
+  }
+
+  /**
+   * The printing whose art fronts each deck.
+   *
+   * An explicit choice wins. Otherwise it is worked out from the contents, in
+   * the order you would point at a deck and describe it: its commander, then a
+   * legendary creature in the colour the deck mostly is, then simply its most
+   * expensive card. Resolved for every deck in one pass, because the deck list
+   * asks for all of them at once.
+   */
+  private coverPrintings(deckIds: number[]): Map<number, string> {
+    const covers = new Map<number, string>();
+    if (deckIds.length === 0) return covers;
+    const list = deckIds.map(() => '?').join(',');
+
+    for (const row of this.db.prepare(
+      `SELECT id, cover_printing_id FROM decks WHERE id IN (${list}) AND cover_printing_id IS NOT NULL`,
+    ).all(...deckIds) as any[]) {
+      covers.set(row.id, row.cover_printing_id);
+    }
+
+    const remaining = deckIds.filter((id) => !covers.has(id));
+    if (remaining.length === 0) return covers;
+    const rest = remaining.map(() => '?').join(',');
+
+    // One query, ranked: the CASE is the priority order, and the deck's own
+    // dominant colour decides which legendary counts as "on theme".
+    for (const row of this.db.prepare(`
+      WITH deck_colour AS (
+          SELECT dc.deck_id,
+                 -- The single colour with the most cards in the deck.
+                 (SELECT o2.color_identity_mask
+                    FROM deck_cards dc2
+                    JOIN oracle_cards o2 ON o2.oracle_id = dc2.oracle_id
+                   WHERE dc2.deck_id = dc.deck_id AND dc2.board <> 'maybe'
+                     AND o2.color_identity_mask <> 0
+                   GROUP BY o2.color_identity_mask
+                   ORDER BY SUM(dc2.quantity) DESC LIMIT 1) AS mask
+            FROM deck_cards dc
+           WHERE dc.deck_id IN (${rest})
+           GROUP BY dc.deck_id
+      )
+      SELECT dc.deck_id,
+             COALESCE(ap.printing_id, o.default_printing_id) AS printing_id,
+             CASE
+               WHEN dc.commander_role IS NOT NULL THEN 0
+               WHEN o.is_legendary = 1 AND o.type_line LIKE '%Creature%'
+                    AND o.color_identity_mask = COALESCE(k.mask, -1) THEN 1
+               WHEN o.is_legendary = 1 AND o.type_line LIKE '%Creature%' THEN 2
+               ELSE 3
+             END AS rank,
+             COALESCE(p.price_usd, 0) AS price
+        FROM deck_cards dc
+        JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
+        LEFT JOIN card_art_preferences ap ON ap.oracle_id = o.oracle_id
+        LEFT JOIN card_printings p ON p.id = COALESCE(ap.printing_id, o.default_printing_id)
+        LEFT JOIN deck_colour k ON k.deck_id = dc.deck_id
+       WHERE dc.deck_id IN (${rest}) AND dc.board <> 'maybe'
+         AND COALESCE(ap.printing_id, o.default_printing_id) IS NOT NULL
+       ORDER BY dc.deck_id, rank ASC, price DESC, o.name COLLATE NOCASE`)
+      .all(...remaining, ...remaining) as any[]) {
+      // Ordered, so the first row per deck is the winner.
+      if (!covers.has(row.deck_id)) covers.set(row.deck_id, row.printing_id);
+    }
+
+    return covers;
+  }
+
+  setCover(deckId: number, printingId: string | null): void {
+    this.db.prepare('UPDATE decks SET cover_printing_id = ? WHERE id = ?').run(printingId, deckId);
+    this.touch(deckId);
+  }
+
+  // -- tags --------------------------------------------------------------------
+
+  tags(deckId: number): string[] {
+    return (this.db.prepare(
+      'SELECT tag FROM deck_tags WHERE deck_id = ? ORDER BY tag COLLATE NOCASE',
+    ).all(deckId) as any[]).map((r) => r.tag);
+  }
+
+  /** Every tag in use, with how many decks carry it, for the filter bar. */
+  allTags(): Array<{ tag: string; deckCount: number }> {
+    return this.db.prepare(`
+      SELECT tag, COUNT(*) AS deckCount FROM deck_tags
+      GROUP BY tag COLLATE NOCASE ORDER BY tag COLLATE NOCASE`).all() as any[];
+  }
+
+  addTag(deckId: number, tag: string): void {
+    const cleaned = tag.trim();
+    if (!cleaned) return;
+    // The unique index is case-insensitive, so re-adding with different casing
+    // is a no-op rather than a duplicate.
+    this.db.prepare('INSERT OR IGNORE INTO deck_tags (deck_id, tag) VALUES (?, ?)')
+      .run(deckId, cleaned);
+    this.touch(deckId);
+  }
+
+  removeTag(deckId: number, tag: string): void {
+    this.db.prepare('DELETE FROM deck_tags WHERE deck_id = ? AND tag = ? COLLATE NOCASE')
+      .run(deckId, tag);
+    this.touch(deckId);
   }
 
   create(input: { name: string; formatCode?: string | null; description?: string | null }): number {

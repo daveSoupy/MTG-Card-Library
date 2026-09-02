@@ -360,6 +360,9 @@ export interface DeckSummary {
   commanderNames: string[];
   isArchived: boolean;
   updatedAt: string;
+  tags: string[];
+  /** Chosen if you picked one, otherwise worked out from the deck's contents. */
+  coverPrintingId: string | null;
 }
 
 async function send<T>(url: string, method: string, body?: unknown): Promise<T> {
@@ -798,3 +801,50 @@ export function fetchRandomCard(params: SearchParams = {}, signal?: AbortSignal)
   if (params.includeExtras) query.set('includeExtras', 'true');
   return getJson<CardDetail>(`/api/v1/cards/random?${query}`, signal);
 }
+
+// -- deck covers, tags and history --------------------------------------------
+
+export interface DeckTag { tag: string; deckCount: number }
+
+export interface DeckSnapshot {
+  id: number; deckId: number; name: string; note: string | null;
+  createdAt: string; cardCount: number; uniqueCards: number;
+}
+
+export interface DeckDiffEntry {
+  oracleId: string; name: string; board: string; from: number; to: number;
+}
+
+export interface DeckDiff {
+  added: DeckDiffEntry[]; removed: DeckDiffEntry[];
+  changed: DeckDiffEntry[]; unchanged: number;
+}
+
+export const setDeckCover = (deckId: number, printingId: string | null) =>
+  send<{ decks: DeckSummary[] }>(`/api/v1/decks/${deckId}/cover`, 'PUT', { printingId });
+
+export const fetchDeckTags = (signal?: AbortSignal) =>
+  getJson<{ tags: DeckTag[] }>('/api/v1/deck-tags', signal).then((r) => r.tags);
+
+export const addDeckTag = (deckId: number, tag: string) =>
+  send<{ tags: string[]; allTags: DeckTag[] }>(`/api/v1/decks/${deckId}/tags`, 'POST', { tag });
+
+export const removeDeckTag = (deckId: number, tag: string) =>
+  send<{ tags: string[]; allTags: DeckTag[] }>(
+    `/api/v1/decks/${deckId}/tags/${encodeURIComponent(tag)}`, 'DELETE');
+
+export const fetchSnapshots = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ snapshots: DeckSnapshot[] }>(`/api/v1/decks/${deckId}/snapshots`, signal)
+    .then((r) => r.snapshots);
+
+export const createSnapshot = (deckId: number, name?: string, note?: string) =>
+  send<{ snapshots: DeckSnapshot[] }>(`/api/v1/decks/${deckId}/snapshots`, 'POST', { name, note });
+
+export const fetchSnapshotDiff = (snapshotId: number, signal?: AbortSignal) =>
+  getJson<DeckDiff>(`/api/v1/snapshots/${snapshotId}/diff`, signal);
+
+export const restoreSnapshot = (snapshotId: number) =>
+  send<{ deck: Deck; snapshots: DeckSnapshot[] }>(`/api/v1/snapshots/${snapshotId}/restore`, 'POST');
+
+export const deleteSnapshot = (snapshotId: number) =>
+  send<void>(`/api/v1/snapshots/${snapshotId}`, 'DELETE');

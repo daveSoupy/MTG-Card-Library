@@ -1,6 +1,7 @@
 import { DeckImportDialog } from './DeckImportDialog.tsx';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  addDeckTag, removeDeckTag, imageUrl,
   createDeck, deleteDeck, duplicateDeck, fetchDecks,
   type DeckSummary, type FormatRecord,
 } from '../api.ts';
@@ -27,6 +28,26 @@ export function DeckList({
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [tagging, setTagging] = useState<number | null>(null);
+
+  // The tag list is derived from the decks rather than fetched separately —
+  // one source of truth, and it stays right after an add or a remove.
+  const allTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const deck of decks ?? []) {
+      for (const tag of deck.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([tag, deckCount]) => ({ tag, deckCount }))
+      .sort((a, b) => a.tag.localeCompare(b.tag, undefined, { sensitivity: 'base' }));
+  }, [decks]);
+
+  // A deck has to carry every selected tag, so stacking them narrows.
+  const shown = useMemo(
+    () => (decks ?? []).filter((deck) => activeTags.every((tag) => deck.tags.includes(tag))),
+    [decks, activeTags],
+  );
   const [name, setName] = useState('');
   const [formatCode, setFormatCode] = useState('commander');
   const [confirming, setConfirming] = useState<number | null>(null);
@@ -92,14 +113,47 @@ export function DeckList({
       {error && <div className="error">{error}</div>}
 
       {decks === null && <p className="loading">Loading…</p>}
+      {decks !== null && decks.length > 0 && shown.length === 0 && (
+        <p className="empty">No decks carry all of those tags.</p>
+      )}
       {decks?.length === 0 && (
         <p className="empty">No decks yet. Name one above and start building.</p>
       )}
 
+      {allTags.length > 0 && (
+        <div className="deck-tag-filter">
+          {allTags.map(({ tag, deckCount }) => (
+            <button
+              key={tag}
+              className="deck-tag"
+              aria-pressed={activeTags.includes(tag)}
+              onClick={() => setActiveTags((current) => current.includes(tag)
+                ? current.filter((t) => t !== tag)
+                : [...current, tag])}
+            >
+              {tag} <span className="dim">{deckCount}</span>
+            </button>
+          ))}
+          {activeTags.length > 0 && (
+            <button className="linkish" onClick={() => setActiveTags([])}>Clear</button>
+          )}
+        </div>
+      )}
+
       <div className="deck-cards">
-        {decks?.map((deck) => (
+        {shown?.map((deck) => (
           <div className="deck-card" key={deck.id}>
             <button className="deck-card-open" onClick={() => onOpen(deck.id)}>
+              {deck.coverPrintingId && (
+                <div className="deck-cover">
+                  <img
+                    src={imageUrl(deck.coverPrintingId, 'art_crop')}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </div>
+              )}
               <div className="deck-card-title">
                 <span>{deck.name}</span>
                 <span className="pips">
@@ -117,7 +171,39 @@ export function DeckList({
               <div className="deck-card-meta subtle">Edited {relativeDate(deck.updatedAt)}</div>
             </button>
 
+            {deck.tags.length > 0 && (
+              <div className="deck-tags">
+                {deck.tags.map((tag) => (
+                  <button
+                    key={tag}
+                    className="deck-tag"
+                    title={`Remove "${tag}"`}
+                    onClick={() => run(() => removeDeckTag(deck.id, tag))}
+                  >
+                    {tag} <span aria-hidden="true">×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {tagging === deck.id && (
+              <form
+                className="deck-tag-add"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const input = event.currentTarget.elements.namedItem('tag') as HTMLInputElement;
+                  const value = input.value.trim();
+                  if (value) run(() => addDeckTag(deck.id, value));
+                  setTagging(null);
+                }}
+              >
+                <input name="tag" autoFocus placeholder="Tag name" aria-label="New tag"
+                       onBlur={() => setTagging(null)} />
+              </form>
+            )}
+
             <div className="deck-card-actions">
+              <button className="linkish" onClick={() => setTagging(deck.id)}>Tag</button>
               <button className="linkish" onClick={() => run(() => duplicateDeck(deck.id))}>
                 Duplicate
               </button>

@@ -2,20 +2,23 @@ import { useEffect, useState } from 'react';
 import { imageUrl, type Deck } from '../api.ts';
 import {
   bottomCard, cardsToBottom, drawCard, mulligan, openingHand, summarizeHand,
-  type HandState,
+  startGame, nextTurn, playLand, castCard, canCast, isLandCard, summarizeMana,
+  type GameState,
 } from '../playtest.ts';
 
 /**
- * Opening hands, so a curve and a mana base can be judged by what they
- * actually draw rather than only by their charts.
+ * Opening hands and goldfishing.
  *
- * Deliberately not a game engine: no casting, no stack, no board.
+ * Draw seven, mulligan, then play it out: a land a turn, cast what the mana
+ * allows, and see whether the curve works. Still not a rules engine — no stack,
+ * no combat, no abilities and no opponent — so a card that resolves simply
+ * sits on the battlefield.
  */
 export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => void }) {
-  const [state, setState] = useState<HandState | null>(null);
+  const [state, setState] = useState<GameState | null>(null);
 
   useEffect(() => {
-    setState(openingHand(deck.cards));
+    setState(startGame(openingHand(deck.cards)));
   }, [deck.cards]);
 
   useEffect(() => {
@@ -28,13 +31,16 @@ export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => vo
 
   const mustBottom = cardsToBottom(state);
   const summary = summarizeHand(state.hand);
+  const mana = summarizeMana(state);
   const emptyDeck = state.deckSize === 0;
+  // Turn one is still the opening hand; the board only matters after that.
+  const started = state.turn > 1 || state.battlefield.length > 0;
 
   return (
     <div className="sync-overlay" onClick={onClose}>
       <div className="playtest-card" onClick={(e) => e.stopPropagation()}>
         <div className="syntax-head">
-          <h2>Opening hand</h2>
+          <h2>{started ? `Turn ${state.turn}` : 'Opening hand'}</h2>
           <button className="btn secondary" onClick={onClose}>Close</button>
         </div>
 
@@ -47,6 +53,12 @@ export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => vo
               <span><strong>{summary.spells}</strong> spells</span>
               <span>avg MV <strong>{summary.averageManaValue ?? '—'}</strong></span>
               <span>{state.library.length} left in library</span>
+              {started && (
+                <span>
+                  mana <strong>{mana.available}/{mana.total}</strong>
+                  {mana.colors.length > 0 && ` (${mana.colors.join('')})`}
+                </span>
+              )}
               {state.mulligans > 0 && (
                 <span className="tag warn">mulligan {state.mulligans}</span>
               )}
@@ -64,9 +76,25 @@ export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => vo
                 <button
                   className="playtest-card-tile"
                   key={`${card.oracleId}-${index}`}
-                  onClick={() => mustBottom > 0 && setState(bottomCard(state, index))}
-                  title={mustBottom > 0 ? `Put ${card.name} on the bottom` : `${card.name} — ${card.typeLine}`}
-                  disabled={mustBottom === 0}
+                  onClick={() => {
+                    if (mustBottom > 0) { setState(bottomCard(state, index)); return; }
+                    setState(isLandCard(card) ? playLand(state, index) : castCard(state, index));
+                  }}
+                  title={
+                    mustBottom > 0 ? `Put ${card.name} on the bottom`
+                      : isLandCard(card)
+                        ? (state.landPlayedThisTurn ? 'Already played a land this turn' : `Play ${card.name}`)
+                        : (canCast(state, index) ? `Cast ${card.name}` : `Not enough mana for ${card.name}`)
+                  }
+                  data-playable={
+                    mustBottom > 0 ? undefined
+                      : isLandCard(card) ? !state.landPlayedThisTurn : canCast(state, index)
+                  }
+                  disabled={
+                    mustBottom === 0 && (isLandCard(card)
+                      ? state.landPlayedThisTurn
+                      : !canCast(state, index))
+                  }
                 >
                   {card.printingId && card.imageSmall ? (
                     <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
@@ -77,13 +105,42 @@ export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => vo
               ))}
             </div>
 
+            {state.battlefield.length > 0 && (
+              <>
+                <h3 className="playtest-zone">Battlefield</h3>
+                <div className="playtest-hand battlefield">
+                  {state.battlefield.map((card, index) => (
+                    <div
+                      className={`playtest-card-tile${state.tapped.includes(index) ? ' tapped' : ''}`}
+                      key={`bf-${card.oracleId}-${index}`}
+                      title={state.tapped.includes(index) ? `${card.name} (tapped)` : card.name}
+                    >
+                      {card.printingId && card.imageSmall ? (
+                        <img src={imageUrl(card.printingId, 'small')} alt={card.name}
+                             loading="lazy" decoding="async" />
+                      ) : (
+                        <div className="placeholder">{card.name}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
             <div className="btnrow">
-              <button className="btn" onClick={() => setState(openingHand(deck.cards))}>
+              <button
+                className="btn"
+                onClick={() => setState(nextTurn(state))}
+                disabled={mustBottom > 0 || state.library.length === 0}
+              >
+                Next turn
+              </button>
+              <button className="btn secondary" onClick={() => setState(startGame(openingHand(deck.cards)))}>
                 New hand
               </button>
               <button
                 className="btn secondary"
-                onClick={() => setState(mulligan(deck.cards, state))}
+                onClick={() => setState(startGame(mulligan(deck.cards, state)))}
               >
                 Mulligan to {Math.max(0, 7 - state.mulligans - 1)}
               </button>
@@ -98,6 +155,8 @@ export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => vo
             <p className="note">
               London mulligan: each one draws a fresh seven, then that many cards go to the bottom.
               Only the maindeck is shuffled — sideboard, commanders and maybeboard are left out.
+              After that, click a land to play it and a spell to cast it; dimmed cards are ones
+              the mana will not currently pay for. No stack, no combat, no opponent.
             </p>
           </>
         )}

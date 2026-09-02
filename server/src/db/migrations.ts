@@ -69,4 +69,39 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 7,
+    description: 'Deck covers, tags and snapshots',
+    sql: `
+      ALTER TABLE decks ADD COLUMN cover_printing_id TEXT REFERENCES card_printings(id) ON DELETE SET NULL;
+
+      CREATE TABLE IF NOT EXISTS deck_tags (
+          deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+          tag     TEXT    NOT NULL,
+          PRIMARY KEY (deck_id, tag)
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_deck_tag_ci ON deck_tags(deck_id, tag COLLATE NOCASE);
+      CREATE INDEX IF NOT EXISTS idx_deck_tags_tag ON deck_tags(tag COLLATE NOCASE);
+
+      CREATE TABLE IF NOT EXISTS deck_snapshots (
+          id         INTEGER PRIMARY KEY,
+          deck_id    INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+          name       TEXT    NOT NULL,
+          note       TEXT,
+          created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_deck_snapshots_deck ON deck_snapshots(deck_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS deck_snapshot_cards (
+          snapshot_id    INTEGER NOT NULL REFERENCES deck_snapshots(id) ON DELETE CASCADE,
+          oracle_id      TEXT    NOT NULL,
+          board          TEXT    NOT NULL,
+          quantity       INTEGER NOT NULL,
+          quantity_from_collection INTEGER NOT NULL DEFAULT 0,
+          category       TEXT,
+          commander_role TEXT,
+          PRIMARY KEY (snapshot_id, oracle_id, board)
+      );
+    `,
+  },
 ];

@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import type Database from 'better-sqlite3';
 import { DeckNotFoundError, type DeckStore } from '../decks/store.ts';
 import { BOARDS, type Board, type CommanderRole } from '../decks/types.ts';
+import {
+  takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
+} from '../decks/snapshots.ts';
 
 const COMMANDER_ROLES: CommanderRole[] = ['commander', 'partner', 'background', 'companion'];
 
@@ -15,7 +19,11 @@ function asInt(value: unknown): number | undefined {
   return Number.isInteger(parsed) ? parsed : undefined;
 }
 
-export function registerDeckRoutes(app: FastifyInstance, decks: DeckStore): void {
+export function registerDeckRoutes(
+  app: FastifyInstance,
+  decks: DeckStore,
+  db: Database.Database,
+): void {
   /** Turns a missing deck into a 404 rather than a 500. */
   const guard = async <T>(reply: any, run: () => T) => {
     try {
@@ -154,5 +162,89 @@ export function registerDeckRoutes(app: FastifyInstance, decks: DeckStore): void
     const deck = decks.get(id);
     if (!deck) return reply.status(404).send({ error: 'No deck with that id.' });
     return { deck };
+  });
+
+  // -- cover art ---------------------------------------------------------------
+
+  app.put('/api/v1/decks/:id/cover', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
+    if (!decks.get(id)) return reply.status(404).send({ error: 'No such deck.' });
+
+    const printingId = (request.body as any)?.printingId ?? null;
+    if (printingId !== null && typeof printingId !== 'string') {
+      return reply.status(400).send({ error: 'printingId must be a string or null.' });
+    }
+    decks.setCover(id, printingId);
+    return { decks: decks.list() };
+  });
+
+  // -- tags --------------------------------------------------------------------
+
+  app.get('/api/v1/deck-tags', async () => ({ tags: decks.allTags() }));
+
+  app.post('/api/v1/decks/:id/tags', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
+    if (!decks.get(id)) return reply.status(404).send({ error: 'No such deck.' });
+
+    const tag = (request.body as any)?.tag;
+    if (typeof tag !== 'string' || tag.trim() === '') {
+      return reply.status(400).send({ error: 'A tag needs a name.' });
+    }
+    decks.addTag(id, tag);
+    return { tags: decks.tags(id), allTags: decks.allTags() };
+  });
+
+  app.delete('/api/v1/decks/:id/tags/:tag', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
+    const { tag } = request.params as any;
+    decks.removeTag(id, decodeURIComponent(tag));
+    return { tags: decks.tags(id), allTags: decks.allTags() };
+  });
+
+  // -- snapshots ---------------------------------------------------------------
+
+  app.get('/api/v1/decks/:id/snapshots', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
+    return { snapshots: listSnapshots(db, id) };
+  });
+
+  app.post('/api/v1/decks/:id/snapshots', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
+    if (!decks.get(id)) return reply.status(404).send({ error: 'No such deck.' });
+
+    const body = (request.body ?? {}) as any;
+    const name = typeof body.name === 'string' && body.name.trim()
+      ? body.name.trim()
+      : new Date().toISOString().slice(0, 16).replace('T', ' ');
+    takeSnapshot(db, id, name, typeof body.note === 'string' ? body.note : null);
+    return reply.status(201).send({ snapshots: listSnapshots(db, id) });
+  });
+
+  app.get('/api/v1/snapshots/:snapshotId/diff', async (request, reply) => {
+    const snapshotId = asInt((request.params as any).snapshotId);
+    if (snapshotId === undefined) return reply.status(400).send({ error: 'Bad snapshot id.' });
+    const diff = diffSnapshot(db, snapshotId);
+    if (!diff) return reply.status(404).send({ error: 'No such snapshot.' });
+    return diff;
+  });
+
+  app.post('/api/v1/snapshots/:snapshotId/restore', async (request, reply) => {
+    const snapshotId = asInt((request.params as any).snapshotId);
+    if (snapshotId === undefined) return reply.status(400).send({ error: 'Bad snapshot id.' });
+    const result = restoreSnapshot(db, snapshotId);
+    if (!result) return reply.status(404).send({ error: 'No such snapshot.' });
+    return { deck: decks.get(result.deckId), snapshots: listSnapshots(db, result.deckId) };
+  });
+
+  app.delete('/api/v1/snapshots/:snapshotId', async (request, reply) => {
+    const snapshotId = asInt((request.params as any).snapshotId);
+    if (snapshotId === undefined) return reply.status(400).send({ error: 'Bad snapshot id.' });
+    deleteSnapshot(db, snapshotId);
+    return reply.status(204).send();
   });
 }
