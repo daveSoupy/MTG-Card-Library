@@ -8,12 +8,29 @@ const MODERN: FormatRules = {
   code: 'modern', displayName: 'Modern',
   minDeckSize: 60, exactDeckSize: null, maxCopies: 4, basicsExempt: true,
   isSingleton: false, sideboardSize: 15, requiresCommander: false, enforcesColorIdentity: false,
+  commanderKind: 'legendary',
 };
 
 const COMMANDER: FormatRules = {
   code: 'commander', displayName: 'Commander',
   minDeckSize: null, exactDeckSize: 100, maxCopies: 1, basicsExempt: true,
   isSingleton: true, sideboardSize: 0, requiresCommander: true, enforcesColorIdentity: true,
+  commanderKind: 'legendary',
+};
+
+const OATHBREAKER: FormatRules = {
+  ...COMMANDER, code: 'oathbreaker', displayName: 'Oathbreaker',
+  exactDeckSize: 60, commanderKind: 'planeswalker',
+};
+
+const BRAWL: FormatRules = {
+  ...COMMANDER, code: 'brawl', displayName: 'Brawl',
+  commanderKind: 'legendary_or_planeswalker',
+};
+
+const PDH: FormatRules = {
+  ...COMMANDER, code: 'paupercommander', displayName: 'Pauper Commander',
+  commanderKind: 'uncommon_creature',
 };
 
 const VINTAGE: FormatRules = { ...MODERN, code: 'vintage', displayName: 'Vintage' };
@@ -26,7 +43,7 @@ function card(overrides: Partial<DeckCard> = {}): DeckCard {
     commanderRole: null, category: null, sortOrder: 0,
     cmc: 2, typeLine: 'Creature — Human', manaCost: '{1}{G}',
     colorIdentity: 'G', colorIdentityMask: 16, colorsMask: 16,
-    isBasicLand: false, isLegendary: false, canBeCommander: false,
+    isBasicLand: false, isLegendary: false, canBeCommander: false, hasUncommonPrinting: false,
     partnerKind: null, partnerWith: null,
     legality: 'legal', ownedQuantity: 0, availableQuantity: 0,
     printingId: null, setCode: null, rarity: 'common', imageSmall: null, priceUsd: null,
@@ -188,7 +205,7 @@ test('a card that cannot be a commander is rejected in the command zone', () => 
   );
   const issue = result.issues.find((i) => i.code === 'missing_commander');
   assert.ok(issue);
-  assert.match(issue!.message, /cannot be a commander/);
+  assert.match(issue!.message, /cannot lead a Commander deck/);
 });
 
 test('two commanders are allowed here; three are not', () => {
@@ -406,4 +423,54 @@ test('the four pairing mechanics do not interchange', () => {
 test('a single commander needs no pairing at all', () => {
   const result = validateDeck([commanderOf({ partnerKind: null }), ...filler(99)], COMMANDER);
   assert.equal(result.issues.filter((i) => i.code === 'invalid_pairing').length, 0);
+});
+
+
+// -- per-format commander eligibility -----------------------------------------
+
+/**
+ * "Commander" is four different rules. can_be_commander only answers the
+ * Commander-format one, and applying it everywhere rejected legal Oathbreaker
+ * and Brawl commanders — 46 of 351 legendary planeswalkers carry the flag.
+ */
+const walker = () => card({
+  name: 'Teferi, Hero of Dominaria', board: 'command',
+  typeLine: 'Legendary Planeswalker — Teferi', isLegendary: true, canBeCommander: false,
+});
+const legend = () => card({
+  name: 'Atraxa', board: 'command',
+  typeLine: 'Legendary Creature — Angel', isLegendary: true, canBeCommander: true,
+});
+const badCommander = (result: { issues: Array<{ code: string; message: string }> }) =>
+  result.issues.some((i) => i.code === 'missing_commander' && /cannot lead/.test(i.message));
+
+test('Oathbreaker takes a planeswalker and not a legendary creature', () => {
+  assert.equal(badCommander(validateDeck([walker(), ...filler(59)], OATHBREAKER)), false);
+  assert.equal(badCommander(validateDeck([legend(), ...filler(59)], OATHBREAKER)), true);
+});
+
+test('Commander takes a legendary creature and not a bare planeswalker', () => {
+  assert.equal(badCommander(validateDeck([legend(), ...filler(99)], COMMANDER)), false);
+  // The pre-existing bug ran the other way: this used to be the only rule.
+  assert.equal(badCommander(validateDeck([walker(), ...filler(99)], COMMANDER)), true);
+});
+
+test('Brawl takes either', () => {
+  assert.equal(badCommander(validateDeck([legend(), ...filler(99)], BRAWL)), false);
+  assert.equal(badCommander(validateDeck([walker(), ...filler(99)], BRAWL)), false);
+});
+
+test('Pauper Commander asks about the printing, not the card', () => {
+  const uncommon = card({
+    name: 'Ardenvale Tactician', board: 'command',
+    typeLine: 'Creature — Human Knight', hasUncommonPrinting: true,
+  });
+  const rare = card({
+    name: 'Rare Thing', board: 'command',
+    typeLine: 'Creature — Human', hasUncommonPrinting: false,
+  });
+  assert.equal(badCommander(validateDeck([uncommon, ...filler(99)], PDH)), false);
+  assert.equal(badCommander(validateDeck([rare, ...filler(99)], PDH)), true);
+  // Being a legendary creature does not help if it was never printed uncommon.
+  assert.equal(badCommander(validateDeck([legend(), ...filler(99)], PDH)), true);
 });

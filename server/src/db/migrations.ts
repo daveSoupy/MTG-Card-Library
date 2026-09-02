@@ -116,4 +116,15 @@ export const MIGRATIONS: Migration[] = [
       ANALYZE;
     `,
   },
+  {
+    version: 9,
+    description: 'Per-format commander eligibility',
+    sql: `
+      ALTER TABLE formats ADD COLUMN commander_kind TEXT NOT NULL DEFAULT 'legendary';
+
+      UPDATE formats SET commander_kind = 'planeswalker'              WHERE code = 'oathbreaker';
+      UPDATE formats SET commander_kind = 'legendary_or_planeswalker' WHERE code IN ('brawl','standardbrawl');
+      UPDATE formats SET commander_kind = 'uncommon_creature'         WHERE code = 'paupercommander';
+    `,
+  },
 ];

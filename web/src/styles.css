@@ -1090,3 +1090,19 @@ input[type='number'] { width: 72px; }
 .playtest-card-tile[data-playable="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .theme-toggle { min-width: 34px; }
+
+/* The command zone's empty state, and the picker mode it turns on. */
+.command-empty {
+  display: grid; gap: 2px; width: 100%; text-align: left; cursor: pointer;
+  padding: 10px 12px; border-radius: var(--radius);
+  border: 1px dashed var(--line-strong); background: var(--panel-2); color: var(--text-2);
+}
+.command-empty:hover { border-color: var(--accent); color: var(--text); }
+.command-empty strong { font-size: 12.5px; font-weight: 600; }
+.command-empty span { font-size: 11px; color: var(--text-3); }
+
+.picking-note {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  margin: 8px 0; padding: 5px 8px; border-radius: var(--radius);
+  background: var(--accent-dim); color: var(--text); font-size: 11.5px;
+}

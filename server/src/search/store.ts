@@ -36,6 +36,12 @@ export interface SearchFilters {
   /** Cards legal in no format — Un-sets, playtest cards — hidden unless asked for. */
   includeUnplayable?: boolean;
   /**
+   * A format code: restrict results to cards that could lead a deck in it.
+   * The rule differs per format, so the server resolves it rather than making
+   * the client encode four variants of "commander".
+   */
+  commanderFor?: string;
+  /**
    * Hide crossover cards — Lord of the Rings, Final Fantasy, Marvel and the
    * rest. The opposite polarity to the three above, on purpose: those hide
    * clutter by default, whereas crossover cards are real tournament cards and
@@ -183,6 +189,24 @@ export class CardSearchStore {
       where.push(`EXISTS (SELECT 1 FROM card_legalities cl
                           WHERE cl.oracle_id = o.oracle_id
                             AND cl.legality IN ('legal','restricted'))`);
+    }
+
+    if (filters.commanderFor) {
+      const kind = (this.db.prepare('SELECT commander_kind FROM formats WHERE code = ?')
+        .get(filters.commanderFor) as { commander_kind: string } | undefined)?.commander_kind;
+      const legendaryWalker = `(o.is_legendary = 1 AND o.type_line LIKE '%Planeswalker%')`;
+
+      if (kind === 'planeswalker') {
+        where.push(legendaryWalker);
+      } else if (kind === 'legendary_or_planeswalker') {
+        where.push(`(o.can_be_commander = 1 OR ${legendaryWalker})`);
+      } else if (kind === 'uncommon_creature') {
+        where.push(`(o.type_line LIKE '%Creature%' AND EXISTS (
+                      SELECT 1 FROM card_printings ucp
+                      WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon'))`);
+      } else if (kind) {
+        where.push('o.can_be_commander = 1');
+      }
     }
 
     if (filters.excludeUniversesBeyond) {
@@ -479,7 +503,8 @@ export class CardSearchStore {
 
   formats() {
     return this.db.prepare(
-      'SELECT code, display_name FROM formats WHERE is_active = 1 ORDER BY sort_order',
+      `SELECT code, display_name, requires_commander AS requiresCommander
+     FROM formats WHERE is_active = 1 ORDER BY sort_order`,
     ).all() as any[];
   }
 }
