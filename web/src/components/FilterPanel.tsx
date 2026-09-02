@@ -123,32 +123,31 @@ export function FilterPanel({
               {code}
             </button>
           ))}
-        </div>
-        <div className="pills" style={{ marginTop: 6 }}>
+
           {/*
-            Gold is about how many colours a card is, not which — so it is a
-            separate toggle rather than a seventh identity pill. Hybrid is about
-            the cost: {G/W} is one mana symbol that plays as either colour, and
-            such a card can be mono-coloured by identity.
+            These two sit with the colour pills because that is where you look
+            for them, but they answer different questions. The pills above are
+            "which colours"; M is "how many" (two or more), and H is about the
+            cost — a {G/W} card can be mono-coloured by identity and still be
+            hybrid. So they toggle independently rather than joining the set.
           */}
           <button
-            className="pill wide"
+            className="pill color M"
             aria-pressed={filters.gold}
-            title="Cards with two or more colours"
+            title="Gold — two or more colours"
             onClick={() => set('gold', !filters.gold)}
           >
-            Gold
+            M
           </button>
           <button
-            className="pill wide"
+            className="pill color H"
             aria-pressed={filters.hybrid}
-            title="Cards with hybrid mana symbols, like {G/W}"
+            title="Hybrid mana, like {G/W}"
             onClick={() => set('hybrid', !filters.hybrid)}
           >
-            Hybrid
+            H
           </button>
         </div>
-
         {filters.colors.length > 0 && (
           <>
             <label className="check" style={{ marginTop: 8 }}>
