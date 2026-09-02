@@ -129,6 +129,8 @@ export interface SetRecord {
 export interface FormatRecord {
   code: string;
   display_name: string;
+  /** 1 when the format has a command zone. Drives the deck builder's slot. */
+  requiresCommander?: number;
 }
 
 export interface SearchParams {
@@ -147,6 +149,8 @@ export interface SearchParams {
   includeExtras?: boolean;
   includeUnplayable?: boolean;
   excludeUniversesBeyond?: boolean;
+  /** Restrict to cards that could lead a deck in this format. */
+  commanderFor?: string;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -186,6 +190,7 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.includeExtras) query.set('includeExtras', 'true');
   if (params.includeUnplayable) query.set('includeUnplayable', 'true');
   if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
+  if (params.commanderFor) query.set('commanderFor', params.commanderFor);
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
@@ -410,6 +415,7 @@ export const updateDeckCard = (
   cardId: number,
   changes: {
     quantity?: number; fromCollection?: number; board?: Board;
+    commanderRole?: string | null;
     category?: string | null; preferredPrintingId?: string | null;
   },
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
@@ -805,6 +811,7 @@ export function fetchRandomCard(params: SearchParams = {}, signal?: AbortSignal)
   if (params.includeExtras) query.set('includeExtras', 'true');
   if (params.includeUnplayable) query.set('includeUnplayable', 'true');
   if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
+  if (params.commanderFor) query.set('commanderFor', params.commanderFor);
   return getJson<CardDetail>(`/api/v1/cards/random?${query}`, signal);
 }
 

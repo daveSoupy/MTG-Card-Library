@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { validateDeck } from './validate.ts';
+import { validateDeck, canLeadDeck, pairingIsLegal } from './validate.ts';
 import { deckStats } from './stats.ts';
 import { analyseManaBase } from './manabase.ts';
 import type { ManaBase } from './manabase.ts';
@@ -56,6 +56,7 @@ export class DeckStore {
       sideboardSize: row.sideboard_size,
       requiresCommander: Boolean(row.requires_commander),
       enforcesColorIdentity: Boolean(row.enforces_color_id),
+      commanderKind: (row.commander_kind ?? 'legendary') as FormatRules['commanderKind'],
     };
   }
 
@@ -147,6 +148,9 @@ export class DeckStore {
              o.name, o.cmc, o.type_line, o.mana_cost, o.color_identity,
              o.color_identity_mask, o.colors_mask, o.is_basic_land, o.is_legendary,
              o.can_be_commander, o.partner_kind, o.partner_with, o.produced_mana,
+             EXISTS (SELECT 1 FROM card_printings ucp
+                     WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon')
+               AS has_uncommon_printing,
              cl.legality,
              COALESCE(owned.qty, 0) AS owned_qty,
              COALESCE(owned.qty, 0)
@@ -194,6 +198,7 @@ export class DeckStore {
       isBasicLand: Boolean(row.is_basic_land),
       isLegendary: Boolean(row.is_legendary),
       canBeCommander: Boolean(row.can_be_commander),
+      hasUncommonPrinting: Boolean(row.has_uncommon_printing),
       producedMana: parseJsonArray(row.produced_mana),
       partnerKind: row.partner_kind,
       partnerWith: row.partner_with,
@@ -385,13 +390,26 @@ export class DeckStore {
   addCard(
     deckId: number,
     oracleId: string,
-    options: { board?: Board; quantity?: number; fromCollection?: number } = {},
+    options: {
+      board?: Board;
+      quantity?: number;
+      fromCollection?: number;
+      commanderRole?: CommanderRole | null;
+    } = {},
   ): void {
-    const deck = this.db.prepare('SELECT id FROM decks WHERE id = ?').get(deckId);
+    const deck = this.db.prepare('SELECT id, format_code FROM decks WHERE id = ?')
+      .get(deckId) as { id: number; format_code: string | null } | undefined;
     if (!deck) throw new DeckNotFoundError(deckId);
 
-    const board = options.board ?? 'main';
     const quantity = Math.max(1, options.quantity ?? 1);
+
+    // Only when the caller did not say. An explicit board always wins, which is
+    // what keeps the decklist importer — which always passes one — unaffected.
+    const placed = options.board !== undefined
+      ? { board: options.board, role: options.commanderRole ?? null }
+      : this.placeAutomatically(deckId, oracleId, deck.format_code);
+    const board = placed.board;
+    const commanderRole = placed.role;
 
     this.db.transaction(() => {
       const existing = this.db.prepare(
@@ -411,12 +429,85 @@ export class DeckStore {
               existing.id);
       } else {
         this.db.prepare(`
-          INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
-          VALUES (?,?,?,?,?)`)
-          .run(deckId, oracleId, board, quantity, Math.min(quantity, fromCollection));
+          INSERT INTO deck_cards (deck_id, oracle_id, board, quantity,
+                                  quantity_from_collection, commander_role)
+          VALUES (?,?,?,?,?,?)`)
+          .run(deckId, oracleId, board, quantity, Math.min(quantity, fromCollection),
+               board === 'command' ? (commanderRole ?? 'commander') : null);
       }
       this.touch(deckId);
     })();
+  }
+
+  /**
+   * Where a card goes when the caller did not say.
+   *
+   * Picking the commander is the first thing you do in a Commander deck, so the
+   * first card into an empty deck goes to the command zone if it can lead. Only
+   * the first: a Commander deck runs several legendary creatures in the 99, and
+   * anything more eager would keep stealing them.
+   *
+   * A second card joins it only when the pairing is actually legal — Partner,
+   * a named "Partner with", Friends forever, a Doctor and companion, or a
+   * Background and a card that chooses one.
+   */
+  private placeAutomatically(
+    deckId: number,
+    oracleId: string,
+    formatCode: string | null,
+  ): { board: Board; role: CommanderRole | null } {
+    const main = { board: 'main' as Board, role: null };
+
+    const rules = this.formatRules(formatCode);
+    if (!rules?.requiresCommander) return main;
+
+    const cards = this.cardsFor(deckId, formatCode);
+    const command = cards.filter((c) => c.board === 'command');
+
+    // Already paired, or the zone is full.
+    if (command.length >= 2) return main;
+    // Past the first pick, and nothing in the zone to pair with.
+    if (command.length === 0 && cards.length > 0) return main;
+
+    const incoming = this.cardForPlacement(oracleId);
+    if (!incoming) return main;
+
+    if (command.length === 0) {
+      return canLeadDeck(incoming, rules)
+        ? { board: 'command', role: 'commander' }
+        : main;
+    }
+
+    if (!pairingIsLegal(command[0], incoming)) return main;
+    return {
+      board: 'command',
+      role: incoming.partnerKind === 'background' ? 'background' : 'partner',
+    };
+  }
+
+  /**
+   * One prospective card in the same shape validation uses, so the placement
+   * rules and the validator cannot disagree about what a card is.
+   */
+  private cardForPlacement(oracleId: string): DeckCard | null {
+    const row = this.db.prepare(`
+      SELECT o.name, o.type_line, o.is_legendary, o.can_be_commander,
+             o.partner_kind, o.partner_with,
+             EXISTS (SELECT 1 FROM card_printings ucp
+                     WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon')
+               AS has_uncommon_printing
+      FROM oracle_cards o WHERE o.oracle_id = ?`).get(oracleId) as any;
+    if (!row) return null;
+
+    return {
+      name: row.name,
+      typeLine: row.type_line ?? '',
+      isLegendary: Boolean(row.is_legendary),
+      canBeCommander: Boolean(row.can_be_commander),
+      hasUncommonPrinting: Boolean(row.has_uncommon_printing),
+      partnerKind: row.partner_kind,
+      partnerWith: row.partner_with,
+    } as DeckCard;
   }
 
   /** Sets an exact quantity; 0 removes the slot. */

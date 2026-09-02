@@ -40,6 +40,8 @@ function filtersFrom(q: Record<string, unknown>): SearchFilters {
     includeExtras: asBool(q.includeExtras),
     includeUnplayable: asBool(q.includeUnplayable),
     excludeUniversesBeyond: asBool(q.excludeUniversesBeyond),
+    commanderFor: typeof q.commanderFor === 'string' && q.commanderFor
+      ? q.commanderFor.toLowerCase() : undefined,
   };
 }
 

@@ -17,7 +17,15 @@ export interface FormatRules {
   sideboardSize: number | null;
   requiresCommander: boolean;
   enforcesColorIdentity: boolean;
+  /** What may lead the deck; see the formats table comment in schema.sql. */
+  commanderKind: CommanderKind;
 }
+
+export type CommanderKind =
+  | 'legendary'
+  | 'planeswalker'
+  | 'legendary_or_planeswalker'
+  | 'uncommon_creature';
 
 /** One card slot in a deck, joined with everything validation and stats need. */
 export interface DeckCard {
@@ -40,6 +48,8 @@ export interface DeckCard {
   isBasicLand: boolean;
   isLegendary: boolean;
   canBeCommander: boolean;
+  /** Pauper Commander needs an uncommon creature, and rarity is per printing. */
+  hasUncommonPrinting: boolean;
   /** Colour symbols this card can produce, from Scryfall's produced_mana. */
   producedMana: string[];
   partnerKind: string | null;

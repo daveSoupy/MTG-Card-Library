@@ -185,6 +185,40 @@ function checkLegality(issues: DeckIssue[], rules: FormatRules, cards: DeckCard[
 }
 
 /**
+ * Whether a card may lead a deck in this format.
+ *
+ * "Commander" is not one rule. oracle_cards.can_be_commander answers only the
+ * Commander-format question — legendary creature, Vehicle or Spacecraft, or
+ * text that says it can be — and applying it everywhere rejected Oathbreaker's
+ * planeswalkers, of which only 46 of 351 carry the flag.
+ */
+export function canLeadDeck(card: DeckCard, rules: FormatRules): boolean {
+  const isPlaneswalker = card.isLegendary && card.typeLine.includes('Planeswalker');
+
+  switch (rules.commanderKind) {
+    case 'planeswalker':
+      return isPlaneswalker;
+    case 'legendary_or_planeswalker':
+      return card.canBeCommander || isPlaneswalker;
+    case 'uncommon_creature':
+      // Pauper Commander asks about the printing, not the card: an uncommon
+      // creature leads, whatever else it has been printed at.
+      return card.typeLine.includes('Creature') && card.hasUncommonPrinting;
+    case 'legendary':
+    default:
+      return card.canBeCommander;
+  }
+}
+
+/** What this format wants, for the message when a card cannot lead. */
+const COMMANDER_KIND_TEXT: Record<FormatRules['commanderKind'], string> = {
+  legendary: 'a legendary creature, Vehicle or Spacecraft, or a card whose text says it can be',
+  planeswalker: 'a legendary planeswalker',
+  legendary_or_planeswalker: 'a legendary creature or planeswalker',
+  uncommon_creature: 'a creature printed at uncommon',
+};
+
+/**
  * Commander presence, eligibility and pairing. The colour-identity restriction
  * is checked separately in checkColorIdentity, and the Commander ban list needs
  * no special handling — checkLegality already reads per-format legality, and
@@ -231,11 +265,11 @@ function checkCommander(
   }
 
   for (const card of command) {
-    if (!card.canBeCommander) {
+    if (!canLeadDeck(card, rules)) {
       issues.push({
         severity: 'error',
         code: 'missing_commander',
-        message: `${card.name} cannot be a commander — it is not a legendary creature, Vehicle or Spacecraft, and its text does not say it can be.`,
+        message: `${card.name} cannot lead a ${rules.displayName} deck — it needs ${COMMANDER_KIND_TEXT[rules.commanderKind]}.`,
         oracleId: card.oracleId,
         cardName: card.name,
       });

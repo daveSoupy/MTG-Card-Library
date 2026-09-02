@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 8;
+PRAGMA user_version = 9;
 
 
 -- =====================================================================
@@ -64,6 +64,15 @@ CREATE INDEX idx_sync_log_started ON sync_log(started_at DESC);
 -- Seeded reference data, NOT synced. Encodes the Phase 2 / Phase 3
 -- deck-construction rules so validation is data-driven instead of a
 -- switch statement. Rows are keyed by Scryfall's `legalities` keys.
+--
+-- commander_kind says what may lead the deck, because "commander" is not one
+-- rule. oracle_cards.can_be_commander answers only the Commander question:
+--   'legendary'                 legendary creature/Vehicle/Spacecraft, or text
+--   'planeswalker'              Oathbreaker — any legendary planeswalker
+--   'legendary_or_planeswalker' Brawl — either
+--   'uncommon_creature'         Pauper Commander
+-- It is last in the column list because ALTER TABLE ADD COLUMN appends, and a
+-- migrated database has to match this file column for column.
 CREATE TABLE formats (
     code                TEXT PRIMARY KEY,   -- 'standard','modern','commander','pauper',...
     display_name        TEXT    NOT NULL,
@@ -76,7 +85,8 @@ CREATE TABLE formats (
     requires_commander  INTEGER NOT NULL DEFAULT 0,
     enforces_color_id   INTEGER NOT NULL DEFAULT 0,   -- restrict deck to commander's color identity
     is_active           INTEGER NOT NULL DEFAULT 1,   -- show in the format picker
-    sort_order          INTEGER NOT NULL DEFAULT 0
+    sort_order          INTEGER NOT NULL DEFAULT 0,
+    commander_kind      TEXT    NOT NULL DEFAULT 'legendary'
 );
 
 
@@ -1264,6 +1274,11 @@ INSERT INTO formats
     ('oldschool',       'Old School',         60, NULL, 4, 0, 15, 0, 0, 0, 200),
     ('penny',           'Penny Dreadful',     60, NULL, 4, 0, 15, 0, 0, 0, 210),
     ('future',          'Future Standard',    60, NULL, 4, 0, 15, 0, 0, 0, 220);
+
+-- Formats whose command zone takes something other than a legendary creature.
+UPDATE formats SET commander_kind = 'planeswalker'              WHERE code = 'oathbreaker';
+UPDATE formats SET commander_kind = 'legendary_or_planeswalker' WHERE code IN ('brawl','standardbrawl');
+UPDATE formats SET commander_kind = 'uncommon_creature'         WHERE code = 'paupercommander';
 
 -- Fallback bucket. Phase 6 drops incoming trade cards here when no
 -- location is chosen; Phase 5 CSV import uses it for unmapped rows.
