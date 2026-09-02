@@ -15,6 +15,7 @@ export interface Filters {
   includeDigital: boolean;
   includeExtras: boolean;
   includeUnplayable: boolean;
+  excludeUniversesBeyond: boolean;
 }
 
 export const EMPTY_FILTERS: Filters = {
@@ -31,6 +32,7 @@ export const EMPTY_FILTERS: Filters = {
   includeDigital: false,
   includeExtras: false,
   includeUnplayable: false,
+  excludeUniversesBeyond: false,
 };
 
 /**
@@ -49,7 +51,8 @@ const RARITIES = ['common', 'uncommon', 'rare', 'mythic'];
 export const filtersAreActive = (f: Filters): boolean =>
   f.ownedOnly || f.colors.length > 0 || f.gold || f.hybrid ||
   f.rarities.length > 0 || f.set !== '' ||
-  f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras || f.includeUnplayable;
+  f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras || f.includeUnplayable ||
+  f.excludeUniversesBeyond;
 
 
 /** Says in words what the colour pills currently mean. */
@@ -243,6 +246,19 @@ export function FilterPanel({
             onChange={(e) => set('includeUnplayable', e.target.checked)}
           />
           Un-sets, playtest and unplayable cards
+        </label>
+        {/*
+          The odd one out: this starts checked, because crossover cards are
+          real tournament cards and are shown by default. The group still reads
+          consistently — every box says whether that category is included.
+        */}
+        <label className="check" style={{ marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={!filters.excludeUniversesBeyond}
+            onChange={(e) => set('excludeUniversesBeyond', !e.target.checked)}
+          />
+          Universes Beyond crossovers
         </label>
       </div>
 

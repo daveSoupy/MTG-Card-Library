@@ -148,6 +148,14 @@ function isFragment(value: string): Fragment | null {
     case 'creature':   return { sql: `o.type_line LIKE '%Creature%'`, params: [] };
     case 'digital':    return { sql: 'dp.is_digital = 1', params: [] };
     case 'paper':      return { sql: 'dp.is_digital = 0', params: [] };
+    case 'ub': case 'universesbeyond': {
+      // Scryfall marks these in promo_types, including on the Secret Lair
+      // crossover drops that live outside the crossover sets themselves.
+      return { sql: `NOT EXISTS (SELECT 1 FROM card_printings ubp
+                                 WHERE ubp.oracle_id = o.oracle_id
+                                   AND COALESCE(ubp.promo_types,'') NOT LIKE '%universesbeyond%')`,
+               params: [] };
+    }
     case 'playable': case 'unplayable': {
       // "Legal somewhere", the same test the format filter uses without
       // naming a format. Banned is not playable, which is why Chaos Orb

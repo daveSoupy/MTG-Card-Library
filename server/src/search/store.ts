@@ -35,6 +35,12 @@ export interface SearchFilters {
   includeExtras?: boolean;
   /** Cards legal in no format — Un-sets, playtest cards — hidden unless asked for. */
   includeUnplayable?: boolean;
+  /**
+   * Hide crossover cards — Lord of the Rings, Final Fantasy, Marvel and the
+   * rest. Opt-*out*, unlike the filters above: these are real tournament cards,
+   * not clutter, so they are shown until you say otherwise.
+   */
+  excludeUniversesBeyond?: boolean;
 }
 
 export type SortOrder = 'relevance' | 'name' | 'manaValue' | 'newest' | 'price' | 'edhrec';
@@ -176,6 +182,20 @@ export class CardSearchStore {
       where.push(`EXISTS (SELECT 1 FROM card_legalities cl
                           WHERE cl.oracle_id = o.oracle_id
                             AND cl.legality IN ('legal','restricted'))`);
+    }
+
+    if (filters.excludeUniversesBeyond) {
+      // A card counts as Universes Beyond when it has no ordinary printing at
+      // all. Testing "has a UB printing" would take Sol Ring and Command Tower
+      // with it, since those are reprinted in the crossover precons — 1,574
+      // cards are in both worlds, and only the 3,717 born in a crossover set
+      // are what anyone means by this.
+      // Keep a card when it has at least one ordinary printing. This is the
+      // negation of is:ub, and getting it backwards silently shows only the
+      // crossover cards — which is what the tests below are for.
+      where.push(`EXISTS (SELECT 1 FROM card_printings ubp
+                          WHERE ubp.oracle_id = o.oracle_id
+                            AND COALESCE(ubp.promo_types,'') NOT LIKE '%universesbeyond%')`);
     }
 
     if (!filters.includeExtras) {

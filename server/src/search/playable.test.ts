@@ -160,3 +160,83 @@ test('a card carrying no legality rows at all is hidden, and that is accepted', 
   assert.ok(!names(store.search('', {}, 'name', 50)).includes('Orphan Card'));
   close();
 });
+
+// -- Universes Beyond ----------------------------------------------------------
+
+/**
+ * Crossover cards, and the trap in identifying them.
+ *
+ * Scryfall marks them in `promo_types`, but the crossover precons reprint
+ * ordinary cards — Sol Ring, Command Tower, Arcane Signet — so "has a Universes
+ * Beyond printing" catches 1,574 cards nobody means. A card is a crossover card
+ * when it has no ordinary printing at all.
+ */
+function ubStore() {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO sets (code,name) VALUES ('ltr','Tales of Middle-earth')`).run();
+  db.prepare(`INSERT INTO sets (code,name) VALUES ('cmm','Commander Masters')`).run();
+
+  const add = (id: string, name: string, printings: Array<[string, string, string | null]>) => {
+    db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,
+                  oracle_text_all,layout) VALUES (?,?,?,1,'Artifact','x','normal')`)
+      .run(id, name, normalizeName(name));
+    // Collector numbers must be unique per (set, number, lang), so they are
+    // taken from the printing id rather than restarting for each card.
+    printings.forEach(([pid, set, promo]) => {
+      db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,promo_types,is_digital)
+                  VALUES (?,?,?,?,?,0)`).run(pid, id, set, pid, promo);
+    });
+    db.prepare('UPDATE oracle_cards SET default_printing_id=? WHERE oracle_id=?').run(printings[0][0], id);
+    db.prepare(`INSERT INTO card_legalities (oracle_id,format_code,legality)
+                VALUES (?,'commander','legal')`).run(id);
+  };
+
+  // Born in a crossover set, exists nowhere else.
+  add('o-ring', 'The One Ring', [['p1', 'ltr', '["universesbeyond"]']]);
+  add('o-bowm', 'Orcish Bowmasters', [['p2', 'ltr', '["universesbeyond"]']]);
+  // Reprinted into a crossover precon, but an ordinary card.
+  add('o-sol', 'Sol Ring', [['p3', 'cmm', null], ['p4', 'ltr', '["universesbeyond"]']]);
+  // Never anywhere near a crossover.
+  add('o-bolt', 'Lightning Bolt', [['p5', 'cmm', null]]);
+
+  return { store: new CardSearchStore(db), close: () => db.close() };
+}
+
+test('crossover cards are shown by default — they are real tournament cards', () => {
+  const { store, close } = ubStore();
+  const found = names(store.search('', {}, 'name', 50));
+  assert.ok(found.includes('The One Ring'), 'a Modern staple, not clutter');
+  assert.equal(found.length, 4);
+  close();
+});
+
+test('excluding crossovers keeps cards merely reprinted in one', () => {
+  const { store, close } = ubStore();
+  const found = names(store.search('', { excludeUniversesBeyond: true }, 'name', 50));
+  assert.deepEqual(found, ['Lightning Bolt', 'Sol Ring']);
+  // Sol Ring has a Tales of Middle-earth printing; it is still a Sol Ring.
+  assert.ok(found.includes('Sol Ring'), 'a reprint does not make it a crossover card');
+  close();
+});
+
+test('is:ub names the crossover cards, and -is:ub the rest', () => {
+  const { store, close } = ubStore();
+  assert.deepEqual(names(store.search('is:ub', {}, 'name', 50)),
+                   ['Orcish Bowmasters', 'The One Ring']);
+  assert.deepEqual(names(store.search('-is:ub', {}, 'name', 50)),
+                   ['Lightning Bolt', 'Sol Ring']);
+  assert.deepEqual(names(store.search('is:universesbeyond', {}, 'name', 50)),
+                   ['Orcish Bowmasters', 'The One Ring']);
+  close();
+});
+
+test('the crossover filter is independent of the unplayable one', () => {
+  const { store, close } = ubStore();
+  // Both filters on at once must not interfere: everything here is legal.
+  assert.deepEqual(
+    names(store.search('', { excludeUniversesBeyond: true, includeUnplayable: true }, 'name', 50)),
+    ['Lightning Bolt', 'Sol Ring'],
+  );
+  close();
+});

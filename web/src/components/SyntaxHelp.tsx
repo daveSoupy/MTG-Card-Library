@@ -76,6 +76,8 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
       { syntax: 'is:partner  ·  is:background', meaning: 'Can pair as a commander' },
       { syntax: 'is:digital  ·  is:paper', meaning: 'Alchemy and Arena-only cards are hidden by default' },
       { syntax: 'is:hybrid', meaning: 'Hybrid mana in the cost' },
+      { syntax: 'is:ub  ·  -is:ub',
+        meaning: 'Universes Beyond crossovers; shown by default' },
     ],
   },
   {
