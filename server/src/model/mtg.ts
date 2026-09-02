@@ -144,8 +144,9 @@ export function expandRarity(value: string): string {
  *
  * Shared by search and by import, which need exactly the same exclusion.
  *
- * The planar/vanguard/scheme carve-out matters twice over now: search also
- * hides cards that are legal in no format, and those three layouts are spared
- * there for this same reason.
+ * Planar, vanguard and scheme stay out of this list because they are real
+ * cards, not display entries — but search hides them anyway, along with
+ * everything else legal in no format. Two different questions with the same
+ * answer here; do not collapse them.
  */
 export const EXTRA_LAYOUTS = ['art_series', 'token', 'double_faced_token', 'emblem', 'front_card'];
