@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 9;
+PRAGMA user_version = 10;
 
 
 -- =====================================================================
@@ -71,7 +71,11 @@ CREATE INDEX idx_sync_log_started ON sync_log(started_at DESC);
 --   'planeswalker'              Oathbreaker — any legendary planeswalker
 --   'legendary_or_planeswalker' Brawl — either
 --   'uncommon_creature'         Pauper Commander
--- It is last in the column list because ALTER TABLE ADD COLUMN appends, and a
+-- uses_signature_spell is Oathbreaker: its command zone holds a planeswalker
+-- *and* an instant or sorcery within that planeswalker's colour identity. The
+-- second card is not a second leader, so the partner rules must not apply to it.
+--
+-- Both are last in the column list because ALTER TABLE ADD COLUMN appends, and a
 -- migrated database has to match this file column for column.
 CREATE TABLE formats (
     code                TEXT PRIMARY KEY,   -- 'standard','modern','commander','pauper',...
@@ -86,7 +90,8 @@ CREATE TABLE formats (
     enforces_color_id   INTEGER NOT NULL DEFAULT 0,   -- restrict deck to commander's color identity
     is_active           INTEGER NOT NULL DEFAULT 1,   -- show in the format picker
     sort_order          INTEGER NOT NULL DEFAULT 0,
-    commander_kind      TEXT    NOT NULL DEFAULT 'legendary'
+    commander_kind      TEXT    NOT NULL DEFAULT 'legendary',
+    uses_signature_spell INTEGER NOT NULL DEFAULT 0
 );
 
 
@@ -708,9 +713,11 @@ CREATE TABLE deck_cards (
     preferred_printing_id   TEXT REFERENCES card_printings(id) ON DELETE SET NULL,
 
     -- Phase 3: distinguishes a plain commander from Partner/Background so
-    -- the "one commander" relaxations are representable.
+    -- the "one commander" relaxations are representable. 'signature_spell' is
+    -- Oathbreaker's second card, which is an instant or sorcery rather than a
+    -- second leader — see formats.uses_signature_spell.
     commander_role          TEXT CHECK (commander_role IS NULL OR commander_role IN
-                                ('commander','partner','background','companion')),
+                                ('commander','partner','background','companion','signature_spell')),
     category                TEXT,           -- user grouping: 'Ramp','Removal',...
     notes                   TEXT,
     sort_order              INTEGER NOT NULL DEFAULT 0,
@@ -1279,6 +1286,7 @@ INSERT INTO formats
 UPDATE formats SET commander_kind = 'planeswalker'              WHERE code = 'oathbreaker';
 UPDATE formats SET commander_kind = 'legendary_or_planeswalker' WHERE code IN ('brawl','standardbrawl');
 UPDATE formats SET commander_kind = 'uncommon_creature'         WHERE code = 'paupercommander';
+UPDATE formats SET uses_signature_spell = 1                     WHERE code = 'oathbreaker';
 
 -- Fallback bucket. Phase 6 drops incoming trade cards here when no
 -- location is chosen; Phase 5 CSV import uses it for unmapped rows.

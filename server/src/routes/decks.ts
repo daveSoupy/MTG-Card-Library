@@ -6,7 +6,9 @@ import {
   takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
 } from '../decks/snapshots.ts';
 
-const COMMANDER_ROLES: CommanderRole[] = ['commander', 'partner', 'background', 'companion'];
+const COMMANDER_ROLES: CommanderRole[] = [
+  'commander', 'partner', 'background', 'companion', 'signature_spell',
+];
 
 const asBoard = (value: unknown): Board | undefined =>
   BOARDS.includes(value as Board) ? (value as Board) : undefined;

@@ -25,6 +25,11 @@ function shapeOf(db: Database.Database): string {
         .replace(/--[^\n]*/g, ' ')
         .replace(/\s+/g, ' ')
         .replace(/\s*([(),])\s*/g, '$1')
+        // ALTER TABLE ... RENAME TO quotes the name, so a table rebuilt by a
+        // migration reads CREATE TABLE "deck_cards" where the file says
+        // CREATE TABLE deck_cards. Identifier quoting only; string literals in
+        // this schema are single-quoted and are left alone.
+        .replace(/"([A-Za-z_][A-Za-z0-9_]*)"/g, '$1')
         .trim();
       return `${type} ${name}\n  ${normalized}`;
     })
