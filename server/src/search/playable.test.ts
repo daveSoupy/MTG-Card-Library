@@ -36,7 +36,7 @@ const CARDS: Fixture[] = [
   { name: 'Your Favorite Character', legalities: { commander: 'not_legal' } },
   // Unfinity's non-acorn cards really are legal.
   { name: 'Complaints Clerk', legalities: { legacy: 'legal', commander: 'legal' } },
-  // Real cards for their own formats, deliberately spared.
+  // Real cards for their own formats, but hidden all the same — see below.
   { name: 'Academy at Tolaria West', layout: 'planar', legalities: { commander: 'not_legal' } },
   { name: 'A Reckoning Approaches', layout: 'scheme', legalities: { commander: 'not_legal' } },
   { name: 'Akroma, Angel of Fury', layout: 'vanguard', legalities: { commander: 'not_legal' } },
@@ -92,12 +92,18 @@ test('a joke-set card that is actually legal stays', () => {
   close();
 });
 
-test('planes, schemes and vanguards are spared', () => {
+test('planes, schemes and vanguards are hidden too', () => {
   const { store, close } = makeStore();
   const found = names(store.search('', {}, 'name', 50));
+  // They are genuine cards for Planechase and Archenemy — which is why
+  // EXTRA_LAYOUTS spares them from the tokens filter — but they are legal in
+  // no tracked format and are only ever in the way of a search.
   for (const name of ['Academy at Tolaria West', 'A Reckoning Approaches', 'Akroma, Angel of Fury']) {
-    assert.ok(found.includes(name), `${name} is a real card for its own format`);
+    assert.ok(!found.includes(name), `${name} should be hidden`);
   }
+  // The toggle brings them back like anything else.
+  const all = names(store.search('', { includeUnplayable: true }, 'name', 50));
+  assert.ok(all.includes('A Reckoning Approaches'));
   close();
 });
 
@@ -132,16 +138,12 @@ test('the toggle brings everything back', () => {
   const hidden = store.search('', {}, 'name', 50).total;
   const all = store.search('', { includeUnplayable: true }, 'name', 50).total;
   assert.equal(all, CARDS.length);
-  assert.equal(hidden, CARDS.length - 4, 'three unplayable plus the orphan; planes excepted');
+  assert.equal(hidden, CARDS.length - 7, 'everything legal nowhere, planes and schemes included');
   close();
 });
 
-test('is:unplayable asks the literal question, wider than the default hides', () => {
+test('is:unplayable names exactly what the default hides', () => {
   const { store, close } = makeStore();
-  // The operator means "legal in no format", and a plane genuinely is not
-  // legal in any format — so it answers here even though the default filter
-  // deliberately keeps it visible. The layout carve-out is a nicety of the
-  // default, not part of what "playable" means.
   assert.deepEqual(names(store.search('is:unplayable', {}, 'name', 50)), [
     'A Reckoning Approaches', 'Academy at Tolaria West', 'Akroma, Angel of Fury',
     'Ashnods Coupon', 'Chaos Orb', 'Orphan Card', 'Your Favorite Character',

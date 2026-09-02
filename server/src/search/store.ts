@@ -153,17 +153,19 @@ export class CardSearchStore {
     // by set, because joke sets are not uniformly illegal — Unfinity's
     // non-acorn cards are legal in Legacy, Vintage and Commander.
     //
-    // Planes, schemes and vanguards are spared: they are real cards for their
-    // own formats, and EXTRA_LAYOUTS already keeps them for the same reason.
+    // Planes, schemes and vanguards go too. They are genuine cards for
+    // Planechase and Archenemy, which is why EXTRA_LAYOUTS spares them from the
+    // tokens filter, but they are oversized supplementary cards you never build
+    // with in the formats this app tracks — so here they are just 342 more
+    // rows in the way.
     //
     // Switched off by an explicit legality term, or `banned:vintage` would
     // return nothing — a card banned everywhere is legal nowhere by definition,
     // which is exactly what makes it interesting to ask about.
     if (!filters.includeUnplayable && !mentionsLegality(text)) {
-      where.push(`(o.layout IN ('planar','scheme','vanguard')
-                   OR EXISTS (SELECT 1 FROM card_legalities cl
-                              WHERE cl.oracle_id = o.oracle_id
-                                AND cl.legality IN ('legal','restricted')))`);
+      where.push(`EXISTS (SELECT 1 FROM card_legalities cl
+                          WHERE cl.oracle_id = o.oracle_id
+                            AND cl.legality IN ('legal','restricted'))`);
     }
 
     if (!filters.includeExtras) {
