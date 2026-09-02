@@ -73,7 +73,7 @@ export function ShoppingListPanel({ deckId, onClose }: { deckId: number; onClose
               {list.entries.map((entry) => (
                 <div className="shopping-row" key={entry.oracleId}>
                   {entry.printingId && entry.imageSmall && (
-                    <img src={imageUrl(entry.printingId, 'small')} alt="" loading="lazy" />
+                    <img src={imageUrl(entry.printingId, 'small')} alt="" loading="lazy" decoding="async" />
                   )}
                   <div className="shopping-name">
                     <span>{entry.needed}× {entry.name}</span>

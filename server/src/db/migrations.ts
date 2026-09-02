@@ -58,4 +58,15 @@ export const MIGRATIONS: Migration[] = [
       ANALYZE;
     `,
   },
+  {
+    version: 6,
+    description: 'Per-card art preference',
+    sql: `
+      CREATE TABLE IF NOT EXISTS card_art_preferences (
+          oracle_id   TEXT PRIMARY KEY REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+          printing_id TEXT NOT NULL     REFERENCES card_printings(id)     ON DELETE CASCADE,
+          updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+      );
+    `,
+  },
 ];

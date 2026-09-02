@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchCard, imageUrl, type CardDetail } from '../api.ts';
+import { fetchCard, setCardArt, imageUrl, type CardDetail } from '../api.ts';
 
 /** Card Kingdom has no per-card id in Scryfall's data, so link to their search. */
 function cardKingdomUrl(name: string): string {
@@ -33,6 +33,7 @@ export function CardDetailPane({
   const [card, setCard] = useState<CardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPrinting, setSelectedPrinting] = useState<string | null>(null);
+  const [pinning, setPinning] = useState(false);
 
   useEffect(() => {
     if (!oracleId) { setCard(null); return; }
@@ -87,7 +88,7 @@ export function CardDetailPane({
                     key={face.index}
                     src={imageUrl(printing.id, 'normal', face.index)}
                     alt={face.name}
-                    loading="lazy"
+                    loading="lazy" decoding="async"
                   />
                 ) : null,
               )}
@@ -97,7 +98,7 @@ export function CardDetailPane({
               className="detail-img"
               src={imageUrl(printing.id, 'normal')}
               alt={card.name}
-              loading="lazy"
+              loading="lazy" decoding="async"
             />
           ) : null}
 
@@ -161,6 +162,42 @@ export function CardDetailPane({
 
           <div className="fgroup">
             <h3>Printings ({card.printings.length})</h3>
+            {selectedPrinting && selectedPrinting !== card.printingId && (
+              <button
+                className="btn secondary small art-pin"
+                disabled={pinning}
+                onClick={async () => {
+                  setPinning(true);
+                  try {
+                    setCard(await setCardArt(card.oracleId, selectedPrinting));
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  } finally {
+                    setPinning(false);
+                  }
+                }}
+              >
+                Always show this art
+              </button>
+            )}
+            {selectedPrinting && selectedPrinting === card.printingId && card.artIsPinned && (
+              <button
+                className="btn secondary small art-pin"
+                disabled={pinning}
+                onClick={async () => {
+                  setPinning(true);
+                  try {
+                    setCard(await setCardArt(card.oracleId, null));
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  } finally {
+                    setPinning(false);
+                  }
+                }}
+              >
+                Stop pinning this art
+              </button>
+            )}
             <div className="printings">
               {card.printings.map((p) => (
                 <button

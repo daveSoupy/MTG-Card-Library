@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
 
 
 -- =====================================================================
@@ -98,6 +98,15 @@ CREATE TABLE filter_presets (
     sort_order  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+-- Which printing's art a card should wear, when the automatic choice is not
+-- the one you want. The automatic choice (oracle_cards.default_printing_id)
+-- is recomputed on every sync and can move; this does not.
+CREATE TABLE card_art_preferences (
+    oracle_id   TEXT PRIMARY KEY REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+    printing_id TEXT NOT NULL     REFERENCES card_printings(id)     ON DELETE CASCADE,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
 

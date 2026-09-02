@@ -330,7 +330,7 @@ export function DeckBuilder({
                             title={`${card.name} — ${card.typeLine}`}
                           >
                             {card.printingId && card.imageSmall ? (
-                              <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" />
+                              <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
                             ) : (
                               <div className="placeholder">{card.name}</div>
                             )}
@@ -424,6 +424,7 @@ export function DeckBuilder({
               className="picker-preview"
               src={imageUrl(preview.printingId, 'normal')}
               alt={preview.name}
+              decoding="async"
             />
           )}
         </div>

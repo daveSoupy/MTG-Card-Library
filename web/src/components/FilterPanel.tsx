@@ -5,6 +5,8 @@ export interface Filters {
   ownedOnly: boolean;
   colors: string[];
   colorsExact: boolean;
+  gold: boolean;
+  hybrid: boolean;
   rarities: string[];
   set: string;
   format: string;
@@ -18,6 +20,8 @@ export const EMPTY_FILTERS: Filters = {
   ownedOnly: false,
   colors: [],
   colorsExact: false,
+  gold: false,
+  hybrid: false,
   rarities: [],
   set: '',
   format: '',
@@ -41,7 +45,8 @@ const COLORS: Array<[string, string]> = [
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'];
 
 export const filtersAreActive = (f: Filters): boolean =>
-  f.ownedOnly || f.colors.length > 0 || f.rarities.length > 0 || f.set !== '' ||
+  f.ownedOnly || f.colors.length > 0 || f.gold || f.hybrid ||
+  f.rarities.length > 0 || f.set !== '' ||
   f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras;
 
 
@@ -119,6 +124,31 @@ export function FilterPanel({
             </button>
           ))}
         </div>
+        <div className="pills" style={{ marginTop: 6 }}>
+          {/*
+            Gold is about how many colours a card is, not which — so it is a
+            separate toggle rather than a seventh identity pill. Hybrid is about
+            the cost: {G/W} is one mana symbol that plays as either colour, and
+            such a card can be mono-coloured by identity.
+          */}
+          <button
+            className="pill wide"
+            aria-pressed={filters.gold}
+            title="Cards with two or more colours"
+            onClick={() => set('gold', !filters.gold)}
+          >
+            Gold
+          </button>
+          <button
+            className="pill wide"
+            aria-pressed={filters.hybrid}
+            title="Cards with hybrid mana symbols, like {G/W}"
+            onClick={() => set('hybrid', !filters.hybrid)}
+          >
+            Hybrid
+          </button>
+        </div>
+
         {filters.colors.length > 0 && (
           <>
             <label className="check" style={{ marginTop: 8 }}>

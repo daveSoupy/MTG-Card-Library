@@ -2,11 +2,28 @@ import type Database from 'better-sqlite3';
 import { compileQuery, mentionsDigital } from './query.ts';
 import { normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
 
+/**
+ * The free text as a trigram MATCH, or null when it is too short to be one.
+ *
+ * FTS5's trigram tokenizer indexes three-character windows, so a one- or
+ * two-character query matches nothing and raises rather than returning empty.
+ * Short queries fall back to the word index alone, which handles them fine.
+ */
+function trigramTerm(freeText: string): string | null {
+  const normalized = normalizeName(freeText);
+  if (normalized.length < 3) return null;
+  return `"${normalized}"`;
+}
+
 export interface SearchFilters {
   ownedOnly?: boolean;
   /** Colour identity must fit inside these colours (deck-building semantics). */
   colors?: string[];
   colorsExact?: boolean;
+  /** Two or more colours. About how many, not which — so not a colour pill. */
+  gold?: boolean;
+  /** A hybrid symbol in the cost, like {G/W}. Independent of colour count. */
+  hybrid?: boolean;
   rarities?: string[];
   setCode?: string;
   format?: string;
@@ -62,7 +79,10 @@ const SORT_SQL: Record<Exclude<SortOrder, 'relevance'>, string> = {
 /** Shared FROM/JOIN block. `owned` is a join so an owned-only filter is cheap. */
 const FROM_CLAUSE = `
   FROM oracle_cards o
-  LEFT JOIN card_printings dp ON dp.id = o.default_printing_id
+  -- A chosen art wins over the synced default, which the sync recomputes and
+  -- can move underneath you.
+  LEFT JOIN card_art_preferences pref ON pref.oracle_id = o.oracle_id
+  LEFT JOIN card_printings dp ON dp.id = COALESCE(pref.printing_id, o.default_printing_id)
   LEFT JOIN sets s ON s.code = dp.set_code
   LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
   LEFT JOIN (
@@ -96,8 +116,27 @@ export class CardSearchStore {
     const params: (string | number)[] = [...compiled.params];
 
     if (compiled.ftsMatch) {
-      where.push('o.rowid IN (SELECT rowid FROM card_search WHERE card_search MATCH ?)');
-      params.push(compiled.ftsMatch);
+      // Two ways in, unioned.
+      //
+      // card_search is word-oriented: it covers name, type line and rules text,
+      // and with the trailing `*` from compileQuery it matches word prefixes.
+      // That alone still cannot find a name by its middle — "ightning bolt" —
+      // because FTS5 indexes tokens, not substrings.
+      //
+      // card_name_trgm is the substring half. It already exists for decklist
+      // import, where the same string has always resolved; searching used to
+      // ignore it, which is why the box was stricter than the importer.
+      const trigram = trigramTerm(compiled.freeText);
+      if (trigram) {
+        where.push(`(o.rowid IN (SELECT rowid FROM card_search WHERE card_search MATCH ?)
+                     OR o.oracle_id IN (SELECT v.oracle_id FROM card_name_trgm t
+                                        JOIN card_name_variants v ON v.id = t.rowid
+                                        WHERE card_name_trgm MATCH ?))`);
+        params.push(compiled.ftsMatch, trigram);
+      } else {
+        where.push('o.rowid IN (SELECT rowid FROM card_search WHERE card_search MATCH ?)');
+        params.push(compiled.ftsMatch);
+      }
     }
 
     // Alchemy and Arena-only cards are flagged is_digital and sort first
@@ -141,6 +180,13 @@ export class CardSearchStore {
         params.push(mask);
       }
     }
+    if (filters.gold) {
+      where.push('(o.colors_mask & (o.colors_mask - 1)) <> 0');
+    }
+    if (filters.hybrid) {
+      where.push(`o.mana_cost LIKE '%/%'`);
+    }
+
     if (filters.rarities && filters.rarities.length > 0) {
       const placeholders = filters.rarities.map(() => '?').join(',');
       where.push(`EXISTS (SELECT 1 FROM card_printings rp WHERE rp.oracle_id = o.oracle_id
@@ -169,13 +215,20 @@ export class CardSearchStore {
     sort: SortOrder = 'relevance',
     limit = 100,
     offset = 0,
+    /** The total from the first page, so later pages need not recount. */
+    knownTotal?: number,
   ): SearchResult {
     const { where, params, freeText } = this.buildWhere(text, filters);
     const whereSql = where.length > 0 ? `WHERE ${where.join('\n    AND ')}` : '';
 
-    const total = (this.db
-      .prepare(`SELECT count(*) AS n ${FROM_CLAUSE} ${whereSql}`)
-      .get(...params) as { n: number }).n;
+    // The count is the expensive half — it cannot stop at LIMIT and it runs
+    // over the whole FROM clause. It also cannot change while paging through
+    // one result set, so "Load more" skips it and reuses the total it has.
+    const total = offset > 0 && knownTotal !== undefined
+      ? knownTotal
+      : (this.db
+          .prepare(`SELECT count(*) AS n ${FROM_CLAUSE} ${whereSql}`)
+          .get(...params) as { n: number }).n;
 
     // Relevance ordering only means something when the user typed words. An
     // exact name has to win: searching "lightning bolt" must return Lightning
@@ -189,6 +242,10 @@ export class CardSearchStore {
             WHEN o.name_normalized LIKE ? THEN 1
             WHEN o.name_normalized LIKE ? THEN 2
             ELSE 3 END,
+          -- Within a tier, the shortest name is the closest match: every card
+          -- beginning "waste" ranks the same, and alphabetical order alone
+          -- buries "Wastes" beneath "Waste Away" and "Waste Management".
+          length(o.name_normalized) ASC,
           o.name COLLATE NOCASE ASC`;
       rankParams.push(normalized, `${normalized}%`, `%${normalized}%`);
     } else {
@@ -228,6 +285,7 @@ export class CardSearchStore {
              dp.price_usd, dp.price_usd_foil,
              dp.flavor_text, dp.artist, s.name AS set_name,
              COALESCE(owned.qty, 0) AS owned_qty,
+             (pref.printing_id IS NOT NULL) AS art_is_pinned,
              (SELECT count(*) FROM card_printings cp WHERE cp.oracle_id = o.oracle_id) AS printing_count
       ${FROM_CLAUSE}
       WHERE o.oracle_id = ?`).get(oracleId) as any;
@@ -238,7 +296,10 @@ export class CardSearchStore {
       SELECT f.face_index, f.name, f.mana_cost, f.type_line, f.oracle_text,
              f.power, f.toughness, f.image_normal
       FROM card_faces f
-      WHERE f.printing_id = (SELECT default_printing_id FROM oracle_cards WHERE oracle_id = ?)
+      WHERE f.printing_id = (SELECT COALESCE(ap.printing_id, o.default_printing_id)
+                               FROM oracle_cards o
+                               LEFT JOIN card_art_preferences ap ON ap.oracle_id = o.oracle_id
+                              WHERE o.oracle_id = ?)
       ORDER BY f.face_index`).all(oracleId) as any[];
 
     const printings = this.db.prepare(`
@@ -251,8 +312,16 @@ export class CardSearchStore {
       FROM card_printings p
       LEFT JOIN sets s ON s.code = p.set_code
       WHERE p.oracle_id = ?
-      ORDER BY COALESCE(p.released_at,'0000-00-00') DESC, p.set_code, p.collector_number_num`)
-      .all(oracleId) as any[];
+      -- The printing on screen comes first, so the list answers "which one am
+      -- I looking at" before it answers anything else. After that: things you
+      -- can actually see and price, newest first — promos and placeholders
+      -- used to head the list purely because they were recent.
+      ORDER BY (p.id = ?) DESC,
+               (p.image_normal IS NULL) ASC,
+               (p.price_usd IS NULL) ASC,
+               COALESCE(p.released_at,'0000-00-00') DESC,
+               p.set_code, p.collector_number_num`)
+      .all(oracleId, row.printing_id) as any[];
 
     // Only formats the app knows about, in picker order, so the detail pane
     // does not list every experimental format Scryfall has ever published.
@@ -277,6 +346,8 @@ export class CardSearchStore {
       keywords: parseJsonArray(row.keywords),
       isReserved: Boolean(row.is_reserved),
       canBeCommander: Boolean(row.can_be_commander),
+      /** True when this art was chosen rather than picked by the sync. */
+      artIsPinned: Boolean(row.art_is_pinned),
       edhrecRank: row.edhrec_rank,
       faces: faces.map((f) => ({
         index: f.face_index,
@@ -309,6 +380,41 @@ export class CardSearchStore {
         playable: l.legality === 'legal' || l.legality === 'restricted',
       })),
     };
+  }
+
+  /** Pins the art for a card, or clears the pin when printingId is null. */
+  setArtPreference(oracleId: string, printingId: string | null): void {
+    if (printingId === null) {
+      this.db.prepare('DELETE FROM card_art_preferences WHERE oracle_id = ?').run(oracleId);
+      return;
+    }
+    // The printing has to belong to the card, or the detail pane would show
+    // somebody else's art with no way to tell where it came from.
+    const owned = this.db.prepare(
+      'SELECT 1 FROM card_printings WHERE id = ? AND oracle_id = ?',
+    ).get(printingId, oracleId);
+    if (!owned) throw new Error('That printing does not belong to that card.');
+
+    this.db.prepare(`
+      INSERT INTO card_art_preferences (oracle_id, printing_id) VALUES (?, ?)
+      ON CONFLICT(oracle_id) DO UPDATE SET printing_id = excluded.printing_id,
+        updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`).run(oracleId, printingId);
+  }
+
+  /**
+   * A random card matching the current filters.
+   *
+   * ORDER BY random() sorts the whole matching set, which is fine here because
+   * the filters have already cut it down and this runs once per click, not per
+   * keystroke.
+   */
+  random(text: string, filters: SearchFilters): string | null {
+    const { where, params } = this.buildWhere(text, filters);
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const row = this.db.prepare(
+      `SELECT o.oracle_id AS id ${FROM_CLAUSE} ${whereSql} ORDER BY random() LIMIT 1`,
+    ).get(...params) as { id: string } | undefined;
+    return row?.id ?? null;
   }
 
   sets() {

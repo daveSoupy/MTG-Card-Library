@@ -71,6 +71,8 @@ export interface CardDetail extends CardSummary {
   keywords: string[];
   isReserved: boolean;
   canBeCommander: boolean;
+  /** True when the art was chosen by hand rather than picked by the sync. */
+  artIsPinned?: boolean;
   edhrecRank: number | null;
   frontImage: string | null;
   backImage: string | null;
@@ -134,6 +136,8 @@ export interface SearchParams {
   ownedOnly?: boolean;
   colors?: string[];
   colorsExact?: boolean;
+  gold?: boolean;
+  hybrid?: boolean;
   rarities?: string[];
   set?: string;
   format?: string;
@@ -144,6 +148,8 @@ export interface SearchParams {
   sort?: string;
   limit?: number;
   offset?: number;
+  /** Sent when paging so the server reuses the first page's count. */
+  knownTotal?: number;
 }
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -167,6 +173,8 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.ownedOnly) query.set('ownedOnly', 'true');
   if (params.colors?.length) query.set('colors', params.colors.join(','));
   if (params.colorsExact) query.set('colorsExact', 'true');
+  if (params.gold) query.set('gold', 'true');
+  if (params.hybrid) query.set('hybrid', 'true');
   if (params.rarities?.length) query.set('rarities', params.rarities.join(','));
   if (params.set) query.set('set', params.set);
   if (params.format) query.set('format', params.format);
@@ -177,6 +185,9 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
+  if (params.offset && params.knownTotal !== undefined) {
+    query.set('knownTotal', String(params.knownTotal));
+  }
   return getJson<SearchResponse>(`/api/v1/cards?${query}`, signal);
 }
 
@@ -205,7 +216,11 @@ export async function startSync(bulkType?: string, force = false): Promise<void>
 }
 
 /** Card art proxied through the server, which caches it to disk. */
-export function imageUrl(printingId: string, size: 'small' | 'normal' | 'large', face = 0): string {
+export function imageUrl(
+  printingId: string,
+  size: 'small' | 'normal' | 'large' | 'art_crop' | 'png',
+  face = 0,
+): string {
   return `/api/v1/images/${printingId}/${size}${face ? `?face=${face}` : ''}`;
 }
 
@@ -761,4 +776,25 @@ export async function restoreBackup(file: File): Promise<RestoreReport> {
     throw new Error(detail?.error ?? `Restore failed with status ${response.status}`);
   }
   return response.json() as Promise<RestoreReport>;
+}
+
+/** Pins which printing's art a card shows, or clears the pin with null. */
+export const setCardArt = (oracleId: string, printingId: string | null) =>
+  send<CardDetail>(`/api/v1/cards/${encodeURIComponent(oracleId)}/art`, 'PUT', { printingId });
+
+/** A random card matching the current filters. */
+export function fetchRandomCard(params: SearchParams = {}, signal?: AbortSignal): Promise<CardDetail> {
+  const query = new URLSearchParams();
+  if (params.q) query.set('q', params.q);
+  if (params.colors?.length) query.set('colors', params.colors.join(','));
+  if (params.colorsExact) query.set('colorsExact', 'true');
+  if (params.gold) query.set('gold', 'true');
+  if (params.hybrid) query.set('hybrid', 'true');
+  if (params.rarities?.length) query.set('rarities', params.rarities.join(','));
+  if (params.set) query.set('set', params.set);
+  if (params.format) query.set('format', params.format);
+  if (params.ownedOnly) query.set('ownedOnly', 'true');
+  if (params.includeDigital) query.set('includeDigital', 'true');
+  if (params.includeExtras) query.set('includeExtras', 'true');
+  return getJson<CardDetail>(`/api/v1/cards/random?${query}`, signal);
 }

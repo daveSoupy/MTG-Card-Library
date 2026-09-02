@@ -978,3 +978,9 @@ input[type='number'] { width: 72px; }
   .import-board { grid-area: note; justify-self: start; width: auto; }
   .mapping-grid { grid-template-columns: 1fr 1fr; }
 }
+
+/* Art pinning, and the wider colour toggles beside the pips. */
+.pill.wide {
+  width: auto; padding: 0 10px; font-size: 11px; letter-spacing: .02em;
+}
+.art-pin { margin-bottom: 8px; align-self: start; }
