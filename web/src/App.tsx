@@ -8,6 +8,7 @@ import { CardDetailPane } from './components/CardDetailPane.tsx';
 import { SyncGate } from './components/SyncGate.tsx';
 import { DeckList } from './components/DeckList.tsx';
 import { DeckBuilder } from './components/DeckBuilder.tsx';
+import { SyntaxHelp } from './components/SyntaxHelp.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -34,9 +35,11 @@ export default function App() {
   const [cards, setCards] = useState<CardSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [showSyntax, setShowSyntax] = useState(false);
 
   const [sets, setSets] = useState<SetRecord[]>([]);
   const [formats, setFormats] = useState<FormatRecord[]>([]);
@@ -112,6 +115,9 @@ export default function App() {
       if (event.key === '/' && document.activeElement !== searchInput.current) {
         event.preventDefault();
         searchInput.current?.focus();
+      } else if (event.key === '?' && document.activeElement !== searchInput.current) {
+        event.preventDefault();
+        setShowSyntax(true);
       } else if (event.key === 'Escape') {
         setSelected(null);
         setFiltersOpen(false);
@@ -146,7 +152,9 @@ export default function App() {
             spellCheck={false}
             aria-label="Search cards"
           />
-          <span className="hint">press /</span>
+          <button className="hint syntax-link" onClick={() => setShowSyntax(true)} title="Search syntax reference">
+            syntax
+          </button>
         </div>}
 
         {view.name === 'browse' && (
@@ -234,6 +242,47 @@ export default function App() {
               </button>
             ))}
           </div>
+
+          {cards.length < total && (
+            <div className="load-more">
+              <button
+                className="btn secondary"
+                disabled={loadingMore}
+                onClick={() => {
+                  setLoadingMore(true);
+                  searchCards({
+                    q: text,
+                    ownedOnly: filters.ownedOnly,
+                    colors: filters.colors,
+                    colorsExact: filters.colorsExact,
+                    rarities: filters.rarities,
+                    set: filters.set || undefined,
+                    format: filters.format || undefined,
+                    minCmc: filters.minCmc === '' ? undefined : Number(filters.minCmc),
+                    maxCmc: filters.maxCmc === '' ? undefined : Number(filters.maxCmc),
+                    includeDigital: filters.includeDigital,
+                    includeExtras: filters.includeExtras,
+                    sort,
+                    limit: PAGE_SIZE,
+                    offset: cards.length,
+                  })
+                    // Append rather than replace, and guard against a card
+                    // arriving twice if the underlying data shifted mid-scroll.
+                    .then((result) => setCards((current) => {
+                      const seen = new Set(current.map((c) => c.oracleId));
+                      return [...current, ...result.cards.filter((c) => !seen.has(c.oracleId))];
+                    }))
+                    .catch((e) => setError(e.message))
+                    .finally(() => setLoadingMore(false));
+                }}
+              >
+                {loadingMore
+                  ? 'Loading…'
+                  : `Load ${Math.min(PAGE_SIZE, total - cards.length)} more`}
+              </button>
+              <span className="count">{cards.length.toLocaleString()} of {total.toLocaleString()}</span>
+            </div>
+          )}
         </main>
 
         <CardDetailPane
@@ -243,6 +292,8 @@ export default function App() {
         />
       </div>
       )}
+
+      {showSyntax && <SyntaxHelp onClose={() => setShowSyntax(false)} />}
 
       {showSync && status && (
         <SyncGate

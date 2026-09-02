@@ -1,3 +1,4 @@
+import { colorsFromMask, normalizeName } from '../model/mtg.ts';
 import type { DeckCard, DeckIssue, DeckValidation, FormatRules } from './types.ts';
 
 /**
@@ -30,7 +31,7 @@ export function validateDeck(cards: DeckCard[], rules: FormatRules | null): Deck
       message: 'No format selected, so deck rules are not being checked.',
     });
     return {
-      formatCode: null, formatName: null,
+      formatCode: null, formatName: null, commanderIdentity: null,
       countedTotal: mainCount + commandCount,
       mainCount, sideboardCount, commandCount, maybeCount,
       requiredExactSize: null, requiredMinSize: null, sideboardLimit: null,
@@ -48,11 +49,13 @@ export function validateDeck(cards: DeckCard[], rules: FormatRules | null): Deck
   checkCopyLimits(issues, rules, cards);
   checkLegality(issues, rules, cards);
   checkCommander(issues, rules, command, commandCount);
+  const commanderIdentity = checkColorIdentity(issues, rules, cards, command);
   checkAllocation(issues, cards);
 
   return {
     formatCode: rules.code,
     formatName: rules.displayName,
+    commanderIdentity,
     countedTotal,
     mainCount, sideboardCount, commandCount, maybeCount,
     requiredExactSize: rules.exactDeckSize,
@@ -182,8 +185,10 @@ function checkLegality(issues: DeckIssue[], rules: FormatRules, cards: DeckCard[
 }
 
 /**
- * Commander presence only. The colour-identity restriction, the separate
- * Commander ban list and Partner/Background pairing are Phase 3.
+ * Commander presence, eligibility and pairing. The colour-identity restriction
+ * is checked separately in checkColorIdentity, and the Commander ban list needs
+ * no special handling — checkLegality already reads per-format legality, and
+ * Commander's list is simply a different set of rows.
  */
 function checkCommander(
   issues: DeckIssue[],
@@ -211,13 +216,17 @@ function checkCommander(
     return;
   }
 
-  // Two are allowed only via Partner or a Background, which Phase 3 verifies;
-  // here anything past two is unambiguously wrong.
   if (commandCount > 2) {
     issues.push({
       severity: 'error',
       code: 'too_many_commanders',
       message: `A ${rules.displayName} deck can have at most two commanders, and only with Partner or a Background. This deck has ${commandCount}.`,
+    });
+  } else if (command.length === 2 && !pairingIsLegal(command[0], command[1])) {
+    issues.push({
+      severity: 'error',
+      code: 'invalid_pairing',
+      message: `${command[0].name} and ${command[1].name} cannot be commanders together. Two commanders need Partner, matching "Partner with" names, Friends forever, or a Background and a card that chooses one.`,
     });
   }
 
@@ -254,4 +263,76 @@ function checkAllocation(issues: DeckIssue[], cards: DeckCard[]): void {
       });
     }
   }
+}
+
+/**
+ * Rule 903.4 — a card may only be in the deck if its colour identity fits
+ * inside the commander's.
+ *
+ * Identity is not the same as colour: Kenrith is a mono-white card with a
+ * WUBRG identity, because activated abilities in his rules text use every
+ * colour. Scryfall's `color_identity` already folds in rules text and the back
+ * face of a double-faced card, so it is used as-is rather than re-derived.
+ *
+ * Returns the permitted identity for display, or null when the rule does not
+ * apply to this deck.
+ */
+function checkColorIdentity(
+  issues: DeckIssue[],
+  rules: FormatRules,
+  cards: DeckCard[],
+  command: DeckCard[],
+): string | null {
+  if (!rules.enforcesColorIdentity || command.length === 0) return null;
+
+  const allowed = command.reduce((mask, card) => mask | card.colorIdentityMask, 0);
+  const allowedText = colorsFromMask(allowed).join('') || 'colourless';
+
+  for (const card of cards) {
+    // The commanders define the identity, and the maybeboard is a scratch pad.
+    if (card.board === 'command' || card.board === 'maybe') continue;
+    const outside = card.colorIdentityMask & ~allowed;
+    if (outside === 0) continue;
+
+    issues.push({
+      severity: 'error',
+      code: 'color_identity',
+      message: `${card.name} is outside your commander's colour identity — it needs ${colorsFromMask(outside).join('')}, and this deck allows ${allowedText}.`,
+      oracleId: card.oracleId,
+      cardName: card.name,
+    });
+  }
+
+  return colorsFromMask(allowed).join('');
+}
+
+/**
+ * Whether two cards may legally share a command zone.
+ *
+ * The four mechanics do not interchange: two plain Partner cards pair with each
+ * other, but "Partner with [name]" pairs only with the card it names.
+ */
+export function pairingIsLegal(a: DeckCard, b: DeckCard): boolean {
+  const kinds = [a.partnerKind, b.partnerKind];
+
+  if (kinds[0] === 'partner' && kinds[1] === 'partner') return true;
+  if (kinds[0] === 'friends_forever' && kinds[1] === 'friends_forever') return true;
+
+  // Named partners must name each other; matching one direction is enough,
+  // since Scryfall prints the clause on both halves of a real pair.
+  const namesEachOther = (left: DeckCard, right: DeckCard) =>
+    left.partnerKind === 'partner_with' &&
+    left.partnerWith !== null &&
+    normalizeName(left.partnerWith) === normalizeName(right.name);
+  if (namesEachOther(a, b) || namesEachOther(b, a)) return true;
+
+  const backgroundPair = (left: DeckCard, right: DeckCard) =>
+    left.partnerKind === 'choose_background' && right.partnerKind === 'background';
+  if (backgroundPair(a, b) || backgroundPair(b, a)) return true;
+
+  const doctorPair = (left: DeckCard, right: DeckCard) =>
+    left.partnerKind === 'doctors_companion' && right.typeLine.includes('Time Lord Doctor');
+  if (doctorPair(a, b) || doctorPair(b, a)) return true;
+
+  return false;
 }

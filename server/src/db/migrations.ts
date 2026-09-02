@@ -33,4 +33,16 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 4,
+    description: 'Commander partner pairing',
+    sql: `
+      -- SQLite has no "ADD COLUMN IF NOT EXISTS"; the runner is wrapped in a
+      -- transaction and only runs for databases below this version, so a plain
+      -- ADD COLUMN is safe. Re-runnability is covered by the guard in
+      -- bootstrap(), which never replays a migration at or below user_version.
+      ALTER TABLE oracle_cards ADD COLUMN partner_kind TEXT;
+      ALTER TABLE oracle_cards ADD COLUMN partner_with TEXT;
+    `,
+  },
 ];

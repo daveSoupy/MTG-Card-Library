@@ -119,6 +119,16 @@ export function registerDeckRoutes(app: FastifyInstance, decks: DeckStore): void
     const fromCollection = asInt(body.fromCollection);
     const board = asBoard(body.board);
 
+    if (body.category !== undefined) {
+      decks.setCategory(id, cardId, typeof body.category === 'string' ? body.category : null);
+    }
+    if (body.preferredPrintingId !== undefined) {
+      decks.setPreferredPrinting(
+        id, cardId,
+        typeof body.preferredPrintingId === 'string' && body.preferredPrintingId
+          ? body.preferredPrintingId : null,
+      );
+    }
     if (quantity !== undefined) decks.setQuantity(id, cardId, quantity);
     if (fromCollection !== undefined) decks.setFromCollection(id, cardId, fromCollection);
     if (board !== undefined) decks.setBoard(id, cardId, board, asRole(body.commanderRole));
@@ -126,6 +136,12 @@ export function registerDeckRoutes(app: FastifyInstance, decks: DeckStore): void
     const deck = decks.get(id);
     if (!deck) return reply.status(404).send({ error: 'No deck with that id.' });
     return { deck };
+  });
+
+  app.get('/api/v1/decks/:id/categories', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Invalid deck id.' });
+    return { categories: decks.categories(id) };
   });
 
   app.delete('/api/v1/decks/:id/cards/:cardId', async (request, reply) => {

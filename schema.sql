@@ -5,6 +5,10 @@
 -- plus allocation tracking), not just Phase 1, so later phases add code
 -- rather than migrations.
 --
+-- v4 changes: partner_kind / partner_with capture how a card may pair as a
+-- second commander. A single "has partner" boolean cannot: "Partner with
+-- [name]" pairs only with that one card, so the name has to be stored.
+--
 -- v3 changes: filter_presets stores saved search + filter combinations.
 --
 -- v2 changes: collection_items is now LOT-grained (one row per purchase,
@@ -24,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 
 
 -- =====================================================================
@@ -130,6 +134,20 @@ CREATE INDEX idx_sets_type     ON sets(set_type);
 
 -- One row per distinct card (Scryfall oracle_id). Everything a deck or a
 -- rules check cares about lives here.
+--
+-- partner_kind / partner_with record how a card may pair as a second commander.
+-- A single boolean cannot express this, because "Partner with [name]" pairs
+-- only with that one card:
+--   'partner'            plain Partner, pairs with any other
+--   'partner_with'       pairs only with the card named in partner_with
+--   'friends_forever'    pairs with any other Friends forever
+--   'doctors_companion'  pairs with a Time Lord Doctor
+--   'choose_background'  pairs with a Background
+--   'background'         is a Background
+--
+-- Those two sit at the end of the column list because they arrived in a
+-- migration and SQLite's ADD COLUMN appends. Keep multi-line comments out of
+-- the column list entirely: they corrupt the DDL that DROP COLUMN rewrites.
 CREATE TABLE oracle_cards (
     oracle_id           TEXT PRIMARY KEY,   -- rowid-backed on purpose: FTS5 external content needs it
     name                TEXT    NOT NULL,   -- full name, incl. 'Fire // Ice'
@@ -170,7 +188,10 @@ CREATE TABLE oracle_cards (
     default_printing_id TEXT,               -- FK added after card_printings exists (see trigger note below)
 
     scryfall_updated_at TEXT,
-    synced_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    synced_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+
+    partner_kind        TEXT,   -- see the partner note above
+    partner_with        TEXT    -- named partner, for 'partner_with' only
 );
 CREATE INDEX idx_oracle_name        ON oracle_cards(name_normalized);
 CREATE INDEX idx_oracle_cmc         ON oracle_cards(cmc);
@@ -1188,7 +1209,7 @@ INSERT INTO want_lists  (name, is_default, sort_order) VALUES ('Wants',  1, 0);
 INSERT INTO trade_lists (name, is_default, sort_order) VALUES ('Trades', 1, 0);
 
 INSERT INTO app_settings (key, value) VALUES
-    ('schema_version',        '3'),
+    ('schema_version',        '4'),
     ('bulk_data_type',        'default_cards'),
     ('display_currency',      'usd'),
     ('last_bulk_sync_at',     ''),

@@ -9,7 +9,7 @@ import type { DeckCard } from './api.ts';
  * wrong, can be tested directly.
  */
 
-export type DeckSort = 'type' | 'mana' | 'color' | 'name' | 'price' | 'rarity';
+export type DeckSort = 'type' | 'mana' | 'color' | 'name' | 'price' | 'rarity' | 'category';
 export type DeckViewMode = 'list' | 'cards';
 
 export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
@@ -19,6 +19,7 @@ export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
   { value: 'name', label: 'Name' },
   { value: 'price', label: 'Price' },
   { value: 'rarity', label: 'Rarity' },
+  { value: 'category', label: 'Category' },
 ];
 
 export interface CardGroup {
@@ -95,6 +96,14 @@ export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
         }
         break;
       }
+      case 'category': {
+        // Uncategorised cards collect at the end rather than under a blank
+        // heading, so the grouping stays readable while a deck is part-tagged.
+        const category = card.category?.trim();
+        put(category || '\u0000uncategorised', category || 'Uncategorised',
+            category ? 0 : 1, card);
+        break;
+      }
       case 'rarity': {
         const rarity = card.rarity ?? 'common';
         const rank = RARITY_ORDER.indexOf(rarity as (typeof RARITY_ORDER)[number]);
@@ -118,6 +127,7 @@ export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
       case 'type':
       case 'color':
       case 'rarity':
+      case 'category':
         return byName(a, b);
       case 'price': {
         // Unpriced cards sort last rather than as free.
@@ -140,7 +150,8 @@ export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
       label: bucket.label,
       count: bucket.cards.reduce((total, card) => total + card.quantity, 0),
       cards: bucket.cards.sort(
-        sort === 'type' || sort === 'color' || sort === 'rarity' ? curveThenName : withinGroup,
+        sort === 'type' || sort === 'color' || sort === 'rarity' || sort === 'category'
+          ? curveThenName : withinGroup,
       ),
     }))
     .sort((a, b) => {

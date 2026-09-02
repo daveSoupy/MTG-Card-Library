@@ -138,6 +138,15 @@ export async function runSync(
 
     report({ phase: 'finalizing', message: 'Building indexes…', fraction: 0.99 });
     db.transaction(() => importer.assignDefaultPrintings())();
+
+    const pricePoints = recordPriceHistory(db);
+    if (pricePoints > 0) {
+      report({
+        phase: 'finalizing',
+        message: `Recorded ${pricePoints.toLocaleString()} price changes…`,
+        fraction: 0.99,
+      });
+    }
     // Give the planner real statistics; without these the correlated subqueries
     // behind set and rarity filters choose poorly.
     db.exec('ANALYZE');
@@ -183,4 +192,46 @@ export async function runSync(
     report({ phase: 'failed', message: 'Sync failed.', fraction: null, error: message });
     throw error;
   }
+}
+
+/**
+ * Records today's price for cards worth tracking.
+ *
+ * Two deliberate narrowings, both from the schema's own reasoning: only cards
+ * that are owned, want-listed or on a trade list (`v_tracked_printings`), and
+ * only when the price actually differs from the last point stored. Tracking
+ * every printing on every sync would be roughly half a million rows a day for
+ * a chart nobody asked for; a quiet week now costs almost nothing.
+ *
+ * Returns the number of points written.
+ */
+export function recordPriceHistory(db: Database.Database): number {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const result = db.transaction(() => {
+    let written = 0;
+    // One statement per finish, so an etched printing charts separately from
+    // its non-foil sibling.
+    for (const [finish, column] of [
+      ['nonfoil', 'price_usd'],
+      ['foil', 'price_usd_foil'],
+      ['etched', 'price_usd_etched'],
+    ] as const) {
+      const outcome = db.prepare(`
+        INSERT INTO printing_price_history (printing_id, finish, observed_on, price_usd)
+        SELECT p.id, ?, ?, p.${column}
+        FROM card_printings p
+        JOIN v_tracked_printings t ON t.printing_id = p.id
+        WHERE p.${column} IS NOT NULL
+          AND p.${column} <> COALESCE(
+              (SELECT l.price_usd FROM v_printing_price_latest l
+                WHERE l.printing_id = p.id AND l.finish = ?), -1)
+        ON CONFLICT(printing_id, finish, observed_on) DO UPDATE SET
+          price_usd = excluded.price_usd`).run(finish, today, finish);
+      written += outcome.changes;
+    }
+    return written;
+  })();
+
+  return result;
 }
