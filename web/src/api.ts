@@ -145,6 +145,7 @@ export interface SearchParams {
   maxCmc?: number;
   includeDigital?: boolean;
   includeExtras?: boolean;
+  includeUnplayable?: boolean;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -182,6 +183,7 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.maxCmc !== undefined) query.set('maxCmc', String(params.maxCmc));
   if (params.includeDigital) query.set('includeDigital', 'true');
   if (params.includeExtras) query.set('includeExtras', 'true');
+  if (params.includeUnplayable) query.set('includeUnplayable', 'true');
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
@@ -799,6 +801,7 @@ export function fetchRandomCard(params: SearchParams = {}, signal?: AbortSignal)
   if (params.ownedOnly) query.set('ownedOnly', 'true');
   if (params.includeDigital) query.set('includeDigital', 'true');
   if (params.includeExtras) query.set('includeExtras', 'true');
+  if (params.includeUnplayable) query.set('includeUnplayable', 'true');
   return getJson<CardDetail>(`/api/v1/cards/random?${query}`, signal);
 }
 

@@ -148,6 +148,17 @@ function isFragment(value: string): Fragment | null {
     case 'creature':   return { sql: `o.type_line LIKE '%Creature%'`, params: [] };
     case 'digital':    return { sql: 'dp.is_digital = 1', params: [] };
     case 'paper':      return { sql: 'dp.is_digital = 0', params: [] };
+    case 'playable': case 'unplayable': {
+      // "Legal somewhere", the same test the format filter uses without
+      // naming a format. Banned is not playable, which is why Chaos Orb
+      // answers to is:unplayable.
+      const legalSomewhere = `EXISTS (SELECT 1 FROM card_legalities cl
+                                     WHERE cl.oracle_id = o.oracle_id
+                                       AND cl.legality IN ('legal','restricted'))`;
+      return value === 'playable'
+        ? { sql: legalSomewhere, params: [] }
+        : { sql: `NOT ${legalSomewhere}`, params: [] };
+    }
     case 'permanent':
       return { sql: `NOT (o.type_line LIKE '%Instant%' OR o.type_line LIKE '%Sorcery%')`, params: [] };
     case 'spell':
@@ -279,6 +290,22 @@ export function compileQuery(text: string): CompiledQuery {
       : null,
     freeText: kept.join(' '),
   };
+}
+
+/**
+ * True when the query is explicitly about legality.
+ *
+ * Suppresses the "hide unplayable cards" default, which would otherwise make
+ * `banned:vintage` return nothing at all: a card banned everywhere is legal
+ * nowhere, so the default and the query cancel each other out.
+ */
+export function mentionsLegality(text: string): boolean {
+  const LEGALITY_KEYS = new Set(['legal', 'f', 'format', 'banned', 'restricted']);
+  return parseQuery(text).terms.some((t) => {
+    if (LEGALITY_KEYS.has(t.key)) return true;
+    const value = t.value.toLowerCase();
+    return (t.key === 'is' || t.key === 'not') && (value === 'playable' || value === 'unplayable');
+  });
 }
 
 /** True when the query explicitly asks about digital cards either way. */

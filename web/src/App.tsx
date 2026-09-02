@@ -60,6 +60,7 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
     maxCmc: filters.maxCmc === '' ? undefined : Number(filters.maxCmc),
     includeDigital: filters.includeDigital,
     includeExtras: filters.includeExtras,
+    includeUnplayable: filters.includeUnplayable,
     sort,
     limit: PAGE_SIZE,
   };

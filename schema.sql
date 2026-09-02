@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 7;
+PRAGMA user_version = 8;
 
 
 -- =====================================================================
@@ -332,6 +332,14 @@ CREATE TABLE card_legalities (
     PRIMARY KEY (oracle_id, format_code)
 );
 CREATE INDEX idx_legal_format ON card_legalities(format_code, legality);
+
+-- "Is this card legal anywhere at all", which search asks of every card on
+-- every query to hide Un-cards and playtest cards. The primary key is
+-- (oracle_id, format_code) and carries no legality, so without this the probe
+-- fetches every one of a card's 23 legality rows. Partial, because only the
+-- playable rows are ever asked about — 366k of 888k.
+CREATE INDEX idx_legal_playable ON card_legalities(oracle_id)
+    WHERE legality IN ('legal','restricted');
 
 -- Every name a card can be searched/imported/OCR'd by: full name, each
 -- face name, flip name. Powers Phase 5 decklist import and Phase 7 OCR
