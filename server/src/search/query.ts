@@ -157,7 +157,13 @@ function isFragment(value: string): Fragment | null {
     case 'split':      return { sql: `o.layout = 'split'`, params: [] };
     case 'colorless':  return { sql: 'o.colors_mask = 0', params: [] };
     case 'multicolor': case 'multicolour': case 'gold':
+      // Two or more colour bits set. Clearing the lowest set bit leaves
+      // something behind only when there was more than one.
       return { sql: '(o.colors_mask & (o.colors_mask - 1)) <> 0', params: [] };
+    case 'hybrid':
+      // {G/W} and friends. A hybrid card may be mono-coloured by identity, so
+      // this is deliberately independent of colors_mask.
+      return { sql: `o.mana_cost LIKE '%/%'`, params: [] };
     case 'foil':
       return { sql: `EXISTS (SELECT 1 FROM card_printings fp WHERE fp.oracle_id = o.oracle_id
                              AND fp.finishes LIKE '%foil%')`, params: [] };
@@ -256,11 +262,20 @@ export function compileQuery(text: string): CompiledQuery {
   }
 
   const kept = words.filter((w) => w.length > 0);
+
+  // Words are normalised before they reach FTS5 so free text folds accents and
+  // ligatures the same way names do — typing "Aether" should find "Æther Vial".
+  // The trailing `*` makes each word a prefix: without it FTS5 compares whole
+  // tokens, so "waste" never matches the card "Wastes".
+  const ftsWords = kept
+    .map((word) => normalizeName(word))
+    .filter((word) => word.length > 0);
+
   return {
     where,
     params,
-    ftsMatch: kept.length > 0
-      ? kept.map((w) => `"${w.replace(/"/g, '')}"`).join(' AND ')
+    ftsMatch: ftsWords.length > 0
+      ? ftsWords.map((w) => `"${w}"*`).join(' AND ')
       : null,
     freeText: kept.join(' '),
   };

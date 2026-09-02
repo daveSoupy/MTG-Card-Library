@@ -35,6 +35,7 @@ export const USER_TABLES = [
   'trade_lists',
   'trade_list_items',
   'filter_presets',
+  'card_art_preferences',
   'alerts',
   'scan_sessions',
   'ocr_corrections',

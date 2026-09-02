@@ -24,6 +24,28 @@ const SORTS = [
 
 const PAGE_SIZE = 60;
 
+/** The filter panel's state as the search API wants it. Shared by the initial
+ *  search and by "Load more", so the two cannot drift apart. */
+function searchParamsFor(text: string, filters: Filters, sort: string) {
+  return {
+    q: text,
+    ownedOnly: filters.ownedOnly,
+    colors: filters.colors,
+    colorsExact: filters.colorsExact,
+    gold: filters.gold,
+    hybrid: filters.hybrid,
+    rarities: filters.rarities,
+    set: filters.set || undefined,
+    format: filters.format || undefined,
+    minCmc: filters.minCmc === '' ? undefined : Number(filters.minCmc),
+    maxCmc: filters.maxCmc === '' ? undefined : Number(filters.maxCmc),
+    includeDigital: filters.includeDigital,
+    includeExtras: filters.includeExtras,
+    sort,
+    limit: PAGE_SIZE,
+  };
+}
+
 type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
   | { name: 'collection' } | { name: 'data' };
 
@@ -88,24 +110,7 @@ export default function App() {
     const timer = setTimeout(() => {
       setLoading(true);
       setError(null);
-      searchCards(
-        {
-          q: text,
-          ownedOnly: filters.ownedOnly,
-          colors: filters.colors,
-          colorsExact: filters.colorsExact,
-          rarities: filters.rarities,
-          set: filters.set || undefined,
-          format: filters.format || undefined,
-          minCmc: filters.minCmc === '' ? undefined : Number(filters.minCmc),
-          maxCmc: filters.maxCmc === '' ? undefined : Number(filters.maxCmc),
-          includeDigital: filters.includeDigital,
-          includeExtras: filters.includeExtras,
-          sort,
-          limit: PAGE_SIZE,
-        },
-        controller.signal,
-      )
+      searchCards(searchParamsFor(text, filters, sort), controller.signal)
         .then((result) => {
           setCards(result.cards);
           setTotal(result.total);
@@ -258,7 +263,7 @@ export default function App() {
                 title={`${card.name} — ${card.typeLine}`}
               >
                 {card.printingId && card.imageSmall ? (
-                  <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" />
+                  <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
                 ) : (
                   <div className="placeholder">{card.name}</div>
                 )}
@@ -276,20 +281,11 @@ export default function App() {
                 onClick={() => {
                   setLoadingMore(true);
                   searchCards({
-                    q: text,
-                    ownedOnly: filters.ownedOnly,
-                    colors: filters.colors,
-                    colorsExact: filters.colorsExact,
-                    rarities: filters.rarities,
-                    set: filters.set || undefined,
-                    format: filters.format || undefined,
-                    minCmc: filters.minCmc === '' ? undefined : Number(filters.minCmc),
-                    maxCmc: filters.maxCmc === '' ? undefined : Number(filters.maxCmc),
-                    includeDigital: filters.includeDigital,
-                    includeExtras: filters.includeExtras,
-                    sort,
-                    limit: PAGE_SIZE,
+                    ...searchParamsFor(text, filters, sort),
                     offset: cards.length,
+                    // The count cannot change while paging one result set, and
+                    // recomputing it is the expensive half of the query.
+                    knownTotal: total,
                   })
                     // Append rather than replace, and guard against a card
                     // arriving twice if the underlying data shifted mid-scroll.

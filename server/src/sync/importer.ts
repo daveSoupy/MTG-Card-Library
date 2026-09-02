@@ -394,17 +394,52 @@ export class CardImporter {
   }
 
   /**
-   * Chooses the printing each card shows by default: the newest paper,
-   * non-promo, non-digital one, falling back to whatever exists.
+   * Chooses the printing each card shows by default.
+   *
+   * The rule is "the most recent *ordinary* printing". Recency alone is not
+   * enough: Secret Lair sits in a set typed `box` with `promo = 0`, so it is
+   * neither excluded nor outranked by the old ordering — it is simply the
+   * newest thing, which is how a card ends up wearing art nobody recognises.
+   *
+   * Ranking is expressed as a score rather than a stack of ORDER BY booleans so
+   * a card that exists *only* as a Secret Lair or a promo still gets art, just
+   * at a worse score. Ties break on collector number and id, because
+   * same-day showcase variants otherwise shuffle between syncs.
    */
   assignDefaultPrintings(): void {
     this.db.exec(`
       UPDATE oracle_cards SET default_printing_id = (
-          SELECT p.id FROM card_printings p
+          SELECT p.id
+            FROM card_printings p
+            LEFT JOIN sets st ON st.code = p.set_code
+            -- Double-faced cards carry their art on card_faces, so checking
+            -- p.image_normal alone scores every one of them as imageless.
+            LEFT JOIN card_faces f ON f.printing_id = p.id AND f.face_index = 0
            WHERE p.oracle_id = oracle_cards.oracle_id
-           ORDER BY p.is_digital ASC, p.is_promo ASC, p.is_oversized ASC,
-                    (p.image_normal IS NULL) ASC,
-                    COALESCE(p.released_at,'0000-00-00') DESC
+           ORDER BY
+             (COALESCE(p.image_normal, f.image_normal) IS NULL) ASC,
+             p.is_digital ASC,
+             p.is_oversized ASC,
+             p.is_promo ASC,
+             (COALESCE(st.set_type,'') IN
+                ('promo','token','memorabilia','funny','masterpiece',
+                 'alchemy','minigame','box')) ASC,
+             -- Printings sold outside boosters are the Secret Lair / promo
+             -- tell that survives even when set_type does not say so.
+             (COALESCE(p.in_booster, 1) = 0) ASC,
+             -- Reprint inserts. These are typed 'masters' and do sit in
+             -- boosters, so nothing above catches them, but they carry another
+             -- set's card under a collector number like 'CLB-187'. The art is
+             -- the original art; it is the attribution that is wrong, and left
+             -- alone The List alone accounts for 3,968 defaults.
+             (p.set_code IN ('plst','mb1','mb2')) ASC,
+             p.is_variation ASC,
+             (COALESCE(p.border_color,'') = 'borderless') ASC,
+             (COALESCE(p.frame_effects,'') LIKE '%showcase%'
+              OR COALESCE(p.frame_effects,'') LIKE '%extendedart%') ASC,
+             COALESCE(p.released_at,'0000-00-00') DESC,
+             COALESCE(p.collector_number_num, 999999) ASC,
+             p.id ASC
            LIMIT 1
       )`);
   }

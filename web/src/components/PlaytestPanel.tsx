@@ -69,7 +69,7 @@ export function PlaytestPanel({ deck, onClose }: { deck: Deck; onClose: () => vo
                   disabled={mustBottom === 0}
                 >
                   {card.printingId && card.imageSmall ? (
-                    <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" />
+                    <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
                   ) : (
                     <div className="placeholder">{card.name}</div>
                   )}
