@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { setSetting, getSetting } from '../db/index.ts';
 import { CardImporter } from './importer.ts';
 import { fetchBulkEntry, fetchSets, streamBulkCards, type BulkType } from './scryfall.ts';
+import { CollectionStore } from '../collection/store.ts';
 
 export type SyncPhase =
   | 'checking'
@@ -139,7 +140,11 @@ export async function runSync(
     report({ phase: 'finalizing', message: 'Building indexes…', fraction: 0.99 });
     db.transaction(() => importer.assignDefaultPrintings())();
 
+    // Prices just moved, so today's collection value is now different — record
+    // both while the numbers are fresh. This is what makes the value-over-time
+    // chart fill in without the user having to remember to click anything.
     const pricePoints = recordPriceHistory(db);
+    takeValueSnapshot(db);
     if (pricePoints > 0) {
       report({
         phase: 'finalizing',
@@ -234,4 +239,13 @@ export function recordPriceHistory(db: Database.Database): number {
   })();
 
   return result;
+}
+
+/** Records the collection's value for today, after a price refresh. */
+function takeValueSnapshot(db: Database.Database): void {
+  try {
+    new CollectionStore(db).takeSnapshot();
+  } catch {
+    // A snapshot is a nice-to-have; never fail a completed card sync over it.
+  }
 }
