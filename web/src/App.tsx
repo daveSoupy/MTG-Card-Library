@@ -61,6 +61,7 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
     includeDigital: filters.includeDigital,
     includeExtras: filters.includeExtras,
     includeUnplayable: filters.includeUnplayable,
+    excludeUniversesBeyond: filters.excludeUniversesBeyond,
     sort,
     limit: PAGE_SIZE,
   };
