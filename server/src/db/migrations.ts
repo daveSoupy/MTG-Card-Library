@@ -45,4 +45,17 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE oracle_cards ADD COLUMN partner_with TEXT;
     `,
   },
+  {
+    version: 5,
+    description: 'Covering index for artist search',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_print_oracle_artist
+        ON card_printings(oracle_id, artist);
+
+      -- Without fresh statistics the planner keeps choosing idx_print_oracle
+      -- and the new index goes unused: measured 130ms before ANALYZE and 18ms
+      -- after, on the same database with the index present either way.
+      ANALYZE;
+    `,
+  },
 ];

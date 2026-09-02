@@ -38,11 +38,18 @@ function databaseAtVersion(version: number): Database.Database {
   // the "old" database is realistic without keeping historical copies of the
   // whole DDL around.
   db.exec(SCHEMA_SQL);
-  // Rewind past every later migration. Both kinds a migration can take have an
-  // inverse: a created table is dropped, an added column is dropped.
+  // Rewind past every later migration. Each kind a migration can take has an
+  // inverse: a created table is dropped, an added column is dropped, a created
+  // index is dropped. A kind with no inverse here would silently leave the
+  // "old" database identical to a fresh one, and the drift check below would
+  // pass without ever comparing anything — so the assertion that the fixture
+  // really is missing something is what keeps this list honest.
   for (const migration of [...MIGRATIONS].reverse().filter((m) => m.version > version)) {
     for (const name of createdTables(migration.sql)) {
       db.exec(`DROP TABLE IF EXISTS ${name}`);
+    }
+    for (const name of createdIndexes(migration.sql)) {
+      db.exec(`DROP INDEX IF EXISTS ${name}`);
     }
     for (const { table, column } of addedColumns(migration.sql)) {
       db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
@@ -54,6 +61,10 @@ function databaseAtVersion(version: number): Database.Database {
 
 function createdTables(sql: string): string[] {
   return [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+}
+
+function createdIndexes(sql: string): string[] {
+  return [...sql.matchAll(/CREATE(?: UNIQUE)? INDEX (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function addedColumns(sql: string): Array<{ table: string; column: string }> {

@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 
 
 -- =====================================================================
@@ -272,6 +272,12 @@ CREATE INDEX idx_print_price    ON card_printings(price_usd);
 -- scan of oracle_cards — measured at 5 seconds on a 38k-card database.
 CREATE INDEX idx_print_oracle_set    ON card_printings(oracle_id, set_code);
 CREATE INDEX idx_print_oracle_rarity ON card_printings(oracle_id, rarity);
+
+-- `a:"Rebecca Guay"` is a leading-wildcard LIKE, so no index can seek it — but
+-- including artist makes the index covering, and the correlated subquery stops
+-- fetching a full printing row per candidate. 128ms -> 18ms across 117,620
+-- printings.
+CREATE INDEX idx_print_oracle_artist ON card_printings(oracle_id, artist);
 
 -- Now that card_printings exists, oracle_cards.default_printing_id has a
 -- target. SQLite can't ALTER in a FK, so it is enforced by trigger.
