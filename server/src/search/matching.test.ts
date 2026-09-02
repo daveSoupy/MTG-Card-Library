@@ -26,6 +26,7 @@ const CARDS: Array<{ name: string; type: string; text: string; cost?: string; co
   { name: 'Lightning Bolt', type: 'Instant', text: 'Deals 3 damage to any target.', colors: 8 },
   { name: 'Lightning Helix', type: 'Instant', text: 'Deals 3 damage and you gain 3 life.', colors: 9 },
   { name: 'Emeritus of Conflict // Lightning Bolt', type: 'Creature', text: 'x', colors: 8 },
+  { name: '_____ Balls of Fire', type: 'Sorcery', text: 'x', colors: 8 },
   { name: 'Æther Vial', type: 'Artifact', text: 'Put a creature card onto the battlefield.' },
   { name: 'Boros Recruit', type: 'Creature', text: 'Double strike', cost: '{R/W}', colors: 9 },
   { name: 'Behemoth Sledge', type: 'Artifact — Equipment', text: 'Lifelink', cost: '{1}{G}{W}', colors: 17 },
@@ -153,5 +154,40 @@ test('the closest match comes first, not the alphabetically first', () => {
   // Likewise a card whose *face* is named Lightning Bolt must not outrank the
   // card that simply is Lightning Bolt.
   assert.equal(names(store.search('ightning bolt', {}, 'relevance', 50))[0], 'Lightning Bolt');
+  close();
+});
+
+test('name ordering ignores leading punctuation', () => {
+  const { store, close } = makeStore();
+  // Unfinity's blank-name cards are spelled "_____ Balls of Fire" and used to
+  // take the whole first page of an A-Z browse. Sorting on the normalised
+  // name files them under B, where a reader would look for them.
+  const ordered = store.search('', { includeUnplayable: true }, 'name', 50).cards.map((c) => c.name);
+  const at = (name: string) => ordered.indexOf(name);
+  // "_____ Balls of Fire" normalises to "balls of fire", so it files under B:
+  // after Æther Vial, before Behemoth Sledge — not ahead of the whole database.
+  assert.ok(at('_____ Balls of Fire') > 0,
+    `the blank-name card should not be first: ${ordered.slice(0, 3).join(', ')}`);
+  assert.ok(at('Æther Vial') < at('_____ Balls of Fire'), 'A before B');
+  assert.ok(at('_____ Balls of Fire') < at('Behemoth Sledge'), 'balls before behemoth');
+  // Æ folds to "ae", so Æther Vial files under A rather than after Z.
+  assert.ok(at('Æther Vial') < at('Lightning Bolt'));
+  close();
+});
+
+test('sorting by name uses the index instead of sorting the whole result', () => {
+  const { store, close } = makeStore();
+  // Guards a one-token change: `o.name COLLATE NOCASE` cannot use
+  // idx_oracle_name, and reverting to it makes an empty browse materialise
+  // every joined row into a temp B-tree — measured at 4s against the real
+  // database, versus 103ms on the normalised column.
+  const plan = (store as any).db
+    .prepare(`EXPLAIN QUERY PLAN SELECT o.oracle_id FROM oracle_cards o
+              ORDER BY o.name_normalized ASC LIMIT 60`)
+    .all()
+    .map((r: any) => r.detail)
+    .join(' ');
+  assert.ok(!/TEMP B-TREE FOR ORDER BY/.test(plan), `expected an index scan, got: ${plan}`);
+  assert.ok(/idx_oracle_name/.test(plan));
   close();
 });

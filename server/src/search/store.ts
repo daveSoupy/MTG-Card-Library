@@ -70,12 +70,22 @@ export interface SearchResult {
   offset: number;
 }
 
+/**
+ * Ordering runs on name_normalized rather than `name COLLATE NOCASE`.
+ *
+ * Two reasons, one of each kind. It is indexable — idx_oracle_name is on
+ * name_normalized, and COLLATE NOCASE cannot use it, so sorting the whole
+ * result set meant materialising every joined row into a temp B-tree to pick
+ * sixty. And it sorts by the name people read: normalisation strips leading
+ * punctuation, so Unfinity's "_____ Balls of Fire" files under B instead of
+ * colonising the first page ahead of every real card.
+ */
 const SORT_SQL: Record<Exclude<SortOrder, 'relevance'>, string> = {
-  name: 'o.name COLLATE NOCASE ASC',
-  manaValue: 'o.cmc ASC, o.name COLLATE NOCASE ASC',
-  newest: `COALESCE(dp.released_at,'0000-00-00') DESC, o.name COLLATE NOCASE ASC`,
-  price: 'COALESCE(dp.price_usd, 0) DESC, o.name COLLATE NOCASE ASC',
-  edhrec: 'COALESCE(o.edhrec_rank, 999999) ASC, o.name COLLATE NOCASE ASC',
+  name: 'o.name_normalized ASC',
+  manaValue: 'o.cmc ASC, o.name_normalized ASC',
+  newest: `COALESCE(dp.released_at,'0000-00-00') DESC, o.name_normalized ASC`,
+  price: 'COALESCE(dp.price_usd, 0) DESC, o.name_normalized ASC',
+  edhrec: 'COALESCE(o.edhrec_rank, 999999) ASC, o.name_normalized ASC',
 };
 
 /** Shared FROM/JOIN block. `owned` is a join so an owned-only filter is cheap. */
@@ -268,7 +278,7 @@ export class CardSearchStore {
           -- beginning "waste" ranks the same, and alphabetical order alone
           -- buries "Wastes" beneath "Waste Away" and "Waste Management".
           length(o.name_normalized) ASC,
-          o.name COLLATE NOCASE ASC`;
+          o.name_normalized ASC`;
       rankParams.push(normalized, `${normalized}%`, `%${normalized}%`);
     } else {
       orderSql = SORT_SQL[sort === 'relevance' ? 'name' : sort];
