@@ -146,7 +146,7 @@ export interface SearchParams {
   includeDigital?: boolean;
   includeExtras?: boolean;
   includeUnplayable?: boolean;
-  excludeUniversesBeyond?: boolean;
+  includeUniversesBeyond?: boolean;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -185,7 +185,7 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.includeDigital) query.set('includeDigital', 'true');
   if (params.includeExtras) query.set('includeExtras', 'true');
   if (params.includeUnplayable) query.set('includeUnplayable', 'true');
-  if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
+  if (params.includeUniversesBeyond) query.set('includeUniversesBeyond', 'true');
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
@@ -804,7 +804,7 @@ export function fetchRandomCard(params: SearchParams = {}, signal?: AbortSignal)
   if (params.includeDigital) query.set('includeDigital', 'true');
   if (params.includeExtras) query.set('includeExtras', 'true');
   if (params.includeUnplayable) query.set('includeUnplayable', 'true');
-  if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
+  if (params.includeUniversesBeyond) query.set('includeUniversesBeyond', 'true');
   return getJson<CardDetail>(`/api/v1/cards/random?${query}`, signal);
 }
 
