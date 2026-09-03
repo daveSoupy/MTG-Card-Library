@@ -134,10 +134,12 @@ export function DeckBuilder({
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // A commander's identity as filter colours. 'C' is included so colourless
-  // cards — which fit in every deck — are not excluded along with off-colours.
+  // A commander's identity, as a stable string ("WU", "" for colourless, or
+  // null when no commander sets one). Kept as the primitive rather than an
+  // array: the picker effect depends on it, and a fresh `[...identity, 'C']`
+  // array every render made that effect re-run on every render — each run
+  // aborting the previous in-flight search, so nothing ever came back.
   const identity = deck?.validation.commanderIdentity ?? null;
-  const identityFilter = identity === null ? null : [...identity, 'C'];
 
   // Whether this format has a command zone at all. Read from the format list
   // rather than guessed from deck size — Gladiator is 100-card singleton and
@@ -191,7 +193,11 @@ export function DeckBuilder({
           commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
           // The colour pills narrow within the commander's identity where the
           // format enforces one, so the picker never offers an illegal card.
-          colors: effectivePickerColors(pickerColors, identityFilter),
+          // 'C' is appended so colourless cards, which fit every deck, are kept.
+          colors: effectivePickerColors(
+            pickerColors,
+            identity === null ? null : [...identity, 'C'],
+          ),
           gold: pickerGold || undefined,
           hybrid: pickerHybrid || undefined,
           limit: 40,
@@ -212,7 +218,7 @@ export function DeckBuilder({
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly, deck?.formatCode, identityFilter, pickingCommander,
+  }, [query, ownedOnly, deck?.formatCode, identity, pickingCommander,
       pickerColors, pickerGold, pickerHybrid, colorFilterActive]);
 
   if (!deck) {
