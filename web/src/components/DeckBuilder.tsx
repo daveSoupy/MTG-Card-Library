@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addDeckCard, fetchDeck, imageUrl, removeDeckCard, searchCards, setDeckCover,
+  addDeckCard, addRecommendedLands, fetchDeck, imageUrl, removeDeckCard, searchCards, setDeckCover,
   updateDeck, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
+import { effectivePickerColors } from '../pickerColors.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
 import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
+import { DeckArtDialog } from './DeckArtDialog.tsx';
 import {
   DECK_SORTS, groupCards, loadViewPreference, saveViewPreference,
   type DeckSort, type DeckViewMode,
@@ -30,6 +32,7 @@ function CardRow({
   onRemove,
   onToggleOwned,
   onPreview,
+  onArt,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -38,6 +41,7 @@ function CardRow({
   onRemove: () => void;
   onToggleOwned: () => void;
   onPreview: () => void;
+  onArt: () => void;
 }) {
   const claimed = card.quantityFromCollection;
   const shortfall = claimed > card.availableQuantity;
@@ -82,6 +86,7 @@ function CardRow({
         <option value="maybe">Maybeboard</option>
       </select>
 
+      <button className="row-art" onClick={onArt} aria-label={`Choose art for ${card.name}`} title="Choose printing / art">◆</button>
       <button className="row-remove" onClick={onRemove} aria-label={`Remove ${card.name}`}>×</button>
     </div>
   );
@@ -102,9 +107,13 @@ export function DeckBuilder({
 
   const [query, setQuery] = useState('');
   const [ownedOnly, setOwnedOnly] = useState(false);
+  const [pickerColors, setPickerColors] = useState<string[]>([]);
+  const [pickerGold, setPickerGold] = useState(false);
+  const [pickerHybrid, setPickerHybrid] = useState(false);
   const [results, setResults] = useState<CardSummary[]>([]);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
+  const [artFor, setArtFor] = useState<DeckCard | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [shopping, setShopping] = useState(false);
@@ -125,10 +134,12 @@ export function DeckBuilder({
 
   const listRef = useRef<HTMLDivElement>(null);
 
-  // A commander's identity as filter colours. 'C' is included so colourless
-  // cards — which fit in every deck — are not excluded along with off-colours.
+  // A commander's identity, as a stable string ("WU", "" for colourless, or
+  // null when no commander sets one). Kept as the primitive rather than an
+  // array: the picker effect depends on it, and a fresh `[...identity, 'C']`
+  // array every render made that effect re-run on every render — each run
+  // aborting the previous in-flight search, so nothing ever came back.
   const identity = deck?.validation.commanderIdentity ?? null;
-  const identityFilter = identity === null ? null : [...identity, 'C'];
 
   // Whether this format has a command zone at all. Read from the format list
   // rather than guessed from deck size — Gladiator is 100-card singleton and
@@ -162,33 +173,53 @@ export function DeckBuilder({
 
   // Card picker. Scoped to the deck's format so a Modern deck does not offer
   // cards that would immediately be flagged illegal.
+  const colorFilterActive = pickerColors.length > 0 || pickerGold || pickerHybrid;
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       // Commander mode lists candidates with no query typed, since "show me what
-    // can lead this deck" is the whole request.
-    if (!query && !ownedOnly && !pickingCommander) { setResults([]); return; }
+      // can lead this deck" is the whole request; a colour filter alone is also
+      // enough of a request to run a search.
+      if (!query && !ownedOnly && !pickingCommander && !colorFilterActive) {
+        setResults([]);
+        return;
+      }
       setSearching(true);
       searchCards(
         {
           q: query,
           ownedOnly,
           format: deck?.formatCode ?? undefined,
-        commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
-          // Restrict to the commander's identity where the format enforces one,
-          // so the picker cannot offer a card that would be illegal on arrival.
-          colors: identityFilter ?? undefined,
+          commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
+          // The colour pills narrow within the commander's identity where the
+          // format enforces one, so the picker never offers an illegal card.
+          // 'C' is appended so colourless cards, which fit every deck, are kept.
+          colors: effectivePickerColors(
+            pickerColors,
+            identity === null ? null : [...identity, 'C'],
+          ),
+          gold: pickerGold || undefined,
+          hybrid: pickerHybrid || undefined,
           limit: 40,
           sort: 'relevance',
         },
         controller.signal,
       )
-        .then((r) => setResults(r.cards))
+        .then((r) => {
+          setResults(r.cards);
+          // Warm the small art so a card's deck tile paints from cache the
+          // instant it is added — the reason an owned card felt faster to add
+          // was simply that its art was already on disk.
+          for (const card of r.cards) {
+            if (card.printingId) new Image().src = imageUrl(card.printingId, 'small');
+          }
+        })
         .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly, deck?.formatCode, identityFilter, pickingCommander]);
+  }, [query, ownedOnly, deck?.formatCode, identity, pickingCommander,
+      pickerColors, pickerGold, pickerHybrid, colorFilterActive]);
 
   if (!deck) {
     return (
@@ -248,6 +279,13 @@ export function DeckBuilder({
         <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
           {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
         </span>
+        <button
+          className="btn secondary"
+          onClick={() => apply(() => addRecommendedLands(deck.id))}
+          title="Fill the deck to a recommended land count with basics, split by colour"
+        >
+          Add lands
+        </button>
         <button className="btn secondary" onClick={() => setPlaytesting(true)}>
           Playtest
         </button>
@@ -284,6 +322,14 @@ export function DeckBuilder({
         />
       )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
+      {artFor && (
+        <DeckArtDialog
+          deckId={deck.id}
+          card={artFor}
+          onClose={() => setArtFor(null)}
+          onDeck={(next) => setDeck(next)}
+        />
+      )}
 
       <div className="deck-panes">
         <div className="decklist" ref={listRef}>
@@ -356,6 +402,7 @@ export function DeckBuilder({
                               }))}
                             onPreview={() =>
                               card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
+                            onArt={() => setArtFor(card)}
                           />
                         </div>
                       ))
@@ -395,6 +442,11 @@ export function DeckBuilder({
                                 aria-label={`One more ${card.name}`}
                               >+</button>
                               <button
+                                onClick={() => setArtFor(card)}
+                                aria-label={`Choose art for ${card.name}`}
+                                title="Choose printing / art"
+                              >◆</button>
+                              <button
                                 onClick={() => apply(() => removeDeckCard(deck.id, card.id))}
                                 aria-label={`Remove ${card.name}`}
                               >×</button>
@@ -429,6 +481,40 @@ export function DeckBuilder({
               <button className="linkish" onClick={() => setPickingCommander(false)}>Cancel</button>
             </div>
           )}
+
+          {/* Colour filter — the browse pills, laid out to fit the picker. M is
+              "two or more colours", H is a hybrid symbol in the cost. */}
+          <div className="picker-filters pills">
+            {(['W', 'U', 'B', 'R', 'G', 'C'] as const).map((code) => (
+              <button
+                key={code}
+                className={`pill color ${code}`}
+                aria-pressed={pickerColors.includes(code)}
+                title={code === 'C' ? 'Colourless' : code}
+                onClick={() => setPickerColors((prev) =>
+                  prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code])}
+              >
+                {code}
+              </button>
+            ))}
+            <button
+              className="pill color M"
+              aria-pressed={pickerGold}
+              title="Gold — two or more colours"
+              onClick={() => setPickerGold((v) => !v)}
+            >
+              M
+            </button>
+            <button
+              className="pill color H"
+              aria-pressed={pickerHybrid}
+              title="Hybrid mana, like {G/W}"
+              onClick={() => setPickerHybrid((v) => !v)}
+            >
+              H
+            </button>
+          </div>
+
           <label className="check" style={{ margin: '8px 0' }}>
             <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
             Only cards I own

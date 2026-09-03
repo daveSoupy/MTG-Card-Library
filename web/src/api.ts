@@ -420,9 +420,87 @@ export const updateDeckCard = (
   },
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
 
+export const addRecommendedLands = (deckId: number) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${deckId}/recommended-lands`, 'POST', {}).then((r) => r.deck);
+
 export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
   getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
     .then((r) => r.categories);
+
+export interface AppSettings {
+  autoMaintainLands: boolean;
+}
+
+export const fetchSettings = (signal?: AbortSignal) =>
+  getJson<{ settings: AppSettings }>('/api/v1/settings', signal).then((r) => r.settings);
+
+export const updateSettings = (changes: Partial<AppSettings>) =>
+  send<{ settings: AppSettings }>('/api/v1/settings', 'PUT', changes).then((r) => r.settings);
+
+export interface StorageInfo {
+  database: { bytes: number };
+  imageCache: { bytes: number; count: number; limitBytes: number };
+  cards: { oracleCards: number; printings: number; sets: number };
+  coverage: { referenced: number; cached: number };
+  fullEstimateBytes: number;
+}
+
+export type ImageDownloadScope = 'referenced' | 'all';
+
+export interface ImageDownloadStatus {
+  running: boolean;
+  scope: ImageDownloadScope | null;
+  total: number;
+  processed: number;
+  downloaded: number;
+  skipped: number;
+  failed: number;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastError: string | null;
+  canceled: boolean;
+}
+
+export const fetchStorage = (signal?: AbortSignal) =>
+  getJson<StorageInfo>('/api/v1/storage', signal);
+
+export const setCacheLimit = (bytes: number) =>
+  send<{ limitBytes: number }>('/api/v1/storage/cache-limit', 'PUT', { bytes });
+
+/** Raised when a full download would exceed the cache cap; carries the numbers. */
+export class CacheTooSmallError extends Error {
+  estimateBytes: number;
+  limitBytes: number;
+  constructor(message: string, estimateBytes: number, limitBytes: number) {
+    super(message);
+    this.name = 'CacheTooSmallError';
+    this.estimateBytes = estimateBytes;
+    this.limitBytes = limitBytes;
+  }
+}
+
+/** Starts a download; throws CacheTooSmallError (with the numbers) on a 413. */
+export async function startImageDownload(scope: ImageDownloadScope): Promise<ImageDownloadStatus> {
+  const response = await fetch('/api/v1/images/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope }),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (response.status === 413) {
+    throw new CacheTooSmallError(body.error ?? 'Cache too small.', body.estimateBytes, body.limitBytes);
+  }
+  if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
+  return body.status as ImageDownloadStatus;
+}
+
+export const fetchImageDownloadStatus = (signal?: AbortSignal) =>
+  getJson<{ status: ImageDownloadStatus }>('/api/v1/images/download/status', signal)
+    .then((r) => r.status);
+
+export const cancelImageDownload = () =>
+  send<{ status: ImageDownloadStatus }>('/api/v1/images/download/cancel', 'POST', {})
+    .then((r) => r.status);
 
 export const removeDeckCard = (deckId: number, cardId: number) =>
   send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'DELETE').then((r) => r.deck);

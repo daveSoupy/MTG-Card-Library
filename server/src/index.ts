@@ -17,6 +17,9 @@ import { registerDeckRoutes } from './routes/decks.ts';
 import { registerPresetRoutes } from './routes/presets.ts';
 import { registerCollectionRoutes } from './routes/collection.ts';
 import { registerPortingRoutes } from './routes/porting.ts';
+import { registerSettingsRoutes } from './routes/settings.ts';
+import { registerStorageRoutes } from './routes/storage.ts';
+import { ImageDownloadManager } from './images/downloadManager.ts';
 import { startBackupSchedule } from './porting/schedule.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +31,7 @@ const store = new CardSearchStore(library.db);
 const decks = new DeckStore(library.db);
 const collection = new CollectionStore(library.db);
 const sync = new SyncManager(dataDir);
+const downloads = new ImageDownloadManager(library.db, library.imageDir);
 const backups = startBackupSchedule(library.db, dataDir);
 
 const app = Fastify({
@@ -41,6 +45,8 @@ registerDeckRoutes(app, decks, library.db);
 registerPresetRoutes(app, library.db);
 registerCollectionRoutes(app, library.db, collection);
 registerPortingRoutes(app, library.db, decks, collection, backups);
+registerSettingsRoutes(app, library.db);
+registerStorageRoutes(app, library.db, library.databasePath, downloads);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 

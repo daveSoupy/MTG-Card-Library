@@ -113,6 +113,19 @@ export function registerDeckRoutes(
         quantity: asInt(body.quantity) ?? 1,
         fromCollection: asInt(body.fromCollection),
       });
+      // Keep basics in step when the user enabled it — never for a basic-land
+      // add, which would fight a deliberate manual change.
+      decks.autoMaintainLands(id, body.oracleId);
+      return { deck: decks.get(id) };
+    });
+  });
+
+  // Fill the deck up to a recommended land count with basics, split by colour.
+  app.post('/api/v1/decks/:id/recommended-lands', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Invalid deck id.' });
+    return guard(reply, () => {
+      decks.applyRecommendedLands(id);
       return { deck: decks.get(id) };
     });
   });
@@ -129,6 +142,10 @@ export function registerDeckRoutes(
     const fromCollection = asInt(body.fromCollection);
     const board = asBoard(body.board);
 
+    // Captured before the edit: a quantity of 0 removes the slot, after which
+    // its oracle id can no longer be looked up.
+    const editedOracle = decks.oracleForCard(id, cardId);
+
     if (body.category !== undefined) {
       decks.setCategory(id, cardId, typeof body.category === 'string' ? body.category : null);
     }
@@ -142,6 +159,11 @@ export function registerDeckRoutes(
     if (quantity !== undefined) decks.setQuantity(id, cardId, quantity);
     if (fromCollection !== undefined) decks.setFromCollection(id, cardId, fromCollection);
     if (board !== undefined) decks.setBoard(id, cardId, board, asRole(body.commanderRole));
+
+    // A quantity or board change alters the mana base; rebalance basics if on.
+    if (quantity !== undefined || board !== undefined) {
+      decks.autoMaintainLands(id, editedOracle);
+    }
 
     const deck = decks.get(id);
     if (!deck) return reply.status(404).send({ error: 'No deck with that id.' });
@@ -160,7 +182,9 @@ export function registerDeckRoutes(
     if (id === undefined || cardId === undefined) {
       return reply.status(400).send({ error: 'Invalid deck or card id.' });
     }
+    const editedOracle = decks.oracleForCard(id, cardId);
     decks.removeCard(id, cardId);
+    decks.autoMaintainLands(id, editedOracle);
     const deck = decks.get(id);
     if (!deck) return reply.status(404).send({ error: 'No deck with that id.' });
     return { deck };
