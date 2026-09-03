@@ -11,6 +11,7 @@ import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
+import { DeckArtDialog } from './DeckArtDialog.tsx';
 import {
   DECK_SORTS, groupCards, loadViewPreference, saveViewPreference,
   type DeckSort, type DeckViewMode,
@@ -31,6 +32,7 @@ function CardRow({
   onRemove,
   onToggleOwned,
   onPreview,
+  onArt,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -39,6 +41,7 @@ function CardRow({
   onRemove: () => void;
   onToggleOwned: () => void;
   onPreview: () => void;
+  onArt: () => void;
 }) {
   const claimed = card.quantityFromCollection;
   const shortfall = claimed > card.availableQuantity;
@@ -83,6 +86,7 @@ function CardRow({
         <option value="maybe">Maybeboard</option>
       </select>
 
+      <button className="row-art" onClick={onArt} aria-label={`Choose art for ${card.name}`} title="Choose printing / art">◆</button>
       <button className="row-remove" onClick={onRemove} aria-label={`Remove ${card.name}`}>×</button>
     </div>
   );
@@ -109,6 +113,7 @@ export function DeckBuilder({
   const [results, setResults] = useState<CardSummary[]>([]);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
+  const [artFor, setArtFor] = useState<DeckCard | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [shopping, setShopping] = useState(false);
@@ -311,6 +316,14 @@ export function DeckBuilder({
         />
       )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
+      {artFor && (
+        <DeckArtDialog
+          deckId={deck.id}
+          card={artFor}
+          onClose={() => setArtFor(null)}
+          onDeck={(next) => setDeck(next)}
+        />
+      )}
 
       <div className="deck-panes">
         <div className="decklist" ref={listRef}>
@@ -383,6 +396,7 @@ export function DeckBuilder({
                               }))}
                             onPreview={() =>
                               card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
+                            onArt={() => setArtFor(card)}
                           />
                         </div>
                       ))
@@ -421,6 +435,11 @@ export function DeckBuilder({
                                   apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity + 1 }))}
                                 aria-label={`One more ${card.name}`}
                               >+</button>
+                              <button
+                                onClick={() => setArtFor(card)}
+                                aria-label={`Choose art for ${card.name}`}
+                                title="Choose printing / art"
+                              >◆</button>
                               <button
                                 onClick={() => apply(() => removeDeckCard(deck.id, card.id))}
                                 aria-label={`Remove ${card.name}`}
