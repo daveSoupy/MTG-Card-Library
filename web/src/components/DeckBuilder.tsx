@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addDeckCard, fetchDeck, imageUrl, removeDeckCard, searchCards, setDeckCover,
+  addDeckCard, addRecommendedLands, fetchDeck, imageUrl, removeDeckCard, searchCards, setDeckCover,
   updateDeck, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
+import { effectivePickerColors } from '../pickerColors.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
 import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
@@ -102,6 +103,9 @@ export function DeckBuilder({
 
   const [query, setQuery] = useState('');
   const [ownedOnly, setOwnedOnly] = useState(false);
+  const [pickerColors, setPickerColors] = useState<string[]>([]);
+  const [pickerGold, setPickerGold] = useState(false);
+  const [pickerHybrid, setPickerHybrid] = useState(false);
   const [results, setResults] = useState<CardSummary[]>([]);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
@@ -162,33 +166,49 @@ export function DeckBuilder({
 
   // Card picker. Scoped to the deck's format so a Modern deck does not offer
   // cards that would immediately be flagged illegal.
+  const colorFilterActive = pickerColors.length > 0 || pickerGold || pickerHybrid;
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       // Commander mode lists candidates with no query typed, since "show me what
-    // can lead this deck" is the whole request.
-    if (!query && !ownedOnly && !pickingCommander) { setResults([]); return; }
+      // can lead this deck" is the whole request; a colour filter alone is also
+      // enough of a request to run a search.
+      if (!query && !ownedOnly && !pickingCommander && !colorFilterActive) {
+        setResults([]);
+        return;
+      }
       setSearching(true);
       searchCards(
         {
           q: query,
           ownedOnly,
           format: deck?.formatCode ?? undefined,
-        commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
-          // Restrict to the commander's identity where the format enforces one,
-          // so the picker cannot offer a card that would be illegal on arrival.
-          colors: identityFilter ?? undefined,
+          commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
+          // The colour pills narrow within the commander's identity where the
+          // format enforces one, so the picker never offers an illegal card.
+          colors: effectivePickerColors(pickerColors, identityFilter),
+          gold: pickerGold || undefined,
+          hybrid: pickerHybrid || undefined,
           limit: 40,
           sort: 'relevance',
         },
         controller.signal,
       )
-        .then((r) => setResults(r.cards))
+        .then((r) => {
+          setResults(r.cards);
+          // Warm the small art so a card's deck tile paints from cache the
+          // instant it is added — the reason an owned card felt faster to add
+          // was simply that its art was already on disk.
+          for (const card of r.cards) {
+            if (card.printingId) new Image().src = imageUrl(card.printingId, 'small');
+          }
+        })
         .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly, deck?.formatCode, identityFilter, pickingCommander]);
+  }, [query, ownedOnly, deck?.formatCode, identityFilter, pickingCommander,
+      pickerColors, pickerGold, pickerHybrid, colorFilterActive]);
 
   if (!deck) {
     return (
@@ -248,6 +268,13 @@ export function DeckBuilder({
         <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
           {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
         </span>
+        <button
+          className="btn secondary"
+          onClick={() => apply(() => addRecommendedLands(deck.id))}
+          title="Fill the deck to a recommended land count with basics, split by colour"
+        >
+          Add lands
+        </button>
         <button className="btn secondary" onClick={() => setPlaytesting(true)}>
           Playtest
         </button>
@@ -429,6 +456,40 @@ export function DeckBuilder({
               <button className="linkish" onClick={() => setPickingCommander(false)}>Cancel</button>
             </div>
           )}
+
+          {/* Colour filter — the browse pills, laid out to fit the picker. M is
+              "two or more colours", H is a hybrid symbol in the cost. */}
+          <div className="picker-filters pills">
+            {(['W', 'U', 'B', 'R', 'G', 'C'] as const).map((code) => (
+              <button
+                key={code}
+                className={`pill color ${code}`}
+                aria-pressed={pickerColors.includes(code)}
+                title={code === 'C' ? 'Colourless' : code}
+                onClick={() => setPickerColors((prev) =>
+                  prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code])}
+              >
+                {code}
+              </button>
+            ))}
+            <button
+              className="pill color M"
+              aria-pressed={pickerGold}
+              title="Gold — two or more colours"
+              onClick={() => setPickerGold((v) => !v)}
+            >
+              M
+            </button>
+            <button
+              className="pill color H"
+              aria-pressed={pickerHybrid}
+              title="Hybrid mana, like {G/W}"
+              onClick={() => setPickerHybrid((v) => !v)}
+            >
+              H
+            </button>
+          </div>
+
           <label className="check" style={{ margin: '8px 0' }}>
             <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
             Only cards I own

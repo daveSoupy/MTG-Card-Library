@@ -448,4 +448,20 @@ export class CardImporter {
            LIMIT 1
       )`);
   }
+
+  /**
+   * Precompute has_uncommon_printing across the catalogue.
+   *
+   * Pauper Commander lets an uncommon creature lead, so eligibility needs to
+   * know whether any printing of a card is uncommon. Kept as a column rather
+   * than a correlated EXISTS over the 117k-row printings table, which the deck
+   * read would otherwise run once per card on every mutation. A post-pass like
+   * assignDefaultPrintings, since it depends on all printings being in.
+   */
+  assignRarityFlags(): void {
+    this.db.exec(`
+      UPDATE oracle_cards SET has_uncommon_printing =
+        EXISTS (SELECT 1 FROM card_printings p
+                WHERE p.oracle_id = oracle_cards.oracle_id AND p.rarity = 'uncommon')`);
+  }
 }

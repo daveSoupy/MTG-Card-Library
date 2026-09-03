@@ -420,9 +420,22 @@ export const updateDeckCard = (
   },
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
 
+export const addRecommendedLands = (deckId: number) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${deckId}/recommended-lands`, 'POST', {}).then((r) => r.deck);
+
 export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
   getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
     .then((r) => r.categories);
+
+export interface AppSettings {
+  autoMaintainLands: boolean;
+}
+
+export const fetchSettings = (signal?: AbortSignal) =>
+  getJson<{ settings: AppSettings }>('/api/v1/settings', signal).then((r) => r.settings);
+
+export const updateSettings = (changes: Partial<AppSettings>) =>
+  send<{ settings: AppSettings }>('/api/v1/settings', 'PUT', changes).then((r) => r.settings);
 
 export const removeDeckCard = (deckId: number, cardId: number) =>
   send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'DELETE').then((r) => r.deck);

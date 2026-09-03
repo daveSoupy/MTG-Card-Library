@@ -3,9 +3,18 @@ import { validateDeck, canLeadDeck, isSignatureSpell, pairingIsLegal } from './v
 import { deckStats } from './stats.ts';
 import { analyseManaBase } from './manabase.ts';
 import type { ManaBase } from './manabase.ts';
+import { planBasics, type BasicLand } from './lands.ts';
+import { getSetting } from '../db/index.ts';
+import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
 } from './types.ts';
+
+/** Setting key: when '1', basics are kept in step with the deck automatically. */
+export const AUTO_MAINTAIN_LANDS = 'auto_maintain_lands';
+
+/** Live land maintenance stays out of the way until a deck has real spells. */
+const MIN_CARDS_FOR_AUTO_LANDS = 10;
 
 export class DeckNotFoundError extends Error {
   constructor(id: number) {
@@ -149,9 +158,7 @@ export class DeckStore {
              o.name, o.cmc, o.type_line, o.mana_cost, o.color_identity,
              o.color_identity_mask, o.colors_mask, o.is_basic_land, o.is_legendary,
              o.can_be_commander, o.partner_kind, o.partner_with, o.produced_mana,
-             EXISTS (SELECT 1 FROM card_printings ucp
-                     WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon')
-               AS has_uncommon_printing,
+             o.has_uncommon_printing,
              cl.legality,
              COALESCE(owned.qty, 0) AS owned_qty,
              COALESCE(owned.qty, 0)
@@ -472,18 +479,24 @@ export class DeckStore {
     const rules = this.formatRules(formatCode);
     if (!rules?.requiresCommander) return main;
 
-    const cards = this.cardsFor(deckId, formatCode);
-    const command = cards.filter((c) => c.board === 'command');
+    // Cheap counts rather than the full cardsFor query — this runs on every add,
+    // and all the decision needs is how many cards are in the deck and how many
+    // are already in the command zone.
+    const counts = this.db.prepare(`
+      SELECT COUNT(*) AS total,
+             SUM(CASE WHEN board = 'command' THEN 1 ELSE 0 END) AS in_command
+      FROM deck_cards WHERE deck_id = ?`).get(deckId) as { total: number; in_command: number | null };
+    const inCommand = counts.in_command ?? 0;
 
     // Already paired, or the zone is full.
-    if (command.length >= 2) return main;
+    if (inCommand >= 2) return main;
     // Past the first pick, and nothing in the zone to pair with.
-    if (command.length === 0 && cards.length > 0) return main;
+    if (inCommand === 0 && counts.total > 0) return main;
 
     const incoming = this.cardForPlacement(oracleId);
     if (!incoming) return main;
 
-    if (command.length === 0) {
+    if (inCommand === 0) {
       return canLeadDeck(incoming, rules)
         ? { board: 'command', role: 'commander' }
         : main;
@@ -496,7 +509,13 @@ export class DeckStore {
         : main;
     }
 
-    if (!pairingIsLegal(command[0], incoming)) return main;
+    // The one card already in the zone, loaded in the same shape as the incoming
+    // card so the pairing check sees identical fields on both sides.
+    const leaderOracle = this.db.prepare(
+      `SELECT oracle_id FROM deck_cards WHERE deck_id = ? AND board = 'command' LIMIT 1`,
+    ).get(deckId) as { oracle_id: string } | undefined;
+    const leader = leaderOracle ? this.cardForPlacement(leaderOracle.oracle_id) : null;
+    if (!leader || !pairingIsLegal(leader, incoming)) return main;
     return {
       board: 'command',
       role: incoming.partnerKind === 'background' ? 'background' : 'partner',
@@ -511,9 +530,7 @@ export class DeckStore {
     const row = this.db.prepare(`
       SELECT o.name, o.type_line, o.is_legendary, o.can_be_commander,
              o.partner_kind, o.partner_with, o.color_identity_mask,
-             EXISTS (SELECT 1 FROM card_printings ucp
-                     WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon')
-               AS has_uncommon_printing
+             o.has_uncommon_printing
       FROM oracle_cards o WHERE o.oracle_id = ?`).get(oracleId) as any;
     if (!row) return null;
 
@@ -613,6 +630,118 @@ export class DeckStore {
   removeCard(deckId: number, cardId: number): void {
     this.db.prepare('DELETE FROM deck_cards WHERE id = ? AND deck_id = ?').run(cardId, deckId);
     this.touch(deckId);
+  }
+
+  // -- basic lands -----------------------------------------------------------
+
+  /** The basic lands in the catalogue, one per colour, with the colour each makes. */
+  private resolveBasics(): BasicLand[] {
+    const rows = this.db.prepare(
+      `SELECT oracle_id, produced_mana FROM oracle_cards WHERE is_basic_land = 1`,
+    ).all() as Array<{ oracle_id: string; produced_mana: string | null }>;
+
+    const basics: BasicLand[] = [];
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const produced = parseJsonArray(row.produced_mana).map((s) => s.toUpperCase());
+      const color = (['W', 'U', 'B', 'R', 'G'] as Color[]).find((c) => produced.includes(c)) ?? 'C';
+      // One canonical basic per colour — ignore duplicates like snow basics.
+      if (seen.has(color)) continue;
+      seen.add(color);
+      basics.push({ color, oracleId: row.oracle_id });
+    }
+    return basics;
+  }
+
+  private isBasicLand(oracleId: string): boolean {
+    const row = this.db.prepare('SELECT is_basic_land FROM oracle_cards WHERE oracle_id = ?')
+      .get(oracleId) as { is_basic_land: number } | undefined;
+    return Boolean(row?.is_basic_land);
+  }
+
+  /** The oracle id behind a deck slot, or null — for deciding what was edited. */
+  oracleForCard(deckId: number, cardId: number): string | null {
+    const row = this.db.prepare('SELECT oracle_id FROM deck_cards WHERE id = ? AND deck_id = ?')
+      .get(cardId, deckId) as { oracle_id: string } | undefined;
+    return row?.oracle_id ?? null;
+  }
+
+  /**
+   * Adds basics to bring the deck up to the recommended land count.
+   *
+   * Additive: existing basics and non-basic lands are counted and never removed,
+   * so pressing it after adding duals simply adds fewer basics, and pressing it
+   * on a deck that already has enough lands does nothing. Distribution follows
+   * the deck's coloured-pip shares.
+   */
+  applyRecommendedLands(deckId: number): void {
+    const deck = this.db.prepare('SELECT format_code FROM decks WHERE id = ?')
+      .get(deckId) as { format_code: string | null } | undefined;
+    if (!deck) throw new DeckNotFoundError(deckId);
+
+    const cards = this.cardsFor(deckId, deck.format_code);
+    const rules = this.formatRules(deck.format_code);
+    const targets = planBasics(cards, rules, this.resolveBasics());
+
+    const existingByOracle = new Map<string, number>();
+    for (const card of cards) {
+      if (card.board === 'main' && card.isBasicLand) {
+        existingByOracle.set(card.oracleId, (existingByOracle.get(card.oracleId) ?? 0) + card.quantity);
+      }
+    }
+
+    for (const target of targets) {
+      const have = existingByOracle.get(target.oracleId) ?? 0;
+      const toAdd = target.desired - have;
+      if (toAdd > 0) this.addCard(deckId, target.oracleId, { board: 'main', quantity: toAdd });
+    }
+  }
+
+  /**
+   * Keeps the basic-land base in step with the deck, when the setting is on.
+   *
+   * Unlike the button this both adds and trims: it sets each basic to its
+   * recommended count, so adding a dual removes a basic and cutting spells trims
+   * lands, always capped at the recommended total. Skipped when the change was
+   * itself a basic-land edit (so a hand-set basic count is left alone) and while
+   * the deck is too small to have a real mana base yet.
+   */
+  autoMaintainLands(deckId: number, editedOracleId?: string | null): void {
+    if (getSetting(this.db, AUTO_MAINTAIN_LANDS) !== '1') return;
+    if (editedOracleId && this.isBasicLand(editedOracleId)) return;
+
+    const deck = this.db.prepare('SELECT format_code FROM decks WHERE id = ?')
+      .get(deckId) as { format_code: string | null } | undefined;
+    if (!deck) return;
+
+    const cards = this.cardsFor(deckId, deck.format_code);
+    // Nothing to build a mana base around yet — don't flood a near-empty deck.
+    const nonLandCards = cards
+      .filter((c) => (c.board === 'main' || c.board === 'command')
+        && !c.typeLine.toLowerCase().includes('land'))
+      .reduce((n, c) => n + c.quantity, 0);
+    if (nonLandCards < MIN_CARDS_FOR_AUTO_LANDS) return;
+
+    const rules = this.formatRules(deck.format_code);
+    const targets = planBasics(cards, rules, this.resolveBasics());
+
+    const existing = new Map<string, { cardId: number; quantity: number }>();
+    for (const card of cards) {
+      if (card.board === 'main' && card.isBasicLand) {
+        existing.set(card.oracleId, { cardId: card.id, quantity: card.quantity });
+      }
+    }
+
+    for (const target of targets) {
+      const have = existing.get(target.oracleId);
+      if (target.desired <= 0) {
+        if (have) this.setQuantity(deckId, have.cardId, 0);
+      } else if (!have) {
+        this.addCard(deckId, target.oracleId, { board: 'main', quantity: target.desired });
+      } else if (have.quantity !== target.desired) {
+        this.setQuantity(deckId, have.cardId, target.desired);
+      }
+    }
   }
 
   /** Copies of a card no other deck is already claiming. */

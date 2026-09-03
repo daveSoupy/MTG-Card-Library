@@ -17,6 +17,7 @@ import { registerDeckRoutes } from './routes/decks.ts';
 import { registerPresetRoutes } from './routes/presets.ts';
 import { registerCollectionRoutes } from './routes/collection.ts';
 import { registerPortingRoutes } from './routes/porting.ts';
+import { registerSettingsRoutes } from './routes/settings.ts';
 import { startBackupSchedule } from './porting/schedule.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ registerDeckRoutes(app, decks, library.db);
 registerPresetRoutes(app, library.db);
 registerCollectionRoutes(app, library.db, collection);
 registerPortingRoutes(app, library.db, decks, collection, backups);
+registerSettingsRoutes(app, library.db);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 
