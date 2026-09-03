@@ -6,9 +6,11 @@ import { searchCards, type CardSummary } from '../api.ts';
  * card from the database — adding a want, adding an incoming trade card. Full
  * Scryfall syntax, debounced, same as the deck-builder picker.
  */
-export function CardPicker({ onPick, placeholder }: {
+export function CardPicker({ onPick, placeholder, ownedOnly }: {
   onPick: (card: CardSummary) => void;
   placeholder?: string;
+  /** Limit results to cards in the collection — for the "giving away" side. */
+  ownedOnly?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CardSummary[]>([]);
@@ -19,7 +21,7 @@ export function CardPicker({ onPick, placeholder }: {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearching(true);
-      searchCards({ q: query, limit: 25, sort: 'relevance' }, controller.signal)
+      searchCards({ q: query, ownedOnly, limit: 25, sort: 'relevance' }, controller.signal)
         .then((r) => setResults(r.cards))
         .catch((e) => { if (e.name !== 'AbortError') setResults([]); })
         .finally(() => setSearching(false));

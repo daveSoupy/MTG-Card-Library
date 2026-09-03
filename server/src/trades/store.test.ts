@@ -51,6 +51,17 @@ const owned = (db: Database.Database, oracleId: string) =>
 const binderId = (db: Database.Database) =>
   (db.prepare(`SELECT id FROM storage_locations WHERE name='Binder'`).get() as { id: number }).id;
 
+test('a new trade defaults its date to today, but keeps an explicit one', () => {
+  const { db, trades } = fixture();
+  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+  const auto = trades.get(trades.create({ counterpartyName: 'Dave' }));
+  assert.equal(auto.tradeDate, today);
+
+  const explicit = trades.get(trades.create({ counterpartyName: 'Dave', tradeDate: '2020-01-01' }));
+  assert.equal(explicit.tradeDate, '2020-01-01');
+  db.close();
+});
+
 test('a draft does not touch the collection until completed', () => {
   const { db, collection, trades } = fixture();
   collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 2 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  addTradeItem, cancelTrade, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
+  addTradeItem, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
   fetchLocations, fetchTrade, fetchTrades, removeTradeItem, updateTrade, updateTradeItem,
   type CollectionLot, type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
 } from '../api.ts';
@@ -165,7 +165,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                   ))}
                   <button className="btn secondary small" onClick={() => setLotChoice(null)}>Back</button>
                 </div>
-              : <CardPicker placeholder="Find an owned card to give…" onPick={(c) => pickOut(c.oracleId, c.name)} />)
+              : <CardPicker ownedOnly placeholder="Find an owned card to give…" onPick={(c) => pickOut(c.oracleId, c.name)} />)
             : <button className="btn secondary small" onClick={() => setAddingOut(true)}>+ Add outgoing card</button>)}
         </section>
 
@@ -213,7 +213,6 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           <button className="btn primary" onClick={() => complete(false)} disabled={out.length === 0 && incoming.length === 0}>
             Complete trade
           </button>
-          <button className="btn secondary" onClick={async () => { await cancelTrade(tradeId); onClose(); }}>Cancel trade</button>
           <button className="btn secondary" onClick={async () => { if (confirmDelete()) { await deleteTrade(tradeId); onClose(); } }}>Delete draft</button>
         </div>
       )}
