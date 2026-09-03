@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 10;
+PRAGMA user_version = 11;
 
 
 -- =====================================================================
@@ -169,9 +169,15 @@ CREATE INDEX idx_sets_type     ON sets(set_type);
 --   'choose_background'  pairs with a Background
 --   'background'         is a Background
 --
--- Those two sit at the end of the column list because they arrived in a
--- migration and SQLite's ADD COLUMN appends. Keep multi-line comments out of
--- the column list entirely: they corrupt the DDL that DROP COLUMN rewrites.
+-- partner_kind / partner_with, and has_uncommon_printing, sit at the end of the
+-- column list because they arrived in migrations and SQLite's ADD COLUMN
+-- appends. Keep multi-line comments out of the column list entirely: they
+-- corrupt the DDL that DROP COLUMN rewrites.
+--
+-- has_uncommon_printing is derived at sync: true when any printing of this card
+-- is uncommon. It drives Pauper Commander eligibility (an uncommon creature may
+-- lead), precomputed so the deck read does not probe the 117k-row printings
+-- table once per card.
 CREATE TABLE oracle_cards (
     oracle_id           TEXT PRIMARY KEY,   -- rowid-backed on purpose: FTS5 external content needs it
     name                TEXT    NOT NULL,   -- full name, incl. 'Fire // Ice'
@@ -214,8 +220,9 @@ CREATE TABLE oracle_cards (
     scryfall_updated_at TEXT,
     synced_at           TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 
-    partner_kind        TEXT,   -- see the partner note above
-    partner_with        TEXT    -- named partner, for 'partner_with' only
+    partner_kind        TEXT,
+    partner_with        TEXT,
+    has_uncommon_printing INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX idx_oracle_name        ON oracle_cards(name_normalized);
 CREATE INDEX idx_oracle_cmc         ON oracle_cards(cmc);

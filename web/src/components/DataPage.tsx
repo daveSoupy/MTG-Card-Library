@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  backupDownloadUrl, collectionCsvUrl, fetchImportBatches, fetchScheduledBackups,
-  restoreBackup, takeScheduledBackup, undoImportBatch,
-  type ImportBatch, type RestoreReport, type ScheduledBackup, type StorageLocation,
+  backupDownloadUrl, cancelImageDownload, collectionCsvUrl, fetchImageDownloadStatus,
+  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStorage, restoreBackup,
+  setCacheLimit, startImageDownload, takeScheduledBackup, undoImportBatch, updateSettings,
+  CacheTooSmallError,
+  type AppSettings, type ImageDownloadScope, type ImageDownloadStatus, type ImportBatch,
+  type RestoreReport, type ScheduledBackup, type StorageInfo, type StorageLocation,
 } from '../api.ts';
+import { formatBytes, percent } from '../format.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
-
-const formatBytes = (bytes: number) =>
-  bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 
 const formatWhen = (iso: string) => new Date(iso).toLocaleString();
 
@@ -29,14 +30,85 @@ export function DataPage({ locations, onCollectionChanged }: {
   const [report, setReport] = useState<RestoreReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [download, setDownload] = useState<ImageDownloadStatus | null>(null);
+  const [capGb, setCapGb] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const loadStorage = useCallback(() => {
+    fetchStorage()
+      .then((s) => {
+        setStorage(s);
+        // Seed the cap editor once, so it does not fight the user's typing.
+        setCapGb((prev) => prev || (s.imageCache.limitBytes / 1024 ** 3).toFixed(1));
+      })
+      .catch(() => { /* storage panel simply stays hidden */ });
+  }, []);
 
   const reload = useCallback(() => {
     fetchImportBatches().then(setBatches).catch(() => { /* history is not critical */ });
     fetchScheduledBackups()
       .then((r) => { setBackups(r.backups); setDirectory(r.directory); })
       .catch(() => { /* likewise */ });
-  }, []);
+    fetchSettings().then(setSettings).catch(() => { /* fall back to controls hidden */ });
+    fetchImageDownloadStatus().then(setDownload).catch(() => { /* no job yet */ });
+    loadStorage();
+  }, [loadStorage]);
+
+  // Poll while a download runs, then refresh the storage figures once it stops.
+  useEffect(() => {
+    if (!download?.running) return;
+    const timer = setInterval(() => {
+      fetchImageDownloadStatus()
+        .then((s) => { setDownload(s); if (!s.running) loadStorage(); })
+        .catch(() => { /* transient */ });
+    }, 1200);
+    return () => clearInterval(timer);
+  }, [download?.running, loadStorage]);
+
+  const startDownload = async (scope: ImageDownloadScope) => {
+    setError(null);
+    try {
+      setDownload(await startImageDownload(scope));
+    } catch (cause: any) {
+      if (cause instanceof CacheTooSmallError) {
+        setError(
+          `The full catalogue is about ${formatBytes(cause.estimateBytes)}, above the `
+          + `${formatBytes(cause.limitBytes)} cache limit. Raise the limit below, then try again.`,
+        );
+        setCapGb(Math.ceil(cause.estimateBytes / 1024 ** 3).toString());
+      } else {
+        setError(cause.message);
+      }
+    }
+  };
+
+  const saveCap = async () => {
+    const gb = Number.parseFloat(capGb);
+    if (!Number.isFinite(gb) || gb <= 0) { setError('Enter a cache limit in GB.'); return; }
+    setError(null);
+    try {
+      await setCacheLimit(Math.round(gb * 1024 ** 3));
+      loadStorage();
+    } catch (cause: any) {
+      setError(cause.message);
+    }
+  };
+
+  const stopDownload = async () => {
+    try { setDownload(await cancelImageDownload()); } catch (cause: any) { setError(cause.message); }
+  };
+
+  const toggleSetting = async (key: keyof AppSettings, value: boolean) => {
+    setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
+    try {
+      setSettings(await updateSettings({ [key]: value }));
+    } catch (cause: any) {
+      setError(cause.message);
+      reload();
+    }
+  };
 
   useEffect(reload, [reload]);
 
@@ -74,6 +146,94 @@ export function DataPage({ locations, onCollectionChanged }: {
   return (
     <div className="data-page">
       {error && <div className="error">{error}</div>}
+
+      {storage && (
+        <section className="data-section">
+          <h3>Storage</h3>
+          <div className="storage-grid">
+            <div><span className="dim">Database</span><strong>{formatBytes(storage.database.bytes)}</strong></div>
+            <div>
+              <span className="dim">Image cache</span>
+              <strong>{formatBytes(storage.imageCache.bytes)}</strong>
+              <span className="dim"> · {storage.imageCache.count.toLocaleString()} files · cap {formatBytes(storage.imageCache.limitBytes)}</span>
+            </div>
+            <div>
+              <span className="dim">Cards stored</span>
+              <strong>{storage.cards.oracleCards.toLocaleString()}</strong>
+              <span className="dim"> unique · {storage.cards.printings.toLocaleString()} printings · {storage.cards.sets.toLocaleString()} sets</span>
+            </div>
+          </div>
+
+          <label className="cap-editor">
+            <span className="dim">Cache limit (GB)</span>
+            <input
+              type="number" min="0.1" step="0.1" value={capGb}
+              onChange={(e) => setCapGb(e.target.value)}
+            />
+            <button className="btn secondary small" onClick={saveCap}>Set</button>
+          </label>
+
+          <h4>Download art ahead of time</h4>
+          <p className="hint">
+            Images are fetched from Scryfall the first time a card is shown and kept on
+            disk. Pre-download to avoid that wait. Your decks and collection are small;
+            the whole catalogue is large.
+          </p>
+          <p className="hint">
+            Your decks &amp; collection: {storage.coverage.cached.toLocaleString()} of{' '}
+            {storage.coverage.referenced.toLocaleString()} images cached
+            {' '}({percent(storage.coverage.cached, storage.coverage.referenced)}%).
+          </p>
+
+          {download?.running ? (
+            <div className="download-progress">
+              <span>
+                Downloading {download.scope === 'all' ? 'the whole catalogue' : 'your decks & collection'}:
+                {' '}{download.processed.toLocaleString()} / {download.total.toLocaleString()}
+                {' '}({percent(download.processed, download.total)}%)
+                {download.failed > 0 && ` · ${download.failed} failed`}
+              </span>
+              <button className="btn secondary small" onClick={stopDownload}>Cancel</button>
+            </div>
+          ) : (
+            <div className="btnrow">
+              <button className="btn" onClick={() => startDownload('referenced')}>
+                Download my decks &amp; collection
+              </button>
+              <button className="btn secondary" onClick={() => startDownload('all')}>
+                Download entire catalogue (~{formatBytes(storage.fullEstimateBytes)})
+              </button>
+            </div>
+          )}
+          {download && !download.running && download.finishedAt && (
+            <p className="hint">
+              Last run: {download.downloaded.toLocaleString()} downloaded
+              {download.failed > 0 && `, ${download.failed} failed`}
+              {download.canceled && ' (cancelled)'}.
+            </p>
+          )}
+        </section>
+      )}
+
+      <section className="data-section">
+        <h3>Settings</h3>
+        {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.autoMaintainLands}
+              onChange={(e) => toggleSetting('autoMaintainLands', e.target.checked)}
+            />
+            Keep basic lands in step automatically
+          </label>
+        )}
+        <p className="hint">
+          When on, editing a deck adjusts its basic lands to a recommended count,
+          split by colour — adding a dual removes a basic, and it stops once you have
+          enough lands. The “Add lands” button in the deck builder does the same thing
+          on demand and is always available.
+        </p>
+      </section>
 
       <section className="data-section">
         <h3>Backup</h3>

@@ -251,4 +251,23 @@ export const MIGRATIONS: Migration[] = [
       LEFT JOIN v_card_availability av ON av.oracle_id = p.oracle_id;
     `,
   },
+  {
+    version: 11,
+    description: 'Precompute has_uncommon_printing on oracle_cards',
+    sql: `
+      ALTER TABLE oracle_cards ADD COLUMN has_uncommon_printing INTEGER NOT NULL DEFAULT 0;
+
+      -- Backfill from the printings already synced. The deck read used to run
+      -- this as a correlated EXISTS once per card in the deck; as a column it is
+      -- a single indexed lookup. The next sync recomputes it anyway, but doing
+      -- it here means an existing database is fast without waiting for one.
+      UPDATE oracle_cards SET has_uncommon_printing = 1
+      WHERE oracle_id IN (
+        SELECT DISTINCT oracle_id FROM card_printings WHERE rarity = 'uncommon'
+      );
+
+      -- Fresh stats so the planner accounts for the new column.
+      ANALYZE;
+    `,
+  },
 ];

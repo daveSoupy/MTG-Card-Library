@@ -201,9 +201,7 @@ export class CardSearchStore {
       } else if (kind === 'legendary_or_planeswalker') {
         where.push(`(o.can_be_commander = 1 OR ${legendaryWalker})`);
       } else if (kind === 'uncommon_creature') {
-        where.push(`(o.type_line LIKE '%Creature%' AND EXISTS (
-                      SELECT 1 FROM card_printings ucp
-                      WHERE ucp.oracle_id = o.oracle_id AND ucp.rarity = 'uncommon'))`);
+        where.push(`(o.type_line LIKE '%Creature%' AND o.has_uncommon_printing = 1)`);
       } else if (kind) {
         where.push('o.can_be_commander = 1');
       }

@@ -138,7 +138,10 @@ export async function runSync(
     if (batch.length > 0) flush(batch);
 
     report({ phase: 'finalizing', message: 'Building indexes…', fraction: 0.99 });
-    db.transaction(() => importer.assignDefaultPrintings())();
+    db.transaction(() => {
+      importer.assignDefaultPrintings();
+      importer.assignRarityFlags();
+    })();
 
     // Prices just moved, so today's collection value is now different — record
     // both while the numbers are fresh. This is what makes the value-over-time

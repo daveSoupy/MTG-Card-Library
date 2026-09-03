@@ -192,3 +192,30 @@ test('a card printed only in another language still gets its art', () => {
   assert.equal((db.prepare('SELECT default_printing_id AS id FROM oracle_cards').get() as any).id, 'fr');
   db.close();
 });
+
+test('assignRarityFlags marks cards with any uncommon printing', () => {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO sets (code,name) VALUES ('tst','Test')`).run();
+  const oracle = db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,
+                               type_line,oracle_text_all,layout) VALUES (?,?,?,1,'Creature','x','normal')`);
+  const printing = db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,rarity)
+                               VALUES (?,?,'tst',?,?)`);
+  oracle.run('a', 'Uncommon Only', 'uncommon only');
+  printing.run('pa', 'a', '1', 'uncommon');
+  oracle.run('b', 'Rare And Uncommon', 'rare and uncommon');
+  printing.run('pb1', 'b', '2', 'rare');
+  printing.run('pb2', 'b', '3', 'uncommon');
+  oracle.run('c', 'Never Uncommon', 'never uncommon');
+  printing.run('pc', 'c', '4', 'rare');
+
+  new CardImporter(db).assignRarityFlags();
+
+  const flag = (id: string) =>
+    (db.prepare('SELECT has_uncommon_printing AS f FROM oracle_cards WHERE oracle_id = ?')
+      .get(id) as { f: number }).f;
+  assert.equal(flag('a'), 1);
+  assert.equal(flag('b'), 1);
+  assert.equal(flag('c'), 0);
+  db.close();
+});
