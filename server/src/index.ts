@@ -20,9 +20,14 @@ import { registerPortingRoutes } from './routes/porting.ts';
 import { registerSettingsRoutes } from './routes/settings.ts';
 import { registerStorageRoutes } from './routes/storage.ts';
 import { registerTradeRoutes } from './routes/trades.ts';
+import { registerWantRoutes } from './routes/wants.ts';
+import { registerTradeListRoutes } from './routes/tradeLists.ts';
+import { registerAlertRoutes } from './routes/alerts.ts';
 import { ImageDownloadManager } from './images/downloadManager.ts';
 import { AlertStore } from './alerts/store.ts';
 import { TradeStore } from './trades/store.ts';
+import { WantStore } from './collection/wants.ts';
+import { TradeListStore } from './tradelists/store.ts';
 import { startBackupSchedule } from './porting/schedule.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -35,6 +40,8 @@ const decks = new DeckStore(library.db);
 const collection = new CollectionStore(library.db);
 const alerts = new AlertStore(library.db);
 const trades = new TradeStore(library.db, collection, alerts);
+const wants = new WantStore(library.db);
+const tradeLists = new TradeListStore(library.db);
 const sync = new SyncManager(dataDir);
 const downloads = new ImageDownloadManager(library.db, library.imageDir);
 const backups = startBackupSchedule(library.db, dataDir);
@@ -53,6 +60,9 @@ registerPortingRoutes(app, library.db, decks, collection, backups);
 registerSettingsRoutes(app, library.db);
 registerStorageRoutes(app, library.db, library.databasePath, downloads);
 registerTradeRoutes(app, trades);
+registerWantRoutes(app, wants);
+registerTradeListRoutes(app, tradeLists);
+registerAlertRoutes(app, alerts);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 
