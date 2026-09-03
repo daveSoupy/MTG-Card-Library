@@ -73,6 +73,7 @@ export interface CardSummary {
   priceUsdFoil: number | null;
   printingId: string | null;
   ownedQuantity: number;
+  wantedQuantity: number;
   printingCount: number;
 }
 
@@ -339,6 +340,10 @@ export class CardSearchStore {
                dp.price_usd, dp.price_usd_foil,
                s.name AS set_name,
                COALESCE(owned.qty, 0) AS owned_qty,
+               -- On any active want list? A small table, so a scalar subquery
+               -- over a page of results is cheap. Drives the "wanted" badge.
+               (SELECT COALESCE(SUM(w.quantity), 0) FROM want_list_items w
+                WHERE w.oracle_id = o.oracle_id AND w.status = 'active') AS wanted_qty,
                (SELECT count(*) FROM card_printings cp WHERE cp.oracle_id = o.oracle_id) AS printing_count
         ${FROM_CLAUSE}
         ${whereSql}
@@ -544,6 +549,7 @@ function toSummary(row: any): CardSummary {
     priceUsdFoil: row.price_usd_foil,
     printingId: row.printing_id,
     ownedQuantity: row.owned_qty ?? 0,
+    wantedQuantity: row.wanted_qty ?? 0,
     printingCount: row.printing_count ?? 0,
   };
 }
