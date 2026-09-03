@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   addTradeItem, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
   fetchLocations, fetchTrade, fetchTrades, removeTradeItem, updateTrade, updateTradeItem,
-  type CollectionLot, type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
+  type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
 
@@ -77,7 +77,6 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const [error, setError] = useState<string | null>(null);
   const [addingOut, setAddingOut] = useState(false);
   const [addingIn, setAddingIn] = useState(false);
-  const [lotChoice, setLotChoice] = useState<{ name: string; lots: CollectionLot[] } | null>(null);
   const [confirm, setConfirm] = useState<CompleteTradeResult | null>(null);
   const [done, setDone] = useState<CompleteTradeResult | null>(null);
 
@@ -86,22 +85,23 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
 
   const readOnly = trade?.status !== 'draft';
 
+  /**
+   * Picking a card drops it straight into the giving-away list at quantity 1 —
+   * no separate "which copies" step. The lot is chosen automatically (the
+   * largest owned lot); completion draws copies FIFO across lots anyway. The
+   * quantity is then edited in the list, capped at what you own.
+   */
   const pickOut = async (oracleId: string, name: string) => {
     const detail = await fetchCollectionCard(oracleId);
-    const owned = detail.lots.filter((l) => l.quantity > 0);
+    const owned = detail.lots.filter((l) => l.quantity > 0)
+      .sort((a, b) => b.quantity - a.quantity);
     if (owned.length === 0) { setError(`You don't own any ${name} to trade away.`); return; }
-    setLotChoice({ name, lots: owned });
-  };
-
-  const addOutLot = async (lot: CollectionLot) => {
+    const lot = owned[0];
     setTrade(await addTradeItem(tradeId, {
-      // One copy by default; the quantity is edited in the list, capped at what
-      // you own. Keep the picker open so several cards can be added in a row.
       direction: 'out', printingId: lot.printing_id, quantity: 1,
       finish: lot.finish, condition: lot.condition, language: lot.language,
       sourceCollectionItemId: lot.id, unitValueUsd: lot.unit_value_usd,
     }));
-    setLotChoice(null);
   };
 
   const setItemQty = async (item: Trade['items'][number], next: number) => {
@@ -168,20 +168,10 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
             </div>
           ))}
           {!readOnly && (addingOut
-            ? (lotChoice
-              ? <div className="lot-choices">
-                  <div className="lot-choices-head">Which copies of {lotChoice.name}?</div>
-                  {lotChoice.lots.map((lot) => (
-                    <button key={lot.id} className="lot-choice" onClick={() => addOutLot(lot)}>
-                      {lot.quantity}× {String(lot.set_code).toUpperCase()} #{lot.collector_number}{lot.finish !== 'nonfoil' ? ` ${lot.finish}` : ''} · {lot.condition} · {lot.location_name} · {money(lot.unit_value_usd)}
-                    </button>
-                  ))}
-                  <button className="btn secondary small" onClick={() => setLotChoice(null)}>Back</button>
-                </div>
-              : <>
-                  <CardPicker ownedOnly placeholder="Find an owned card to give…" onPick={(c) => pickOut(c.oracleId, c.name)} />
-                  <button className="btn secondary small" onClick={() => setAddingOut(false)}>Done adding</button>
-                </>)
+            ? <>
+                <CardPicker ownedOnly placeholder="Find an owned card to give…" onPick={(c) => pickOut(c.oracleId, c.name)} />
+                <button className="btn secondary small" onClick={() => setAddingOut(false)}>Done adding</button>
+              </>
             : <button className="btn secondary small" onClick={() => setAddingOut(true)}>+ Add outgoing card</button>)}
         </section>
 

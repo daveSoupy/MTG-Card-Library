@@ -502,7 +502,9 @@ input[type='number'] { width: 72px; }
   width: 22px; height: 22px; border-radius: 5px; border: 1px solid var(--line-strong);
   background: var(--panel-2); color: var(--text-2); line-height: 1;
 }
-.qty button:hover { border-color: var(--accent); color: var(--text); }
+.qty button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+/* At the collection max (or the floor of 1) the stepper button greys out. */
+.qty button:disabled { opacity: .3; cursor: default; border-color: var(--line); }
 .qty span { min-width: 22px; text-align: center; font-family: var(--mono); font-size: 13px; }
 
 .deck-name {
