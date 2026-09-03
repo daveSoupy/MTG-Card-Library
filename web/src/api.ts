@@ -951,7 +951,7 @@ export type TradeStatus = 'draft' | 'completed' | 'cancelled';
 export interface TradeItem {
   id: number; direction: 'out' | 'in'; printingId: string; oracleId: string;
   name: string; setCode: string | null; collectorNumber: string | null; manaCost: string | null;
-  quantity: number; finish: string; condition: string; language: string;
+  quantity: number; ownedQuantity: number; finish: string; condition: string; language: string;
   sourceCollectionItemId: number | null; destinationLocationId: number | null;
   unitValueUsd: number | null; marketUsd: number | null; imageSmall: string | null; notes: string | null;
 }
