@@ -96,6 +96,7 @@ body {
   color: var(--text);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 button, input, select { font: inherit; color: inherit; }
@@ -105,17 +106,29 @@ button { cursor: pointer; }
 .app {
   display: grid;
   grid-template-rows: auto 1fr;
+  /* One column, pinned to the container width. Without this the implicit grid
+     column is content-sized, so a wide child (the top bar's search row) stretches
+     the whole app past the viewport and clips on a phone. minmax(0,1fr) forbids
+     that: children must fit the screen and wrap instead. */
+  grid-template-columns: minmax(0, 1fr);
   height: 100%;
+  overflow-x: hidden;
 }
 
 .topbar {
   display: flex;
   align-items: center;
+  /* Wrap rather than overflow: at a narrow width the bar becomes a few rows
+     instead of pushing the page wider than the screen. */
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+
+/* Desktop width for the sort menu; the phone media query lets it shrink. */
+.sort-select { width: 140px; }
 
 .brand {
   font-weight: 700;
@@ -1215,10 +1228,17 @@ input[type='number'] { width: 72px; }
 .alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .alert-actions { display: flex; gap: 4px; }
 
-/* Narrow widths: let the topbar wrap and the new pages go one-handed. */
+/* Narrow widths: stack the topbar into tidy rows and go one-handed. */
 @media (max-width: 620px) {
-  .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
-  .tabs { order: 3; width: 100%; overflow-x: auto; }
+  .topbar { gap: 8px; padding: 8px 10px; }
+  .brand { margin-right: 0; }
+  /* Tabs and search each take a full-width row (DOM order gives brand, tabs,
+     search, then the controls). Tabs scroll sideways rather than widen the page. */
+  .tabs { flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .searchbox { flex-basis: 100%; }
+  /* Sort menu shrinks and shares the controls row with the buttons. */
+  .sort-select { flex: 1 1 auto; width: auto; min-width: 0; }
+  .results { padding: 10px; }
   .list-page { padding: 10px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }
   .want-field input, .want-field select { width: 54px; }
