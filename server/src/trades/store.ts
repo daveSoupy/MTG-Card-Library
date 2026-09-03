@@ -72,7 +72,7 @@ export class TradeStore {
   }): number {
     const result = this.db.prepare(`
       INSERT INTO trades (counterparty_name, counterparty_contact, trade_date, location_note, notes)
-      VALUES (?,?,?,?,?)`).run(
+      VALUES (?,?, COALESCE(?, date('now','localtime')), ?, ?)`).run(
       input.counterpartyName.trim(), input.counterpartyContact ?? null,
       input.tradeDate ?? null, input.locationNote ?? null, input.notes ?? null);
     return Number(result.lastInsertRowid);
