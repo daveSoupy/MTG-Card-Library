@@ -522,6 +522,10 @@ input[type='number'] { width: 72px; }
   border-left: 1px solid var(--line); background: var(--panel);
   padding: 12px; overflow-y: auto; min-height: 0;
 }
+/* Colour pills reuse the browse styling but sit in a tighter row here, so the
+   picker keeps its own compact look rather than borrowing the sidebar's. */
+.picker-filters { margin-top: 8px; gap: 4px; }
+.picker-filters .pill.color { width: 26px; height: 26px; font-size: 11px; }
 .picker-results { display: grid; gap: 1px; margin-top: 6px; }
 .picker-row { display: flex; align-items: center; gap: 6px; }
 .picker-name {

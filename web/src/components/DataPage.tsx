@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   backupDownloadUrl, collectionCsvUrl, fetchImportBatches, fetchScheduledBackups,
-  restoreBackup, takeScheduledBackup, undoImportBatch,
-  type ImportBatch, type RestoreReport, type ScheduledBackup, type StorageLocation,
+  fetchSettings, restoreBackup, takeScheduledBackup, undoImportBatch, updateSettings,
+  type AppSettings, type ImportBatch, type RestoreReport, type ScheduledBackup, type StorageLocation,
 } from '../api.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
 
@@ -29,6 +29,7 @@ export function DataPage({ locations, onCollectionChanged }: {
   const [report, setReport] = useState<RestoreReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
@@ -36,7 +37,18 @@ export function DataPage({ locations, onCollectionChanged }: {
     fetchScheduledBackups()
       .then((r) => { setBackups(r.backups); setDirectory(r.directory); })
       .catch(() => { /* likewise */ });
+    fetchSettings().then(setSettings).catch(() => { /* fall back to controls hidden */ });
   }, []);
+
+  const toggleSetting = async (key: keyof AppSettings, value: boolean) => {
+    setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
+    try {
+      setSettings(await updateSettings({ [key]: value }));
+    } catch (cause: any) {
+      setError(cause.message);
+      reload();
+    }
+  };
 
   useEffect(reload, [reload]);
 
@@ -74,6 +86,26 @@ export function DataPage({ locations, onCollectionChanged }: {
   return (
     <div className="data-page">
       {error && <div className="error">{error}</div>}
+
+      <section className="data-section">
+        <h3>Settings</h3>
+        {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.autoMaintainLands}
+              onChange={(e) => toggleSetting('autoMaintainLands', e.target.checked)}
+            />
+            Keep basic lands in step automatically
+          </label>
+        )}
+        <p className="hint">
+          When on, editing a deck adjusts its basic lands to a recommended count,
+          split by colour — adding a dual removes a basic, and it stops once you have
+          enough lands. The “Add lands” button in the deck builder does the same thing
+          on demand and is always available.
+        </p>
+      </section>
 
       <section className="data-section">
         <h3>Backup</h3>
