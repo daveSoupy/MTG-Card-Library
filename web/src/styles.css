@@ -516,6 +516,10 @@ input[type='number'] { width: 72px; }
   background: none; border: 0; color: var(--text-3); font-size: 16px; line-height: 1;
 }
 .row-remove:hover { color: var(--bad); }
+.row-art {
+  background: none; border: 0; color: var(--text-3); font-size: 12px; line-height: 1;
+}
+.row-art:hover { color: var(--accent); }
 
 /* ---------- card picker ---------- */
 .picker {
@@ -995,6 +999,17 @@ input[type='number'] { width: 72px; }
 .data-section .hint { margin: 0; line-height: 1.5; }
 .mono { font-family: var(--mono); font-size: 11px; }
 .dim { color: var(--text-3); }
+
+.storage-grid { display: grid; gap: 6px; margin: 4px 0 2px; }
+.storage-grid > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.storage-grid .dim:first-child { min-width: 110px; }
+.cap-editor { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.cap-editor input { width: 90px; }
+.download-progress {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 12px; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel-2); font-size: 13px;
+}
 
 .backup-list { display: grid; gap: 2px; }
 .backup-row {
