@@ -115,15 +115,51 @@ export class TradeStore {
     this.db.prepare(`UPDATE trades SET status = 'cancelled' WHERE id = ?`).run(id);
   }
 
+  /** Copies of a printing/finish/condition currently in the collection. */
+  private ownedFor(printingId: string, finish: string, condition: string): number {
+    return (this.db.prepare(
+      `SELECT COALESCE(SUM(quantity),0) AS n FROM collection_items
+       WHERE printing_id = ? AND finish = ? AND condition = ?`,
+    ).get(printingId, finish, condition) as { n: number }).n;
+  }
+
+  /**
+   * Adds a card to the trade, or bumps its existing row.
+   *
+   * One row per printing/finish/condition per side — re-adding the same card
+   * increases its quantity rather than stacking duplicate rows. Outgoing is
+   * capped at what you own, so a trade can never give away more than the
+   * collection holds; incoming is uncapped.
+   */
   addItem(tradeId: number, item: TradeItemInput): number {
     this.requireDraft(tradeId);
+    const finish = item.finish ?? 'nonfoil';
+    const condition = item.condition ?? 'unknown';
+    const add = Math.max(1, Math.trunc(item.quantity));
+
+    const existing = this.db.prepare(
+      `SELECT id, quantity FROM trade_items
+       WHERE trade_id = ? AND direction = ? AND printing_id = ? AND finish = ? AND condition = ?`,
+    ).get(tradeId, item.direction, item.printingId, finish, condition) as
+      | { id: number; quantity: number } | undefined;
+
+    const cap = (n: number) => item.direction === 'out'
+      ? Math.max(1, Math.min(n, this.ownedFor(item.printingId, finish, condition)))
+      : n;
+
+    if (existing) {
+      this.db.prepare('UPDATE trade_items SET quantity = ? WHERE id = ?')
+        .run(cap(existing.quantity + add), existing.id);
+      return existing.id;
+    }
+
     const result = this.db.prepare(`
       INSERT INTO trade_items
         (trade_id, direction, printing_id, quantity, finish, condition, language,
          source_collection_item_id, destination_location_id, unit_value_usd, notes)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
-      tradeId, item.direction, item.printingId, Math.max(1, Math.trunc(item.quantity)),
-      item.finish ?? 'nonfoil', item.condition ?? 'unknown', item.language ?? 'en',
+      tradeId, item.direction, item.printingId, cap(add),
+      finish, condition, item.language ?? 'en',
       item.sourceCollectionItemId ?? null, item.destinationLocationId ?? null,
       item.unitValueUsd ?? null, item.notes ?? null);
     return Number(result.lastInsertRowid);
@@ -131,6 +167,21 @@ export class TradeStore {
 
   updateItem(tradeId: number, itemId: number, changes: Record<string, unknown>): void {
     this.requireDraft(tradeId);
+
+    // A quantity change on an outgoing item is clamped to what is still owned.
+    if (changes.quantity !== undefined) {
+      const row = this.db.prepare(
+        `SELECT direction, printing_id, finish, condition FROM trade_items WHERE id = ? AND trade_id = ?`,
+      ).get(itemId, tradeId) as
+        | { direction: Direction; printing_id: string; finish: string; condition: string }
+        | undefined;
+      let quantity = Math.max(1, Math.trunc(Number(changes.quantity)));
+      if (row?.direction === 'out') {
+        quantity = Math.min(quantity, Math.max(1, this.ownedFor(row.printing_id, row.finish, row.condition)));
+      }
+      changes = { ...changes, quantity };
+    }
+
     const columns: Record<string, string> = {
       quantity: 'quantity', finish: 'finish', condition: 'condition', language: 'language',
       sourceCollectionItemId: 'source_collection_item_id',
@@ -198,7 +249,12 @@ export class TradeStore {
              COALESCE(p.image_small, ff.image_small) AS image_small,
              CASE ti.finish WHEN 'foil' THEN p.price_usd_foil
                             WHEN 'etched' THEN p.price_usd_etched
-                            ELSE p.price_usd END AS market_usd
+                            ELSE p.price_usd END AS market_usd,
+             -- Owned copies of this exact printing/finish/condition — the ceiling
+             -- for how many may be given away (meaningful for outgoing items).
+             (SELECT COALESCE(SUM(ci.quantity),0) FROM collection_items ci
+              WHERE ci.printing_id = ti.printing_id AND ci.finish = ti.finish
+                AND ci.condition = ti.condition) AS owned_qty
       FROM trade_items ti
       JOIN card_printings p ON p.id = ti.printing_id
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id
@@ -216,6 +272,8 @@ export class TradeStore {
       collectorNumber: row.snapshot_number ?? row.collector_number,
       manaCost: row.mana_cost,
       quantity: row.quantity,
+      /** Owned copies of this printing/finish/condition — the outgoing ceiling. */
+      ownedQuantity: row.owned_qty ?? 0,
       finish: row.finish,
       condition: row.condition,
       language: row.language,
