@@ -112,7 +112,7 @@ export function AddCardsDialog({
           <div className="add-card-body">
             <div className="add-card-art">
               {printing && (
-                <img src={imageUrl(printing.id, 'normal')} alt={card.name} loading="lazy" />
+                <img src={imageUrl(printing.id, 'normal')} alt={card.name} loading="lazy" decoding="async" />
               )}
             </div>
 

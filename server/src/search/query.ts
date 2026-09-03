@@ -148,6 +148,25 @@ function isFragment(value: string): Fragment | null {
     case 'creature':   return { sql: `o.type_line LIKE '%Creature%'`, params: [] };
     case 'digital':    return { sql: 'dp.is_digital = 1', params: [] };
     case 'paper':      return { sql: 'dp.is_digital = 0', params: [] };
+    case 'ub': case 'universesbeyond': {
+      // Scryfall marks these in promo_types, including on the Secret Lair
+      // crossover drops that live outside the crossover sets themselves.
+      return { sql: `NOT EXISTS (SELECT 1 FROM card_printings ubp
+                                 WHERE ubp.oracle_id = o.oracle_id
+                                   AND COALESCE(ubp.promo_types,'') NOT LIKE '%universesbeyond%')`,
+               params: [] };
+    }
+    case 'playable': case 'unplayable': {
+      // "Legal somewhere", the same test the format filter uses without
+      // naming a format. Banned is not playable, which is why Chaos Orb
+      // answers to is:unplayable.
+      const legalSomewhere = `EXISTS (SELECT 1 FROM card_legalities cl
+                                     WHERE cl.oracle_id = o.oracle_id
+                                       AND cl.legality IN ('legal','restricted'))`;
+      return value === 'playable'
+        ? { sql: legalSomewhere, params: [] }
+        : { sql: `NOT ${legalSomewhere}`, params: [] };
+    }
     case 'permanent':
       return { sql: `NOT (o.type_line LIKE '%Instant%' OR o.type_line LIKE '%Sorcery%')`, params: [] };
     case 'spell':
@@ -157,7 +176,13 @@ function isFragment(value: string): Fragment | null {
     case 'split':      return { sql: `o.layout = 'split'`, params: [] };
     case 'colorless':  return { sql: 'o.colors_mask = 0', params: [] };
     case 'multicolor': case 'multicolour': case 'gold':
+      // Two or more colour bits set. Clearing the lowest set bit leaves
+      // something behind only when there was more than one.
       return { sql: '(o.colors_mask & (o.colors_mask - 1)) <> 0', params: [] };
+    case 'hybrid':
+      // {G/W} and friends. A hybrid card may be mono-coloured by identity, so
+      // this is deliberately independent of colors_mask.
+      return { sql: `o.mana_cost LIKE '%/%'`, params: [] };
     case 'foil':
       return { sql: `EXISTS (SELECT 1 FROM card_printings fp WHERE fp.oracle_id = o.oracle_id
                              AND fp.finishes LIKE '%foil%')`, params: [] };
@@ -256,14 +281,39 @@ export function compileQuery(text: string): CompiledQuery {
   }
 
   const kept = words.filter((w) => w.length > 0);
+
+  // Words are normalised before they reach FTS5 so free text folds accents and
+  // ligatures the same way names do — typing "Aether" should find "Æther Vial".
+  // The trailing `*` makes each word a prefix: without it FTS5 compares whole
+  // tokens, so "waste" never matches the card "Wastes".
+  const ftsWords = kept
+    .map((word) => normalizeName(word))
+    .filter((word) => word.length > 0);
+
   return {
     where,
     params,
-    ftsMatch: kept.length > 0
-      ? kept.map((w) => `"${w.replace(/"/g, '')}"`).join(' AND ')
+    ftsMatch: ftsWords.length > 0
+      ? ftsWords.map((w) => `"${w}"*`).join(' AND ')
       : null,
     freeText: kept.join(' '),
   };
+}
+
+/**
+ * True when the query is explicitly about legality.
+ *
+ * Suppresses the "hide unplayable cards" default, which would otherwise make
+ * `banned:vintage` return nothing at all: a card banned everywhere is legal
+ * nowhere, so the default and the query cancel each other out.
+ */
+export function mentionsLegality(text: string): boolean {
+  const LEGALITY_KEYS = new Set(['legal', 'f', 'format', 'banned', 'restricted']);
+  return parseQuery(text).terms.some((t) => {
+    if (LEGALITY_KEYS.has(t.key)) return true;
+    const value = t.value.toLowerCase();
+    return (t.key === 'is' || t.key === 'not') && (value === 'playable' || value === 'unplayable');
+  });
 }
 
 /** True when the query explicitly asks about digital cards either way. */

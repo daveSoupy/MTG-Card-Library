@@ -143,5 +143,10 @@ export function expandRarity(value: string): string {
  * here; they are genuine cards, merely not legal in the formats this app tracks.
  *
  * Shared by search and by import, which need exactly the same exclusion.
+ *
+ * Planar, vanguard and scheme stay out of this list because they are real
+ * cards, not display entries — but search hides them anyway, along with
+ * everything else legal in no format. Two different questions with the same
+ * answer here; do not collapse them.
  */
 export const EXTRA_LAYOUTS = ['art_series', 'token', 'double_faced_token', 'emblem', 'front_card'];

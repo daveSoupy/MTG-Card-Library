@@ -5,6 +5,8 @@ export interface Filters {
   ownedOnly: boolean;
   colors: string[];
   colorsExact: boolean;
+  gold: boolean;
+  hybrid: boolean;
   rarities: string[];
   set: string;
   format: string;
@@ -12,12 +14,16 @@ export interface Filters {
   maxCmc: string;
   includeDigital: boolean;
   includeExtras: boolean;
+  includeUnplayable: boolean;
+  excludeUniversesBeyond: boolean;
 }
 
 export const EMPTY_FILTERS: Filters = {
   ownedOnly: false,
   colors: [],
   colorsExact: false,
+  gold: false,
+  hybrid: false,
   rarities: [],
   set: '',
   format: '',
@@ -25,6 +31,8 @@ export const EMPTY_FILTERS: Filters = {
   maxCmc: '',
   includeDigital: false,
   includeExtras: false,
+  includeUnplayable: false,
+  excludeUniversesBeyond: false,
 };
 
 /**
@@ -41,8 +49,10 @@ const COLORS: Array<[string, string]> = [
 const RARITIES = ['common', 'uncommon', 'rare', 'mythic'];
 
 export const filtersAreActive = (f: Filters): boolean =>
-  f.ownedOnly || f.colors.length > 0 || f.rarities.length > 0 || f.set !== '' ||
-  f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras;
+  f.ownedOnly || f.colors.length > 0 || f.gold || f.hybrid ||
+  f.rarities.length > 0 || f.set !== '' ||
+  f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras || f.includeUnplayable ||
+  f.excludeUniversesBeyond;
 
 
 /** Says in words what the colour pills currently mean. */
@@ -118,6 +128,30 @@ export function FilterPanel({
               {code}
             </button>
           ))}
+
+          {/*
+            These two sit with the colour pills because that is where you look
+            for them, but they answer different questions. The pills above are
+            "which colours"; M is "how many" (two or more), and H is about the
+            cost — a {G/W} card can be mono-coloured by identity and still be
+            hybrid. So they toggle independently rather than joining the set.
+          */}
+          <button
+            className="pill color M"
+            aria-pressed={filters.gold}
+            title="Gold — two or more colours"
+            onClick={() => set('gold', !filters.gold)}
+          >
+            M
+          </button>
+          <button
+            className="pill color H"
+            aria-pressed={filters.hybrid}
+            title="Hybrid mana, like {G/W}"
+            onClick={() => set('hybrid', !filters.hybrid)}
+          >
+            H
+          </button>
         </div>
         {filters.colors.length > 0 && (
           <>
@@ -204,6 +238,32 @@ export function FilterPanel({
             onChange={(e) => set('includeExtras', e.target.checked)}
           />
           Tokens, emblems and art cards
+        </label>
+        <label className="check" style={{ marginTop: 6 }}>
+          <input
+            type="checkbox"
+            checked={filters.includeUnplayable}
+            onChange={(e) => set('includeUnplayable', e.target.checked)}
+          />
+          Un-sets, playtest and unplayable cards
+        </label>
+      </div>
+
+      {/*
+        Its own group because it hides rather than shows. Putting an exclusion
+        among the "Include" boxes would mean two opposite meanings under one
+        heading, and a checkbox whose default state disagreed with its
+        neighbours for reasons nothing on screen explained.
+      */}
+      <div className="fgroup">
+        <h3>Exclude</h3>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={filters.excludeUniversesBeyond}
+            onChange={(e) => set('excludeUniversesBeyond', e.target.checked)}
+          />
+          Universes Beyond crossovers
         </label>
       </div>
 

@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 4;
+PRAGMA user_version = 10;
 
 
 -- =====================================================================
@@ -64,6 +64,19 @@ CREATE INDEX idx_sync_log_started ON sync_log(started_at DESC);
 -- Seeded reference data, NOT synced. Encodes the Phase 2 / Phase 3
 -- deck-construction rules so validation is data-driven instead of a
 -- switch statement. Rows are keyed by Scryfall's `legalities` keys.
+--
+-- commander_kind says what may lead the deck, because "commander" is not one
+-- rule. oracle_cards.can_be_commander answers only the Commander question:
+--   'legendary'                 legendary creature/Vehicle/Spacecraft, or text
+--   'planeswalker'              Oathbreaker — any legendary planeswalker
+--   'legendary_or_planeswalker' Brawl — either
+--   'uncommon_creature'         Pauper Commander
+-- uses_signature_spell is Oathbreaker: its command zone holds a planeswalker
+-- *and* an instant or sorcery within that planeswalker's colour identity. The
+-- second card is not a second leader, so the partner rules must not apply to it.
+--
+-- Both are last in the column list because ALTER TABLE ADD COLUMN appends, and a
+-- migrated database has to match this file column for column.
 CREATE TABLE formats (
     code                TEXT PRIMARY KEY,   -- 'standard','modern','commander','pauper',...
     display_name        TEXT    NOT NULL,
@@ -76,7 +89,9 @@ CREATE TABLE formats (
     requires_commander  INTEGER NOT NULL DEFAULT 0,
     enforces_color_id   INTEGER NOT NULL DEFAULT 0,   -- restrict deck to commander's color identity
     is_active           INTEGER NOT NULL DEFAULT 1,   -- show in the format picker
-    sort_order          INTEGER NOT NULL DEFAULT 0
+    sort_order          INTEGER NOT NULL DEFAULT 0,
+    commander_kind      TEXT    NOT NULL DEFAULT 'legendary',
+    uses_signature_spell INTEGER NOT NULL DEFAULT 0
 );
 
 
@@ -98,6 +113,15 @@ CREATE TABLE filter_presets (
     sort_order  INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+-- Which printing's art a card should wear, when the automatic choice is not
+-- the one you want. The automatic choice (oracle_cards.default_printing_id)
+-- is recomputed on every sync and can move; this does not.
+CREATE TABLE card_art_preferences (
+    oracle_id   TEXT PRIMARY KEY REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+    printing_id TEXT NOT NULL     REFERENCES card_printings(id)     ON DELETE CASCADE,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
 );
 
 
@@ -273,6 +297,12 @@ CREATE INDEX idx_print_price    ON card_printings(price_usd);
 CREATE INDEX idx_print_oracle_set    ON card_printings(oracle_id, set_code);
 CREATE INDEX idx_print_oracle_rarity ON card_printings(oracle_id, rarity);
 
+-- `a:"Rebecca Guay"` is a leading-wildcard LIKE, so no index can seek it — but
+-- including artist makes the index covering, and the correlated subquery stops
+-- fetching a full printing row per candidate. 128ms -> 18ms across 117,620
+-- printings.
+CREATE INDEX idx_print_oracle_artist ON card_printings(oracle_id, artist);
+
 -- Now that card_printings exists, oracle_cards.default_printing_id has a
 -- target. SQLite can't ALTER in a FK, so it is enforced by trigger.
 CREATE TRIGGER trg_oracle_default_printing_ins
@@ -317,6 +347,14 @@ CREATE TABLE card_legalities (
     PRIMARY KEY (oracle_id, format_code)
 );
 CREATE INDEX idx_legal_format ON card_legalities(format_code, legality);
+
+-- "Is this card legal anywhere at all", which search asks of every card on
+-- every query to hide Un-cards and playtest cards. The primary key is
+-- (oracle_id, format_code) and carries no legality, so without this the probe
+-- fetches every one of a card's 23 legality rows. Partial, because only the
+-- playable rows are ever asked about — 366k of 888k.
+CREATE INDEX idx_legal_playable ON card_legalities(oracle_id)
+    WHERE legality IN ('legal','restricted');
 
 -- Every name a card can be searched/imported/OCR'd by: full name, each
 -- face name, flip name. Powers Phase 5 decklist import and Phase 7 OCR
@@ -594,6 +632,13 @@ CREATE TABLE printing_price_history (
 -- ON DELETE CASCADE + a view — no fix-up pass, and no way to leak.
 -- =====================================================================
 
+-- cover_printing_id is last because ALTER TABLE ADD COLUMN appends, and a
+-- migrated database has to match this file column for column. Its comment is
+-- out here rather than beside it because a comment inside the column list
+-- corrupts the DDL SQLite rewrites during DROP COLUMN.
+--
+-- cover_printing_id: the card whose art fronts this deck in the list. NULL
+-- means "work it out from the contents" — see DeckStore.list().
 CREATE TABLE decks (
     id              INTEGER PRIMARY KEY,
     name            TEXT    NOT NULL,
@@ -607,10 +652,45 @@ CREATE TABLE decks (
     is_archived     INTEGER NOT NULL DEFAULT 0,
     sort_order      INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-    updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    cover_printing_id TEXT REFERENCES card_printings(id) ON DELETE SET NULL
 );
 CREATE INDEX idx_decks_format ON decks(format_code);
 CREATE INDEX idx_decks_home   ON decks(home_location_id);
+
+-- Free-form labels on a deck: 'cEDH', 'budget', 'built', 'needs cards'. One
+-- table rather than a tag entity plus a link table, because with a single user
+-- renaming a tag is an UPDATE and there is nothing else to hang off it.
+CREATE TABLE deck_tags (
+    deck_id INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    tag     TEXT    NOT NULL,
+    PRIMARY KEY (deck_id, tag)
+);
+CREATE UNIQUE INDEX idx_deck_tag_ci ON deck_tags(deck_id, tag COLLATE NOCASE);
+CREATE INDEX idx_deck_tags_tag ON deck_tags(tag COLLATE NOCASE);
+
+-- A deck as it stood at a moment, so a rebuild is reversible. Deliberately a
+-- copy of the card rows rather than a diff: a diff chain has to be replayed to
+-- be read, and these are small.
+CREATE TABLE deck_snapshots (
+    id         INTEGER PRIMARY KEY,
+    deck_id    INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    name       TEXT    NOT NULL,
+    note       TEXT,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX idx_deck_snapshots_deck ON deck_snapshots(deck_id, created_at DESC);
+
+CREATE TABLE deck_snapshot_cards (
+    snapshot_id    INTEGER NOT NULL REFERENCES deck_snapshots(id) ON DELETE CASCADE,
+    oracle_id      TEXT    NOT NULL,
+    board          TEXT    NOT NULL,
+    quantity       INTEGER NOT NULL,
+    quantity_from_collection INTEGER NOT NULL DEFAULT 0,
+    category       TEXT,
+    commander_role TEXT,
+    PRIMARY KEY (snapshot_id, oracle_id, board)
+);
 
 CREATE TABLE deck_cards (
     id                      INTEGER PRIMARY KEY,
@@ -633,9 +713,11 @@ CREATE TABLE deck_cards (
     preferred_printing_id   TEXT REFERENCES card_printings(id) ON DELETE SET NULL,
 
     -- Phase 3: distinguishes a plain commander from Partner/Background so
-    -- the "one commander" relaxations are representable.
+    -- the "one commander" relaxations are representable. 'signature_spell' is
+    -- Oathbreaker's second card, which is an instant or sorcery rather than a
+    -- second leader — see formats.uses_signature_spell.
     commander_role          TEXT CHECK (commander_role IS NULL OR commander_role IN
-                                ('commander','partner','background','companion')),
+                                ('commander','partner','background','companion','signature_spell')),
     category                TEXT,           -- user grouping: 'Ramp','Removal',...
     notes                   TEXT,
     sort_order              INTEGER NOT NULL DEFAULT 0,
@@ -1199,6 +1281,12 @@ INSERT INTO formats
     ('oldschool',       'Old School',         60, NULL, 4, 0, 15, 0, 0, 0, 200),
     ('penny',           'Penny Dreadful',     60, NULL, 4, 0, 15, 0, 0, 0, 210),
     ('future',          'Future Standard',    60, NULL, 4, 0, 15, 0, 0, 0, 220);
+
+-- Formats whose command zone takes something other than a legendary creature.
+UPDATE formats SET commander_kind = 'planeswalker'              WHERE code = 'oathbreaker';
+UPDATE formats SET commander_kind = 'legendary_or_planeswalker' WHERE code IN ('brawl','standardbrawl');
+UPDATE formats SET commander_kind = 'uncommon_creature'         WHERE code = 'paupercommander';
+UPDATE formats SET uses_signature_spell = 1                     WHERE code = 'oathbreaker';
 
 -- Fallback bucket. Phase 6 drops incoming trade cards here when no
 -- location is chosen; Phase 5 CSV import uses it for unmapped rows.

@@ -3,7 +3,8 @@ export type Board = 'main' | 'side' | 'command' | 'maybe';
 
 export const BOARDS: Board[] = ['main', 'side', 'command', 'maybe'];
 
-export type CommanderRole = 'commander' | 'partner' | 'background' | 'companion';
+export type CommanderRole =
+  | 'commander' | 'partner' | 'background' | 'companion' | 'signature_spell';
 
 /** The rules for one format, read from the seeded `formats` table. */
 export interface FormatRules {
@@ -17,7 +18,21 @@ export interface FormatRules {
   sideboardSize: number | null;
   requiresCommander: boolean;
   enforcesColorIdentity: boolean;
+  /** What may lead the deck; see the formats table comment in schema.sql. */
+  commanderKind: CommanderKind;
+  /**
+   * Oathbreaker: the command zone also holds a signature spell — an instant or
+   * sorcery inside the leader's colour identity. It is not a second leader, so
+   * the partner rules must not be applied to it.
+   */
+  usesSignatureSpell: boolean;
 }
+
+export type CommanderKind =
+  | 'legendary'
+  | 'planeswalker'
+  | 'legendary_or_planeswalker'
+  | 'uncommon_creature';
 
 /** One card slot in a deck, joined with everything validation and stats need. */
 export interface DeckCard {
@@ -40,6 +55,8 @@ export interface DeckCard {
   isBasicLand: boolean;
   isLegendary: boolean;
   canBeCommander: boolean;
+  /** Pauper Commander needs an uncommon creature, and rarity is per printing. */
+  hasUncommonPrinting: boolean;
   /** Colour symbols this card can produce, from Scryfall's produced_mana. */
   producedMana: string[];
   partnerKind: string | null;
