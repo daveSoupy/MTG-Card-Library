@@ -229,7 +229,7 @@ export default function App() {
 
         {view.name === 'browse' && (
           <>
-            <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ width: 140 }}>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} className="sort-select">
               {SORTS.map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
