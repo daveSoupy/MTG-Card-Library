@@ -27,6 +27,8 @@ export interface CardSummary {
   priceUsdFoil: number | null;
   printingId: string | null;
   ownedQuantity: number;
+  /** Total quantity on any active want list; 0 when not wanted. */
+  wantedQuantity?: number;
   printingCount: number;
 }
 
@@ -939,3 +941,107 @@ export const restoreSnapshot = (snapshotId: number) =>
 
 export const deleteSnapshot = (snapshotId: number) =>
   send<void>(`/api/v1/snapshots/${snapshotId}`, 'DELETE');
+
+// ---------------------------------------------------------------------------
+// Phase 6 — trades, want lists, trade lists, alerts
+// ---------------------------------------------------------------------------
+
+export type TradeStatus = 'draft' | 'completed' | 'cancelled';
+
+export interface TradeItem {
+  id: number; direction: 'out' | 'in'; printingId: string; oracleId: string;
+  name: string; setCode: string | null; collectorNumber: string | null; manaCost: string | null;
+  quantity: number; finish: string; condition: string; language: string;
+  sourceCollectionItemId: number | null; destinationLocationId: number | null;
+  unitValueUsd: number | null; marketUsd: number | null; imageSmall: string | null; notes: string | null;
+}
+
+export interface TradeSummary {
+  id: number; counterpartyName: string; counterpartyContact: string | null; status: TradeStatus;
+  tradeDate: string | null; completedAt: string | null; locationNote: string | null; notes: string | null;
+  valueOutUsd: number | null; valueInUsd: number | null; createdAt: string; updatedAt: string;
+}
+
+export interface Trade extends TradeSummary { items: TradeItem[]; }
+
+export interface TradeConflict { oracleId: string; name: string; owned: number; allocated: number; tradingAway: number; }
+export interface CompleteTradeResult {
+  completed: boolean; needsConfirmation?: boolean; conflicts?: TradeConflict[];
+  fulfilledWants?: Array<{ name: string }>; clampedTradeListItems?: number; resolvedConflicts?: TradeConflict[];
+}
+
+export const fetchTrades = (status?: TradeStatus, signal?: AbortSignal) =>
+  getJson<{ trades: TradeSummary[] }>(`/api/v1/trades${status ? `?status=${status}` : ''}`, signal).then((r) => r.trades);
+export const fetchTrade = (id: number, signal?: AbortSignal) =>
+  getJson<{ trade: Trade }>(`/api/v1/trades/${id}`, signal).then((r) => r.trade);
+export const createTrade = (input: { counterpartyName: string; counterpartyContact?: string | null; tradeDate?: string | null; locationNote?: string | null; notes?: string | null }) =>
+  send<{ trade: Trade }>('/api/v1/trades', 'POST', input).then((r) => r.trade);
+export const updateTrade = (id: number, changes: Record<string, unknown>) =>
+  send<{ trade: Trade }>(`/api/v1/trades/${id}`, 'PATCH', changes).then((r) => r.trade);
+export const deleteTrade = (id: number) => send<void>(`/api/v1/trades/${id}`, 'DELETE');
+export const cancelTrade = (id: number) => send<{ trade: Trade }>(`/api/v1/trades/${id}/cancel`, 'POST', {}).then((r) => r.trade);
+export const addTradeItem = (id: number, item: Record<string, unknown>) =>
+  send<{ trade: Trade }>(`/api/v1/trades/${id}/items`, 'POST', item).then((r) => r.trade);
+export const updateTradeItem = (id: number, itemId: number, changes: Record<string, unknown>) =>
+  send<{ trade: Trade }>(`/api/v1/trades/${id}/items/${itemId}`, 'PATCH', changes).then((r) => r.trade);
+export const removeTradeItem = (id: number, itemId: number) =>
+  send<{ trade: Trade }>(`/api/v1/trades/${id}/items/${itemId}`, 'DELETE').then((r) => r.trade);
+export const completeTrade = (id: number, force = false) =>
+  send<{ result: CompleteTradeResult; trade: Trade }>(`/api/v1/trades/${id}/complete`, 'POST', { force });
+
+export interface NamedList { id: number; name: string; description: string | null; is_default: number; sort_order: number; active_count?: number; item_count?: number; }
+export interface WantList { id: number; name: string; items: WantListItem[]; }
+
+export const fetchWantLists = (signal?: AbortSignal) =>
+  getJson<{ lists: NamedList[] }>('/api/v1/want-lists', signal).then((r) => r.lists);
+export const createWantList = (name: string, description?: string) =>
+  send<{ id: number; lists: NamedList[] }>('/api/v1/want-lists', 'POST', { name, description });
+export const renameWantList = (id: number, name: string) =>
+  send<{ lists: NamedList[] }>(`/api/v1/want-lists/${id}`, 'PATCH', { name });
+export const deleteWantList = (id: number) => send<{ lists: NamedList[] }>(`/api/v1/want-lists/${id}`, 'DELETE');
+export const addWantItem = (listId: number, oracleId: string, fields: Record<string, unknown> = {}) =>
+  send<WantList>(`/api/v1/want-lists/${listId}/items`, 'POST', { oracleId, ...fields });
+export const updateWantItem = (listId: number, itemId: number, changes: Record<string, unknown>) =>
+  send<WantList>(`/api/v1/want-lists/${listId}/items/${itemId}`, 'PATCH', changes);
+export const removeWantItem = (listId: number, itemId: number) =>
+  send<WantList>(`/api/v1/want-lists/${listId}/items/${itemId}`, 'DELETE');
+export const reorderWantItems = (listId: number, orderedIds: number[]) =>
+  send<WantList>(`/api/v1/want-lists/${listId}/reorder`, 'POST', { orderedIds });
+
+export interface TradeListItem {
+  id: number; collectionItemId: number; oracleId: string; name: string;
+  setCode: string | null; collectorNumber: string | null; finish: string; condition: string;
+  locationName: string | null; quantity: number; askingPriceUsd: number | null; marketUsd: number | null;
+  imageSmall: string | null; notes: string | null; ownedQuantity: number; availableOverall: number;
+  exceedsOwned: boolean; conflictsWithDeck: boolean;
+}
+export interface TradeList { id: number; name: string; items: TradeListItem[]; }
+
+export const fetchTradeLists = (signal?: AbortSignal) =>
+  getJson<{ lists: NamedList[] }>('/api/v1/trade-lists', signal).then((r) => r.lists);
+export const fetchTradeList = (id: number, signal?: AbortSignal) =>
+  getJson<TradeList>(`/api/v1/trade-lists/${id}`, signal);
+export const createTradeList = (name: string, description?: string) =>
+  send<{ id: number; lists: NamedList[] }>('/api/v1/trade-lists', 'POST', { name, description });
+export const renameTradeList = (id: number, name: string) =>
+  send<{ lists: NamedList[] }>(`/api/v1/trade-lists/${id}`, 'PATCH', { name });
+export const deleteTradeList = (id: number) => send<{ lists: NamedList[] }>(`/api/v1/trade-lists/${id}`, 'DELETE');
+export const addTradeListItem = (listId: number, collectionItemId: number, fields: Record<string, unknown> = {}) =>
+  send<TradeList>(`/api/v1/trade-lists/${listId}/items`, 'POST', { collectionItemId, ...fields });
+export const updateTradeListItem = (listId: number, itemId: number, changes: Record<string, unknown>) =>
+  send<TradeList>(`/api/v1/trade-lists/${listId}/items/${itemId}`, 'PATCH', changes);
+export const removeTradeListItem = (listId: number, itemId: number) =>
+  send<TradeList>(`/api/v1/trade-lists/${listId}/items/${itemId}`, 'DELETE');
+export const tradeListExportUrl = (id: number) => `/api/v1/trade-lists/${id}/export`;
+
+export interface Alert {
+  id: number; kind: string; state: 'active' | 'acknowledged' | 'resolved';
+  subjectType: string | null; subjectId: number | null; title: string; message: string | null;
+  payload: unknown; createdAt: string; acknowledgedAt: string | null;
+}
+export const fetchAlerts = (state?: string, signal?: AbortSignal) =>
+  getJson<{ alerts: Alert[]; activeCount: number }>(`/api/v1/alerts${state ? `?state=${state}` : ''}`, signal);
+export const acknowledgeAlert = (id: number) =>
+  send<{ activeCount: number }>(`/api/v1/alerts/${id}/acknowledge`, 'POST', {});
+export const resolveAlert = (id: number) =>
+  send<{ activeCount: number }>(`/api/v1/alerts/${id}/resolve`, 'POST', {});
