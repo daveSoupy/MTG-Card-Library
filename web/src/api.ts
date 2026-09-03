@@ -1,0 +1,764 @@
+/**
+ * Thin client over the server API.
+ *
+ * Deliberately thin: all the rules — search syntax, legality, allocation — live
+ * on the server, so this only shapes requests and hands back JSON. That is what
+ * keeps a future native client from having to reimplement any of it.
+ */
+
+export interface CardSummary {
+  oracleId: string;
+  name: string;
+  manaCost: string | null;
+  cmc: number;
+  typeLine: string;
+  power: string | null;
+  toughness: string | null;
+  loyalty: string | null;
+  colors: string;
+  colorIdentity: string;
+  rarity: string | null;
+  setCode: string | null;
+  setName: string | null;
+  collectorNumber: string | null;
+  imageSmall: string | null;
+  imageNormal: string | null;
+  priceUsd: number | null;
+  priceUsdFoil: number | null;
+  printingId: string | null;
+  ownedQuantity: number;
+  printingCount: number;
+}
+
+export interface CardFace {
+  index: number;
+  name: string;
+  manaCost: string | null;
+  typeLine: string | null;
+  oracleText: string | null;
+  powerToughness: string | null;
+  imageNormal: string | null;
+}
+
+export interface CardPrinting {
+  id: string;
+  setCode: string;
+  setName: string;
+  collectorNumber: string;
+  rarity: string | null;
+  releasedAt: string | null;
+  priceUsd: number | null;
+  priceUsdFoil: number | null;
+  imageNormal: string | null;
+  scryfallUri: string | null;
+  tcgplayerId: number | null;
+  isDigital: boolean;
+  ownedQuantity: number;
+}
+
+export interface CardLegality {
+  format: string;
+  displayName: string;
+  status: string;
+  playable: boolean;
+}
+
+export interface CardDetail extends CardSummary {
+  layout: string;
+  oracleText: string | null;
+  flavorText: string | null;
+  artist: string | null;
+  keywords: string[];
+  isReserved: boolean;
+  canBeCommander: boolean;
+  edhrecRank: number | null;
+  frontImage: string | null;
+  backImage: string | null;
+  faces: CardFace[];
+  printings: CardPrinting[];
+  legalities: CardLegality[];
+}
+
+export interface SearchResponse {
+  cards: CardSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface LibraryStatus {
+  hasCardData: boolean;
+  oracleCards: number;
+  printings: number;
+  sets: number;
+  lastSyncedAt: string | null;
+  loadedBulkType: string | null;
+  loadedBulkUpdatedAt: string | null;
+}
+
+export interface SyncProgress {
+  phase: string;
+  message: string;
+  fraction: number | null;
+  cardsImported?: number;
+  setsImported?: number;
+  error?: string;
+}
+
+export interface SyncState {
+  running: boolean;
+  progress: SyncProgress | null;
+  lastError: string | null;
+}
+
+export interface StatusResponse {
+  library: LibraryStatus;
+  sync: SyncState;
+  bulkTypes: Record<string, { label: string; detail: string }>;
+}
+
+export interface SetRecord {
+  code: string;
+  name: string;
+  released_at: string | null;
+  card_count: number;
+}
+
+export interface FormatRecord {
+  code: string;
+  display_name: string;
+}
+
+export interface SearchParams {
+  q?: string;
+  ownedOnly?: boolean;
+  colors?: string[];
+  colorsExact?: boolean;
+  rarities?: string[];
+  set?: string;
+  format?: string;
+  minCmc?: number;
+  maxCmc?: number;
+  includeDigital?: boolean;
+  includeExtras?: boolean;
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}
+
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
+  if (!response.ok) {
+    let detail = `Request failed with status ${response.status}`;
+    try {
+      const body = await response.json();
+      if (body?.error) detail = body.detail ? `${body.error} ${body.detail}` : body.error;
+    } catch {
+      // Non-JSON error body; the status line is all we have.
+    }
+    throw new Error(detail);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function searchCards(params: SearchParams, signal?: AbortSignal): Promise<SearchResponse> {
+  const query = new URLSearchParams();
+  if (params.q) query.set('q', params.q);
+  if (params.ownedOnly) query.set('ownedOnly', 'true');
+  if (params.colors?.length) query.set('colors', params.colors.join(','));
+  if (params.colorsExact) query.set('colorsExact', 'true');
+  if (params.rarities?.length) query.set('rarities', params.rarities.join(','));
+  if (params.set) query.set('set', params.set);
+  if (params.format) query.set('format', params.format);
+  if (params.minCmc !== undefined) query.set('minCmc', String(params.minCmc));
+  if (params.maxCmc !== undefined) query.set('maxCmc', String(params.maxCmc));
+  if (params.includeDigital) query.set('includeDigital', 'true');
+  if (params.includeExtras) query.set('includeExtras', 'true');
+  if (params.sort) query.set('sort', params.sort);
+  query.set('limit', String(params.limit ?? 60));
+  if (params.offset) query.set('offset', String(params.offset));
+  return getJson<SearchResponse>(`/api/v1/cards?${query}`, signal);
+}
+
+export const fetchCard = (oracleId: string, signal?: AbortSignal) =>
+  getJson<CardDetail>(`/api/v1/cards/${encodeURIComponent(oracleId)}`, signal);
+
+export const fetchStatus = (signal?: AbortSignal) =>
+  getJson<StatusResponse>('/api/v1/status', signal);
+
+export const fetchSets = (signal?: AbortSignal) =>
+  getJson<{ sets: SetRecord[] }>('/api/v1/sets', signal).then((r) => r.sets);
+
+export const fetchFormats = (signal?: AbortSignal) =>
+  getJson<{ formats: FormatRecord[] }>('/api/v1/formats', signal).then((r) => r.formats);
+
+export async function startSync(bulkType?: string, force = false): Promise<void> {
+  const response = await fetch('/api/v1/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bulkType, force }),
+  });
+  if (!response.ok && response.status !== 409) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.error ?? `Could not start the sync (HTTP ${response.status}).`);
+  }
+}
+
+/** Card art proxied through the server, which caches it to disk. */
+export function imageUrl(printingId: string, size: 'small' | 'normal' | 'large', face = 0): string {
+  return `/api/v1/images/${printingId}/${size}${face ? `?face=${face}` : ''}`;
+}
+
+/**
+ * Subscribes to sync progress. Returns an unsubscribe function.
+ * EventSource reconnects on its own if the server restarts mid-sync.
+ */
+export function subscribeToSync(
+  onProgress: (progress: SyncProgress) => void,
+  onFinished: () => void,
+): () => void {
+  const source = new EventSource('/api/v1/sync/events');
+  const progressHandler = (event: MessageEvent) => onProgress(JSON.parse(event.data));
+  const stateHandler = (event: MessageEvent) => {
+    const state: SyncState = JSON.parse(event.data);
+    if (state.progress) onProgress(state.progress);
+  };
+  source.addEventListener('progress', progressHandler as EventListener);
+  source.addEventListener('state', stateHandler as EventListener);
+  source.addEventListener('finished', onFinished as EventListener);
+  return () => source.close();
+}
+
+// ---------------------------------------------------------------- decks
+
+export type Board = 'main' | 'side' | 'command' | 'maybe';
+
+export interface DeckCard {
+  id: number;
+  oracleId: string;
+  name: string;
+  board: Board;
+  quantity: number;
+  quantityFromCollection: number;
+  commanderRole: string | null;
+  cmc: number;
+  typeLine: string;
+  manaCost: string | null;
+  colorIdentity: string;
+  isBasicLand: boolean;
+  canBeCommander: boolean;
+  category: string | null;
+  producedMana: string[];
+  partnerKind: string | null;
+  legality: string | null;
+  ownedQuantity: number;
+  availableQuantity: number;
+  printingId: string | null;
+  setCode: string | null;
+  rarity: string | null;
+  imageSmall: string | null;
+  priceUsd: number | null;
+}
+
+export interface DeckIssue {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  oracleId?: string;
+  cardName?: string;
+}
+
+export interface ColorRequirement {
+  color: string;
+  colorName: string;
+  pips: number;
+  pipShare: number;
+  sources: number;
+  sourceShare: number;
+  isShort: boolean;
+}
+
+export interface ManaBase {
+  requirements: ColorRequirement[];
+  totalPips: number;
+  totalSources: number;
+  landCount: number;
+  nonLandSources: number;
+  colorlessSources: number;
+}
+
+export interface DeckValidation {
+  formatCode: string | null;
+  formatName: string | null;
+  commanderIdentity: string | null;
+  countedTotal: number;
+  mainCount: number;
+  sideboardCount: number;
+  commandCount: number;
+  maybeCount: number;
+  requiredExactSize: number | null;
+  requiredMinSize: number | null;
+  sideboardLimit: number | null;
+  issues: DeckIssue[];
+  isLegal: boolean;
+}
+
+export interface DeckStats {
+  totalCards: number;
+  mainCount: number;
+  sideboardCount: number;
+  commandCount: number;
+  uniqueCards: number;
+  averageManaValue: number | null;
+  manaCurve: Array<{ cmc: number; label: string; count: number }>;
+  colorDistribution: Array<{ color: string; count: number }>;
+  colorIdentity: string;
+  typeDistribution: Array<{ type: string; count: number }>;
+  estimatedValueUsd: number | null;
+  ownedCount: number;
+  needToBuyCount: number;
+}
+
+export interface Deck {
+  id: number;
+  name: string;
+  formatCode: string | null;
+  description: string | null;
+  notes: string | null;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  cards: DeckCard[];
+  validation: DeckValidation;
+  stats: DeckStats;
+  manaBase: ManaBase;
+}
+
+export interface DeckSummary {
+  id: number;
+  name: string;
+  formatCode: string | null;
+  formatName: string | null;
+  cardCount: number;
+  uniqueCards: number;
+  colorIdentity: string;
+  commanderNames: string[];
+  isArchived: boolean;
+  updatedAt: string;
+}
+
+async function send<T>(url: string, method: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail?.error ?? `Request failed with status ${response.status}`);
+  }
+  return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);
+}
+
+export const fetchDecks = (signal?: AbortSignal) =>
+  getJson<{ decks: DeckSummary[] }>('/api/v1/decks', signal).then((r) => r.decks);
+
+export const fetchDeck = (id: number, signal?: AbortSignal) =>
+  getJson<{ deck: Deck }>(`/api/v1/decks/${id}`, signal).then((r) => r.deck);
+
+export const createDeck = (name: string, formatCode: string | null) =>
+  send<{ deck: Deck }>('/api/v1/decks', 'POST', { name, formatCode }).then((r) => r.deck);
+
+export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived'>>) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${id}`, 'PATCH', changes).then((r) => r.deck);
+
+export const duplicateDeck = (id: number) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${id}/duplicate`, 'POST', {}).then((r) => r.deck);
+
+export const deleteDeck = (id: number) => send<void>(`/api/v1/decks/${id}`, 'DELETE');
+
+export const addDeckCard = (
+  deckId: number,
+  oracleId: string,
+  options: { board?: Board; quantity?: number } = {},
+) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards`, 'POST', { oracleId, ...options }).then((r) => r.deck);
+
+export const updateDeckCard = (
+  deckId: number,
+  cardId: number,
+  changes: {
+    quantity?: number; fromCollection?: number; board?: Board;
+    category?: string | null; preferredPrintingId?: string | null;
+  },
+) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
+
+export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
+    .then((r) => r.categories);
+
+export const removeDeckCard = (deckId: number, cardId: number) =>
+  send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'DELETE').then((r) => r.deck);
+
+// ------------------------------------------------------- filter presets
+
+export interface FilterPreset {
+  id: number;
+  name: string;
+  filters: Record<string, unknown>;
+  queryText: string | null;
+  sortOrder: number;
+  updatedAt: string;
+}
+
+export const fetchPresets = (signal?: AbortSignal) =>
+  getJson<{ presets: FilterPreset[] }>('/api/v1/filter-presets', signal).then((r) => r.presets);
+
+/** Saving over an existing name updates that preset rather than duplicating it. */
+export const savePreset = (name: string, filters: unknown, queryText: string | null) =>
+  send<{ presets: FilterPreset[] }>('/api/v1/filter-presets', 'POST', { name, filters, queryText })
+    .then((r) => r.presets);
+
+export const deletePreset = (id: number) =>
+  send<{ presets: FilterPreset[] }>(`/api/v1/filter-presets/${id}`, 'DELETE').then((r) => r.presets);
+
+// ------------------------------------------------------------ collection
+
+export interface StorageLocation {
+  id: number;
+  name: string;
+  kind: string;
+  notes: string | null;
+  is_default: number;
+  is_archived: number;
+  card_count: number;
+  distinct_printings: number;
+  value_usd: number;
+}
+
+export interface CollectionCard {
+  oracleId: string;
+  name: string;
+  manaCost: string | null;
+  cmc: number;
+  typeLine: string;
+  colorIdentity: string;
+  ownedQuantity: number;
+  allocatedQuantity: number;
+  availableQuantity: number;
+  valueUsd: number;
+  costUsd: number | null;
+  gainUsd: number | null;
+  printingCount: number;
+  locationCount: number;
+  lotCount: number;
+  printingId: string | null;
+  imageSmall: string | null;
+}
+
+export interface CollectionLot {
+  id: number;
+  printing_id: string;
+  quantity: number;
+  finish: string;
+  condition: string;
+  language: string;
+  unit_value_usd: number | null;
+  line_value_usd: number | null;
+  is_overridden: number;
+  price_override: number | null;
+  acquired_unit_cost: number | null;
+  acquired_at: string | null;
+  acquisition_kind: string;
+  acquired_from: string | null;
+  notes: string | null;
+  unrealized_gain_usd: number | null;
+  location_id: number;
+  location_name: string;
+  set_code: string;
+  set_name: string | null;
+  collector_number: string;
+}
+
+export interface CollectionCardDetail {
+  printings: Array<{
+    printing_id: string; finish: string; set_code: string; set_name: string | null;
+    collector_number: string; rarity: string | null; price_usd: number | null;
+    price_usd_foil: number | null; image_small: string | null;
+    owned_qty: number; value_usd: number | null; cost_usd: number | null;
+  }>;
+  lots: CollectionLot[];
+  decks: Array<{
+    deck_id: number; deck_name: string; board: string;
+    qty_from_collection: number; deck_home_location: string | null;
+  }>;
+  availability: { owned_qty: number; allocated_qty: number; available_qty: number } | null;
+}
+
+export interface CollectionValue {
+  value: Record<string, number | null>;
+  history: Array<{
+    captured_on: string; total_value_usd: number; total_cost_basis_usd: number | null;
+    realized_gain_to_date_usd: number | null; total_cards: number; distinct_cards: number;
+  }>;
+}
+
+export interface ShoppingListEntry {
+  oracleId: string; name: string; needed: number;
+  unitPriceUsd: number | null; estimatedUsd: number | null;
+  printingId: string | null; imageSmall: string | null; setCode: string | null;
+  availableElsewhere: number;
+}
+
+export interface ShoppingList {
+  deckId: number; deckName: string; entries: ShoppingListEntry[];
+  totalCards: number; totalUsd: number; unpricedCards: number;
+}
+
+export interface WantListItem {
+  id: number; oracleId: string; name: string; manaCost: string | null;
+  colorIdentity: string; quantity: number; targetPriceUsd: number | null;
+  priority: number; status: string; notes: string | null; priceUsd: number;
+  printingId: string | null; imageSmall: string | null; ownedQuantity: number;
+  neededFor: Array<{ deckId: number; deckName: string; quantity: number }>;
+}
+
+export interface AddLotInput {
+  printingId: string;
+  locationId: number;
+  quantity: number;
+  finish?: string;
+  condition?: string;
+  priceOverride?: number | null;
+  acquiredAt?: string | null;
+  acquiredUnitCost?: number | null;
+  acquisitionKind?: string;
+  acquiredFrom?: string | null;
+  notes?: string | null;
+}
+
+export const fetchLocations = (signal?: AbortSignal) =>
+  getJson<{ locations: StorageLocation[] }>('/api/v1/locations', signal).then((r) => r.locations);
+
+export const createLocation = (name: string, kind: string) =>
+  send<{ locations: StorageLocation[] }>('/api/v1/locations', 'POST', { name, kind })
+    .then((r) => r.locations);
+
+export const updateLocation = (id: number, changes: { name?: string; kind?: string }) =>
+  send<{ locations: StorageLocation[] }>(`/api/v1/locations/${id}`, 'PATCH', changes)
+    .then((r) => r.locations);
+
+/** `moveTo` relocates the contents first; without it a non-empty location 409s. */
+export const deleteLocation = (id: number, moveTo?: number) =>
+  send<{ locations: StorageLocation[] }>(
+    `/api/v1/locations/${id}${moveTo ? `?moveTo=${moveTo}` : ''}`, 'DELETE',
+  ).then((r) => r.locations);
+
+export interface CollectionQuery {
+  location?: number; set?: string; q?: string;
+  unallocatedOnly?: boolean; sort?: string; limit?: number; offset?: number;
+}
+
+export function fetchCollection(params: CollectionQuery = {}, signal?: AbortSignal) {
+  const query = new URLSearchParams();
+  if (params.location !== undefined) query.set('location', String(params.location));
+  if (params.set) query.set('set', params.set);
+  if (params.q) query.set('q', params.q);
+  if (params.unallocatedOnly) query.set('unallocatedOnly', 'true');
+  if (params.sort) query.set('sort', params.sort);
+  query.set('limit', String(params.limit ?? 100));
+  if (params.offset) query.set('offset', String(params.offset));
+  return getJson<{
+    cards: CollectionCard[]; distinctCards: number; totalCards: number;
+    totalValue: number; limit: number; offset: number;
+  }>(`/api/v1/collection?${query}`, signal);
+}
+
+export const fetchCollectionCard = (oracleId: string, signal?: AbortSignal) =>
+  getJson<CollectionCardDetail>(`/api/v1/collection/cards/${encodeURIComponent(oracleId)}`, signal);
+
+export const addCollectionLot = (input: AddLotInput) =>
+  send<{ id: number }>('/api/v1/collection/items', 'POST', input);
+
+export const updateCollectionLot = (id: number, changes: Record<string, unknown>) =>
+  send<{ ok: true }>(`/api/v1/collection/items/${id}`, 'PATCH', changes);
+
+export const removeCollectionLot = (id: number) =>
+  send<void>(`/api/v1/collection/items/${id}`, 'DELETE');
+
+export const fetchCollectionValue = (signal?: AbortSignal) =>
+  getJson<CollectionValue>('/api/v1/collection/value', signal);
+
+export const fetchSetCompletion = (signal?: AbortSignal) =>
+  getJson<{ sets: Array<{ set_code: string; set_name: string; total_cards: number; owned_printings: number; percent_complete: number | null }> }>(
+    '/api/v1/collection/sets', signal).then((r) => r.sets);
+
+export const fetchSetChecklist = (setCode: string, signal?: AbortSignal) =>
+  getJson<{ cards: Array<{
+    printing_id: string; collector_number: string; rarity: string | null;
+    price_usd: number | null; image_small: string | null; oracle_id: string;
+    name: string; mana_cost: string | null; owned_qty: number;
+  }> }>(`/api/v1/collection/sets/${encodeURIComponent(setCode)}`, signal).then((r) => r.cards);
+
+export const fetchShoppingList = (deckId: number, signal?: AbortSignal) =>
+  getJson<ShoppingList>(`/api/v1/decks/${deckId}/shopping-list`, signal);
+
+export const pushToWantList = (deckId: number, oracleIds?: string[]) =>
+  send<{ added: number; updated: number; listName: string }>(
+    `/api/v1/decks/${deckId}/shopping-list/want`, 'POST', { oracleIds });
+
+export const fetchWantList = (id: number, signal?: AbortSignal) =>
+  getJson<{ id: number; name: string; items: WantListItem[] }>(`/api/v1/want-lists/${id}`, signal);
+
+// -- Phase 5: import, export and backup ---------------------------------------
+
+export type ExportFormat = 'simple' | 'withSet' | 'arena' | 'mtgo';
+export type ImportBoard = 'main' | 'side' | 'command' | 'maybe';
+
+export interface ResolvedCard {
+  oracleId: string;
+  name: string;
+  via: 'exact' | 'face' | 'fuzzy';
+  confidence: number;
+}
+
+export interface DeckExport {
+  format: ExportFormat;
+  text: string;
+  tcgplayerUrl: string | null;
+  tcgplayerTooLong: boolean;
+  cardKingdomUrl: string;
+}
+
+export interface PreviewLine {
+  lineNumber: number;
+  raw: string;
+  quantity: number;
+  name: string;
+  setCode: string | null;
+  collectorNumber: string | null;
+  board: ImportBoard;
+  match: ResolvedCard | null;
+  candidates: ResolvedCard[];
+}
+
+export interface ImportCounts {
+  total: number; resolved: number; uncertain: number; unresolved: number;
+}
+
+export interface DecklistPreview {
+  lines: PreviewLine[];
+  unparsed: Array<{ lineNumber: number; raw: string }>;
+  counts: ImportCounts;
+}
+
+export type ColumnRole =
+  | 'name' | 'setCode' | 'setName' | 'collectorNumber' | 'quantity'
+  | 'finish' | 'condition' | 'language' | 'price' | 'ignore';
+
+export interface CsvPreviewRow {
+  lineNumber: number;
+  name: string;
+  quantity: number;
+  setCode: string | null;
+  collectorNumber: string | null;
+  finish: 'nonfoil' | 'foil' | 'etched';
+  condition: string;
+  language: string;
+  price: number | null;
+  match: ResolvedCard | null;
+  candidates: ResolvedCard[];
+  printingId: string | null;
+  printingExact: boolean;
+}
+
+export interface CsvPreview {
+  headers: string[];
+  mapping: ColumnRole[];
+  rows: CsvPreviewRow[];
+  skipped: Array<{ lineNumber: number; reason: string }>;
+  counts: ImportCounts & { cards: number };
+}
+
+export interface ImportBatch {
+  id: number;
+  source: string;
+  fileName: string | null;
+  importedAt: string;
+  rowsTotal: number | null;
+  rowsImported: number | null;
+  rowsUnmatched: number | null;
+  cardsRemaining: number;
+}
+
+export interface RestoreReport {
+  restored: Array<{ table: string; rows: number }>;
+  skipped: Array<{ table: string; reason: string }>;
+  totalRows: number;
+  pendingCardReferences: number;
+}
+
+export interface ScheduledBackup { name: string; bytes: number; takenAt: string }
+
+export const fetchDeckExport = (id: number, format: ExportFormat, signal?: AbortSignal) =>
+  getJson<DeckExport>(`/api/v1/decks/${id}/export?format=${format}`, signal);
+
+export const deckExportFileUrl = (id: number, format: ExportFormat) =>
+  `/api/v1/decks/${id}/export.txt?format=${format}`;
+
+export const previewDecklist = (text: string) =>
+  send<DecklistPreview>('/api/v1/decks/import/preview', 'POST', { text });
+
+export const importIntoDeck = (
+  id: number,
+  entries: Array<{ oracleId: string; quantity: number; board: ImportBoard }>,
+) => send<{ added: number; cards: number; deck: Deck }>(`/api/v1/decks/${id}/import`, 'POST', { entries });
+
+export const importAsNewDeck = (
+  name: string,
+  formatCode: string | null,
+  entries: Array<{ oracleId: string; quantity: number; board: ImportBoard }>,
+) => send<{ deck: Deck }>('/api/v1/decks/import', 'POST', { name, formatCode, entries });
+
+export const previewCollectionCsv = (text: string, mapping?: ColumnRole[]) =>
+  send<CsvPreview>('/api/v1/collection/import/preview', 'POST', { text, mapping });
+
+export const importCollectionCsv = (input: {
+  locationId: number;
+  rows: Array<{
+    printingId: string; quantity: number; finish: string;
+    condition: string; language: string; acquiredUnitCost: number | null;
+  }>;
+  fileName: string | null;
+  unmatched: number;
+}) => send<{ batchId: number; lots: number; cards: number; value: CollectionValue }>(
+  '/api/v1/collection/import', 'POST', input);
+
+export const collectionCsvUrl = '/api/v1/collection/export.csv';
+
+export const fetchImportBatches = (signal?: AbortSignal) =>
+  getJson<{ batches: ImportBatch[] }>('/api/v1/imports', signal).then((r) => r.batches);
+
+export const undoImportBatch = (id: number) =>
+  send<{ removed: number; batches: ImportBatch[] }>(`/api/v1/imports/${id}/undo`, 'POST');
+
+export const backupDownloadUrl = '/api/v1/backup';
+
+export const fetchScheduledBackups = (signal?: AbortSignal) =>
+  getJson<{ directory: string | null; backups: ScheduledBackup[] }>('/api/v1/backup/scheduled', signal);
+
+export const takeScheduledBackup = () =>
+  send<{ backups: ScheduledBackup[] }>('/api/v1/backup/scheduled', 'POST');
+
+/** Uploads the file as a raw body; the server writes it to a temp file. */
+export async function restoreBackup(file: File): Promise<RestoreReport> {
+  const response = await fetch('/api/v1/backup/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail?.error ?? `Restore failed with status ${response.status}`);
+  }
+  return response.json() as Promise<RestoreReport>;
+}

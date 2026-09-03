@@ -1,0 +1,32 @@
+[Unit]
+Description=MTG Library
+Documentation=https://github.com/daveSoupy/MTG-Card-Library
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mtg
+Group=mtg
+WorkingDirectory=/opt/mtg-library
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=5
+
+Environment=NODE_ENV=production
+# Database and cached card images. Must be writable by User= above.
+Environment=MTG_DATA_DIR=/var/lib/mtg-library
+Environment=MTG_PORT=8080
+# Bind to all interfaces so the Tailscale address works. Tailscale is the
+# security perimeter — do not forward this port on your router.
+Environment=MTG_HOST=0.0.0.0
+
+# The service only ever needs its own data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mtg-library
+
+[Install]
+WantedBy=multi-user.target
