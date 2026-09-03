@@ -37,7 +37,7 @@ const app = Fastify({
 registerCardRoutes(app, store);
 registerSyncRoutes(app, library.db, sync);
 registerImageRoutes(app, library.db, library.imageDir);
-registerDeckRoutes(app, decks);
+registerDeckRoutes(app, decks, library.db);
 registerPresetRoutes(app, library.db);
 registerCollectionRoutes(app, library.db, collection);
 registerPortingRoutes(app, library.db, decks, collection, backups);

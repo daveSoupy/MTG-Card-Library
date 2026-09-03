@@ -48,6 +48,10 @@ function makeStore(): { store: CardSearchStore; close: () => void } {
     INSERT INTO card_printings (id, oracle_id, set_code, collector_number, is_digital)
     VALUES (?,?, 'tst', ?, 0)`);
   const link = db.prepare('UPDATE oracle_cards SET default_printing_id = ? WHERE oracle_id = ?');
+  // Real cards always carry legality rows, and search now hides cards that are
+  // legal nowhere — so a fixture without them is not a realistic card.
+  const legality = db.prepare(
+    `INSERT INTO card_legalities (oracle_id, format_code, legality) VALUES (?, 'commander', 'legal')`);
 
   FIXTURES.forEach((card, index) => {
     const oracleId = `o-${index}`;
@@ -56,6 +60,7 @@ function makeStore(): { store: CardSearchStore; close: () => void } {
                card.name, card.colors, card.identity);
     printing.run(printingId, oracleId, String(index));
     link.run(printingId, oracleId);
+    legality.run(oracleId);
   });
 
   return { store: new CardSearchStore(db), close: () => db.close() };

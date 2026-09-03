@@ -204,7 +204,11 @@ export function resolvePrinting(
   if (setCode && collectorNumber) {
     const row = db.prepare(`
       SELECT id FROM card_printings
-      WHERE oracle_id = ? AND set_code = ? AND collector_number = ?`)
+      WHERE oracle_id = ? AND set_code = ? AND collector_number = ?
+      -- Set and collector number do not identify one row: the same card in the
+      -- same slot exists per language. Prefer English unless it is the only one.
+      ORDER BY (COALESCE(lang, 'en') <> 'en') ASC, id ASC
+      LIMIT 1`)
       .get(oracleId, setCode, collectorNumber) as { id: string } | undefined;
     if (row) return { printingId: row.id, exact: true };
   }
@@ -212,7 +216,8 @@ export function resolvePrinting(
   if (setCode) {
     const row = db.prepare(`
       SELECT id FROM card_printings WHERE oracle_id = ? AND set_code = ?
-      ORDER BY collector_number_num LIMIT 1`).get(oracleId, setCode) as { id: string } | undefined;
+      ORDER BY (COALESCE(lang, 'en') <> 'en') ASC, collector_number_num
+      LIMIT 1`).get(oracleId, setCode) as { id: string } | undefined;
     if (row) return { printingId: row.id, exact: false };
   }
 

@@ -8,12 +8,29 @@ const MODERN: FormatRules = {
   code: 'modern', displayName: 'Modern',
   minDeckSize: 60, exactDeckSize: null, maxCopies: 4, basicsExempt: true,
   isSingleton: false, sideboardSize: 15, requiresCommander: false, enforcesColorIdentity: false,
+  commanderKind: 'legendary', usesSignatureSpell: false,
 };
 
 const COMMANDER: FormatRules = {
   code: 'commander', displayName: 'Commander',
   minDeckSize: null, exactDeckSize: 100, maxCopies: 1, basicsExempt: true,
   isSingleton: true, sideboardSize: 0, requiresCommander: true, enforcesColorIdentity: true,
+  commanderKind: 'legendary', usesSignatureSpell: false,
+};
+
+const OATHBREAKER: FormatRules = {
+  ...COMMANDER, code: 'oathbreaker', displayName: 'Oathbreaker',
+  exactDeckSize: 60, commanderKind: 'planeswalker', usesSignatureSpell: true,
+};
+
+const BRAWL: FormatRules = {
+  ...COMMANDER, code: 'brawl', displayName: 'Brawl',
+  commanderKind: 'legendary_or_planeswalker',
+};
+
+const PDH: FormatRules = {
+  ...COMMANDER, code: 'paupercommander', displayName: 'Pauper Commander',
+  commanderKind: 'uncommon_creature',
 };
 
 const VINTAGE: FormatRules = { ...MODERN, code: 'vintage', displayName: 'Vintage' };
@@ -26,7 +43,7 @@ function card(overrides: Partial<DeckCard> = {}): DeckCard {
     commanderRole: null, category: null, sortOrder: 0,
     cmc: 2, typeLine: 'Creature — Human', manaCost: '{1}{G}',
     colorIdentity: 'G', colorIdentityMask: 16, colorsMask: 16,
-    isBasicLand: false, isLegendary: false, canBeCommander: false,
+    isBasicLand: false, isLegendary: false, canBeCommander: false, hasUncommonPrinting: false,
     partnerKind: null, partnerWith: null,
     legality: 'legal', ownedQuantity: 0, availableQuantity: 0,
     printingId: null, setCode: null, rarity: 'common', imageSmall: null, priceUsd: null,
@@ -188,7 +205,7 @@ test('a card that cannot be a commander is rejected in the command zone', () => 
   );
   const issue = result.issues.find((i) => i.code === 'missing_commander');
   assert.ok(issue);
-  assert.match(issue!.message, /cannot be a commander/);
+  assert.match(issue!.message, /cannot lead a Commander deck/);
 });
 
 test('two commanders are allowed here; three are not', () => {
@@ -406,4 +423,129 @@ test('the four pairing mechanics do not interchange', () => {
 test('a single commander needs no pairing at all', () => {
   const result = validateDeck([commanderOf({ partnerKind: null }), ...filler(99)], COMMANDER);
   assert.equal(result.issues.filter((i) => i.code === 'invalid_pairing').length, 0);
+});
+
+
+// -- per-format commander eligibility -----------------------------------------
+
+/**
+ * "Commander" is four different rules. can_be_commander only answers the
+ * Commander-format one, and applying it everywhere rejected legal Oathbreaker
+ * and Brawl commanders — 46 of 351 legendary planeswalkers carry the flag.
+ */
+const walker = () => card({
+  name: 'Teferi, Hero of Dominaria', board: 'command',
+  typeLine: 'Legendary Planeswalker — Teferi', isLegendary: true, canBeCommander: false,
+});
+const legend = () => card({
+  name: 'Atraxa', board: 'command',
+  typeLine: 'Legendary Creature — Angel', isLegendary: true, canBeCommander: true,
+});
+/**
+ * "This particular card is not allowed to be in the command zone", as opposed
+ * to "there is no commander at all" — the two share a code, and only the
+ * card-specific one carries an oracleId.
+ */
+const badCommander = (result: { issues: Array<{ code: string; oracleId?: string }> }) =>
+  result.issues.some((i) => i.code === 'missing_commander' && i.oracleId !== undefined);
+
+test('Oathbreaker takes a planeswalker and not a legendary creature', () => {
+  assert.equal(badCommander(validateDeck([walker(), ...filler(59)], OATHBREAKER)), false);
+  assert.equal(badCommander(validateDeck([legend(), ...filler(59)], OATHBREAKER)), true);
+});
+
+test('Commander takes a legendary creature and not a bare planeswalker', () => {
+  assert.equal(badCommander(validateDeck([legend(), ...filler(99)], COMMANDER)), false);
+  // The pre-existing bug ran the other way: this used to be the only rule.
+  assert.equal(badCommander(validateDeck([walker(), ...filler(99)], COMMANDER)), true);
+});
+
+test('Brawl takes either', () => {
+  assert.equal(badCommander(validateDeck([legend(), ...filler(99)], BRAWL)), false);
+  assert.equal(badCommander(validateDeck([walker(), ...filler(99)], BRAWL)), false);
+});
+
+test('Pauper Commander asks about the printing, not the card', () => {
+  const uncommon = card({
+    name: 'Ardenvale Tactician', board: 'command',
+    typeLine: 'Creature — Human Knight', hasUncommonPrinting: true,
+  });
+  const rare = card({
+    name: 'Rare Thing', board: 'command',
+    typeLine: 'Creature — Human', hasUncommonPrinting: false,
+  });
+  assert.equal(badCommander(validateDeck([uncommon, ...filler(99)], PDH)), false);
+  assert.equal(badCommander(validateDeck([rare, ...filler(99)], PDH)), true);
+  // Being a legendary creature does not help if it was never printed uncommon.
+  assert.equal(badCommander(validateDeck([legend(), ...filler(99)], PDH)), true);
+});
+
+
+// -- Oathbreaker ---------------------------------------------------------------
+
+/**
+ * Oathbreaker's command zone is a planeswalker plus a signature spell — an
+ * instant or sorcery. Applying the partner rules to it, as every other
+ * commander format's rules do, rejected every legal deck.
+ */
+const oathbreaker = (mask = 8) => card({
+  name: 'Chandra, Torch of Defiance', board: 'command',
+  typeLine: 'Legendary Planeswalker — Chandra', isLegendary: true,
+  colorIdentityMask: mask, colorIdentity: 'R',
+});
+const signature = (mask = 8, name = 'Lightning Bolt') => card({
+  name, board: 'command', typeLine: 'Instant', colorIdentityMask: mask, colorIdentity: 'R',
+});
+const oathIssues = (cards: DeckCard[]) =>
+  validateDeck([...cards, ...filler(58, { colorIdentityMask: 8, colorIdentity: 'R' })], OATHBREAKER)
+    .issues;
+
+test('a planeswalker and a signature spell is a legal command zone', () => {
+  const issues = oathIssues([oathbreaker(), signature()]);
+  const zoneProblems = issues.filter(
+    (i) => ['invalid_pairing', 'missing_commander', 'too_many_commanders'].includes(i.code),
+  );
+  assert.deepEqual(zoneProblems, [], JSON.stringify(zoneProblems.map((i) => i.message)));
+});
+
+test('the partner rules do not apply — that was the bug', () => {
+  assert.equal(oathIssues([oathbreaker(), signature()]).some((i) => i.code === 'invalid_pairing'),
+    false, 'a signature spell is not a failed partner');
+});
+
+test('an oathbreaker with no signature spell is flagged', () => {
+  const issues = oathIssues([oathbreaker()]);
+  assert.ok(issues.some((i) => i.code === 'missing_commander' && /signature spell/.test(i.message)));
+});
+
+test('two signature spells, or two oathbreakers, are too many', () => {
+  assert.ok(oathIssues([oathbreaker(), signature(), signature(8, 'Shock')])
+    .some((i) => i.code === 'too_many_commanders' && /one signature spell/.test(i.message)));
+  assert.ok(oathIssues([oathbreaker(), oathbreaker(), signature()])
+    .some((i) => i.code === 'too_many_commanders' && /one oathbreaker/.test(i.message)));
+});
+
+test('a creature in the command zone is neither, and says so', () => {
+  const bear = card({ name: 'Grizzly Bears', board: 'command', typeLine: 'Creature — Bear' });
+  assert.ok(oathIssues([oathbreaker(), bear])
+    .some((i) => i.code === 'missing_commander' && /or to be an instant or sorcery/.test(i.message)));
+});
+
+test('the signature spell must sit inside the oathbreaker colour identity', () => {
+  // Blue spell under a red oathbreaker.
+  const issues = oathIssues([oathbreaker(8), signature(2, 'Counterspell')]);
+  const identity = issues.filter((i) => i.code === 'color_identity');
+  assert.ok(identity.some((i) => /Counterspell/.test(i.message)), JSON.stringify(issues.map(i=>i.message)));
+});
+
+test('an off-colour signature spell does not widen what the deck may play', () => {
+  // The blue spell must not license blue cards in the 99.
+  const blueCard = card({ colorIdentityMask: 2, colorIdentity: 'U', name: 'Blue Thing' });
+  const issues = validateDeck(
+    [oathbreaker(8), signature(2, 'Counterspell'), blueCard,
+     ...filler(57, { colorIdentityMask: 8, colorIdentity: 'R' })],
+    OATHBREAKER,
+  ).issues;
+  assert.ok(issues.some((i) => i.code === 'color_identity' && /Blue Thing/.test(i.message)),
+    'the deck identity still comes from the oathbreaker alone');
 });

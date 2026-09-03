@@ -285,7 +285,7 @@ function SetEntry({
                 title={`Add ${card.name} to ${locations.find((l) => l.id === locationId)?.name}`}
               >
                 {card.image_small
-                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" />
+                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" />
                   : <div className="placeholder">{card.name}</div>}
                 <span className="entry-number">#{card.collector_number}</span>
                 {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}
@@ -500,7 +500,7 @@ export function CollectionPage() {
                   title={`${card.name} — ${card.typeLine}`}
                 >
                   {card.printingId && card.imageSmall
-                    ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" />
+                    ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
                     : <div className="placeholder">{card.name}</div>}
                   <span className="owned-badge">{card.ownedQuantity}</span>
                   {card.locationCount > 1 && (

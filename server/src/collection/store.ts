@@ -140,6 +140,7 @@ export class CollectionStore {
       FROM v_collection_item_value v
       JOIN card_printings p ON p.id = v.printing_id
       JOIN oracle_cards o ON o.oracle_id = v.oracle_id
+      LEFT JOIN card_art_preferences ap ON ap.oracle_id = o.oracle_id
       LEFT JOIN (
           SELECT oracle_id, SUM(quantity_from_collection) AS qty FROM deck_cards
           WHERE board IN ('main','side','command') GROUP BY oracle_id
@@ -162,10 +163,10 @@ export class CollectionStore {
              MAX(COALESCE(v.acquired_at, '')) AS last_added,
              MIN(p.set_code) AS min_set,
              MIN(COALESCE(p.collector_number_num, 999999)) AS min_number,
-             (SELECT dp.id FROM card_printings dp WHERE dp.id = o.default_printing_id) AS printing_id,
+             (SELECT dp.id FROM card_printings dp WHERE dp.id = COALESCE(ap.printing_id, o.default_printing_id)) AS printing_id,
              (SELECT COALESCE(dp.image_small, ff.image_small) FROM card_printings dp
                 LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
-               WHERE dp.id = o.default_printing_id) AS image_small
+               WHERE dp.id = COALESCE(ap.printing_id, o.default_printing_id)) AS image_small
       ${from}
       ORDER BY ${SORT_SQL[sort]}
       LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];

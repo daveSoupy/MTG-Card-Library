@@ -71,6 +71,8 @@ export interface CardDetail extends CardSummary {
   keywords: string[];
   isReserved: boolean;
   canBeCommander: boolean;
+  /** True when the art was chosen by hand rather than picked by the sync. */
+  artIsPinned?: boolean;
   edhrecRank: number | null;
   frontImage: string | null;
   backImage: string | null;
@@ -127,6 +129,8 @@ export interface SetRecord {
 export interface FormatRecord {
   code: string;
   display_name: string;
+  /** 1 when the format has a command zone. Drives the deck builder's slot. */
+  requiresCommander?: number;
 }
 
 export interface SearchParams {
@@ -134,6 +138,8 @@ export interface SearchParams {
   ownedOnly?: boolean;
   colors?: string[];
   colorsExact?: boolean;
+  gold?: boolean;
+  hybrid?: boolean;
   rarities?: string[];
   set?: string;
   format?: string;
@@ -141,9 +147,15 @@ export interface SearchParams {
   maxCmc?: number;
   includeDigital?: boolean;
   includeExtras?: boolean;
+  includeUnplayable?: boolean;
+  excludeUniversesBeyond?: boolean;
+  /** Restrict to cards that could lead a deck in this format. */
+  commanderFor?: string;
   sort?: string;
   limit?: number;
   offset?: number;
+  /** Sent when paging so the server reuses the first page's count. */
+  knownTotal?: number;
 }
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
@@ -167,6 +179,8 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.ownedOnly) query.set('ownedOnly', 'true');
   if (params.colors?.length) query.set('colors', params.colors.join(','));
   if (params.colorsExact) query.set('colorsExact', 'true');
+  if (params.gold) query.set('gold', 'true');
+  if (params.hybrid) query.set('hybrid', 'true');
   if (params.rarities?.length) query.set('rarities', params.rarities.join(','));
   if (params.set) query.set('set', params.set);
   if (params.format) query.set('format', params.format);
@@ -174,9 +188,15 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.maxCmc !== undefined) query.set('maxCmc', String(params.maxCmc));
   if (params.includeDigital) query.set('includeDigital', 'true');
   if (params.includeExtras) query.set('includeExtras', 'true');
+  if (params.includeUnplayable) query.set('includeUnplayable', 'true');
+  if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
+  if (params.commanderFor) query.set('commanderFor', params.commanderFor);
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
+  if (params.offset && params.knownTotal !== undefined) {
+    query.set('knownTotal', String(params.knownTotal));
+  }
   return getJson<SearchResponse>(`/api/v1/cards?${query}`, signal);
 }
 
@@ -205,7 +225,11 @@ export async function startSync(bulkType?: string, force = false): Promise<void>
 }
 
 /** Card art proxied through the server, which caches it to disk. */
-export function imageUrl(printingId: string, size: 'small' | 'normal' | 'large', face = 0): string {
+export function imageUrl(
+  printingId: string,
+  size: 'small' | 'normal' | 'large' | 'art_crop' | 'png',
+  face = 0,
+): string {
   return `/api/v1/images/${printingId}/${size}${face ? `?face=${face}` : ''}`;
 }
 
@@ -345,6 +369,9 @@ export interface DeckSummary {
   commanderNames: string[];
   isArchived: boolean;
   updatedAt: string;
+  tags: string[];
+  /** Chosen if you picked one, otherwise worked out from the deck's contents. */
+  coverPrintingId: string | null;
 }
 
 async function send<T>(url: string, method: string, body?: unknown): Promise<T> {
@@ -388,6 +415,7 @@ export const updateDeckCard = (
   cardId: number,
   changes: {
     quantity?: number; fromCollection?: number; board?: Board;
+    commanderRole?: string | null;
     category?: string | null; preferredPrintingId?: string | null;
   },
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards/${cardId}`, 'PATCH', changes).then((r) => r.deck);
@@ -762,3 +790,74 @@ export async function restoreBackup(file: File): Promise<RestoreReport> {
   }
   return response.json() as Promise<RestoreReport>;
 }
+
+/** Pins which printing's art a card shows, or clears the pin with null. */
+export const setCardArt = (oracleId: string, printingId: string | null) =>
+  send<CardDetail>(`/api/v1/cards/${encodeURIComponent(oracleId)}/art`, 'PUT', { printingId });
+
+/** A random card matching the current filters. */
+export function fetchRandomCard(params: SearchParams = {}, signal?: AbortSignal): Promise<CardDetail> {
+  const query = new URLSearchParams();
+  if (params.q) query.set('q', params.q);
+  if (params.colors?.length) query.set('colors', params.colors.join(','));
+  if (params.colorsExact) query.set('colorsExact', 'true');
+  if (params.gold) query.set('gold', 'true');
+  if (params.hybrid) query.set('hybrid', 'true');
+  if (params.rarities?.length) query.set('rarities', params.rarities.join(','));
+  if (params.set) query.set('set', params.set);
+  if (params.format) query.set('format', params.format);
+  if (params.ownedOnly) query.set('ownedOnly', 'true');
+  if (params.includeDigital) query.set('includeDigital', 'true');
+  if (params.includeExtras) query.set('includeExtras', 'true');
+  if (params.includeUnplayable) query.set('includeUnplayable', 'true');
+  if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
+  if (params.commanderFor) query.set('commanderFor', params.commanderFor);
+  return getJson<CardDetail>(`/api/v1/cards/random?${query}`, signal);
+}
+
+// -- deck covers, tags and history --------------------------------------------
+
+export interface DeckTag { tag: string; deckCount: number }
+
+export interface DeckSnapshot {
+  id: number; deckId: number; name: string; note: string | null;
+  createdAt: string; cardCount: number; uniqueCards: number;
+}
+
+export interface DeckDiffEntry {
+  oracleId: string; name: string; board: string; from: number; to: number;
+}
+
+export interface DeckDiff {
+  added: DeckDiffEntry[]; removed: DeckDiffEntry[];
+  changed: DeckDiffEntry[]; unchanged: number;
+}
+
+export const setDeckCover = (deckId: number, printingId: string | null) =>
+  send<{ decks: DeckSummary[] }>(`/api/v1/decks/${deckId}/cover`, 'PUT', { printingId });
+
+export const fetchDeckTags = (signal?: AbortSignal) =>
+  getJson<{ tags: DeckTag[] }>('/api/v1/deck-tags', signal).then((r) => r.tags);
+
+export const addDeckTag = (deckId: number, tag: string) =>
+  send<{ tags: string[]; allTags: DeckTag[] }>(`/api/v1/decks/${deckId}/tags`, 'POST', { tag });
+
+export const removeDeckTag = (deckId: number, tag: string) =>
+  send<{ tags: string[]; allTags: DeckTag[] }>(
+    `/api/v1/decks/${deckId}/tags/${encodeURIComponent(tag)}`, 'DELETE');
+
+export const fetchSnapshots = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ snapshots: DeckSnapshot[] }>(`/api/v1/decks/${deckId}/snapshots`, signal)
+    .then((r) => r.snapshots);
+
+export const createSnapshot = (deckId: number, name?: string, note?: string) =>
+  send<{ snapshots: DeckSnapshot[] }>(`/api/v1/decks/${deckId}/snapshots`, 'POST', { name, note });
+
+export const fetchSnapshotDiff = (snapshotId: number, signal?: AbortSignal) =>
+  getJson<DeckDiff>(`/api/v1/snapshots/${snapshotId}/diff`, signal);
+
+export const restoreSnapshot = (snapshotId: number) =>
+  send<{ deck: Deck; snapshots: DeckSnapshot[] }>(`/api/v1/snapshots/${snapshotId}/restore`, 'POST');
+
+export const deleteSnapshot = (snapshotId: number) =>
+  send<void>(`/api/v1/snapshots/${snapshotId}`, 'DELETE');

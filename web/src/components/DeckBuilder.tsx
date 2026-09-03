@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addDeckCard, fetchDeck, imageUrl, removeDeckCard, searchCards, updateDeck, updateDeckCard,
+  addDeckCard, fetchDeck, imageUrl, removeDeckCard, searchCards, setDeckCover,
+  updateDeck, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard, type FormatRecord,
 } from '../api.ts';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
+import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
@@ -108,6 +110,8 @@ export function DeckBuilder({
   const [shopping, setShopping] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [history, setHistory] = useState(false);
+  const [coverNote, setCoverNote] = useState<string | null>(null);
 
   const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
   const setView = (next: DeckViewMode) => {
@@ -125,6 +129,17 @@ export function DeckBuilder({
   // cards — which fit in every deck — are not excluded along with off-colours.
   const identity = deck?.validation.commanderIdentity ?? null;
   const identityFilter = identity === null ? null : [...identity, 'C'];
+
+  // Whether this format has a command zone at all. Read from the format list
+  // rather than guessed from deck size — Gladiator is 100-card singleton and
+  // has no commander.
+  const requiresCommander = Boolean(
+    formats.find((f) => f.code === deck?.formatCode)?.requiresCommander,
+  );
+  // Set by clicking the empty command slot: narrows the picker to cards that
+  // can actually lead this deck, whatever "commander" means in this format.
+  const [pickingCommander, setPickingCommander] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
     fetchDeck(deckId).then(setDeck).catch((e) => setError(e.message));
@@ -150,13 +165,16 @@ export function DeckBuilder({
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      if (!query && !ownedOnly) { setResults([]); return; }
+      // Commander mode lists candidates with no query typed, since "show me what
+    // can lead this deck" is the whole request.
+    if (!query && !ownedOnly && !pickingCommander) { setResults([]); return; }
       setSearching(true);
       searchCards(
         {
           q: query,
           ownedOnly,
           format: deck?.formatCode ?? undefined,
+        commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
           // Restrict to the commander's identity where the format enforces one,
           // so the picker cannot offer a card that would be illegal on arrival.
           colors: identityFilter ?? undefined,
@@ -170,7 +188,7 @@ export function DeckBuilder({
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly, deck?.formatCode, identityFilter]);
+  }, [query, ownedOnly, deck?.formatCode, identityFilter, pickingCommander]);
 
   if (!deck) {
     return (
@@ -237,6 +255,7 @@ export function DeckBuilder({
           Shopping list
           {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
         </button>
+        <button className="btn secondary" onClick={() => setHistory(true)}>History</button>
         <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
         <button className="btn secondary" onClick={() => setImporting(true)}>Import</button>
         {busy && <span className="count">saving…</span>}
@@ -247,6 +266,13 @@ export function DeckBuilder({
       {playtesting && <PlaytestPanel deck={deck} onClose={() => setPlaytesting(false)} />}
       {exporting && (
         <DeckExportDialog deckId={deck.id} deckName={deck.name} onClose={() => setExporting(false)} />
+      )}
+      {history && (
+        <DeckHistoryPanel
+          deckId={deck.id}
+          onRestored={load}
+          onClose={() => setHistory(false)}
+        />
       )}
       {importing && (
         <DeckImportDialog
@@ -282,14 +308,27 @@ export function DeckBuilder({
 
           {boardsToShow.map((board) => {
             const cards = deck.cards.filter((c) => c.board === board);
-            if (cards.length === 0 && board !== 'main') return null;
+            // The command zone stays on screen even when empty: choosing a
+            // commander is the first thing you do, and it used to be the one
+            // board you could not put a card into directly.
+            const alwaysShow = board === 'main' || (board === 'command' && requiresCommander);
+            if (cards.length === 0 && !alwaysShow) return null;
             const count = cards.reduce((total, c) => total + c.quantity, 0);
             const groups = groupCards(cards, cardSort);
 
             return (
               <section className="board" key={board}>
                 <h3>{BOARD_LABEL[board]} <span className="count">{count}</span></h3>
-                {cards.length === 0 && (
+                {cards.length === 0 && board === 'command' && (
+                  <button
+                    className="command-empty"
+                    onClick={() => { setPickingCommander(true); searchInput.current?.focus(); }}
+                  >
+                    <strong>No commander yet</strong>
+                    <span>Click to pick one, or add any eligible card first</span>
+                  </button>
+                )}
+                {cards.length === 0 && board !== 'command' && (
                   <p className="note">Search on the right to add cards.</p>
                 )}
 
@@ -330,7 +369,7 @@ export function DeckBuilder({
                             title={`${card.name} — ${card.typeLine}`}
                           >
                             {card.printingId && card.imageSmall ? (
-                              <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" />
+                              <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
                             ) : (
                               <div className="placeholder">{card.name}</div>
                             )}
@@ -374,13 +413,22 @@ export function DeckBuilder({
         <div className="picker">
           <div className="searchbox">
             <input
+              ref={searchInput}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Add cards — name or Scryfall syntax"
+              placeholder={pickingCommander
+                ? 'Choose a commander…'
+                : 'Add cards — name or Scryfall syntax'}
               spellCheck={false}
               aria-label="Search cards to add"
             />
           </div>
+          {pickingCommander && (
+            <div className="picking-note">
+              <span>Showing cards that can lead this deck.</span>
+              <button className="linkish" onClick={() => setPickingCommander(false)}>Cancel</button>
+            </div>
+          )}
           <label className="check" style={{ margin: '8px 0' }}>
             <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
             Only cards I own
@@ -403,8 +451,17 @@ export function DeckBuilder({
                 <button
                   className="picker-name"
                   onMouseEnter={() => card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
-                  onClick={() => apply(() => addDeckCard(deck.id, card.oracleId))}
-                  title={`Add ${card.name}`}
+                  onClick={() => {
+                    // In commander mode the destination is explicit. Otherwise
+                    // no board is sent and the server decides — which is what
+                    // makes the first card into an empty deck lead it.
+                    const options = pickingCommander ? { board: 'command' as const } : {};
+                    setPickingCommander(false);
+                    apply(() => addDeckCard(deck.id, card.oracleId, options));
+                  }}
+                  title={pickingCommander
+                    ? `Make ${card.name} the commander`
+                    : `Add ${card.name}`}
                 >
                   <span>{card.name}</span>
                   <span className="mana">{card.manaCost ?? ''}</span>
@@ -420,11 +477,26 @@ export function DeckBuilder({
           </div>
 
           {preview && (
-            <img
-              className="picker-preview"
-              src={imageUrl(preview.printingId, 'normal')}
-              alt={preview.name}
-            />
+            <>
+              <img
+                className="picker-preview"
+                src={imageUrl(preview.printingId, 'normal')}
+                alt={preview.name}
+                decoding="async"
+              />
+              {/* Here rather than on the deck row: you are already looking at
+                  the art, which is the thing being chosen. */}
+              <button
+                className="btn secondary small"
+                onClick={() => setDeckCover(deck.id, preview.printingId)
+                  .then(() => setCoverNote(preview.name))
+                  .catch((cause: unknown) =>
+                    setError(cause instanceof Error ? cause.message : String(cause)))}
+              >
+                Use as deck cover
+              </button>
+              {coverNote && <p className="note">Cover set to {coverNote}.</p>}
+            </>
           )}
         </div>
 

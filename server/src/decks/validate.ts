@@ -185,6 +185,49 @@ function checkLegality(issues: DeckIssue[], rules: FormatRules, cards: DeckCard[
 }
 
 /**
+ * Whether a card may lead a deck in this format.
+ *
+ * "Commander" is not one rule. oracle_cards.can_be_commander answers only the
+ * Commander-format question — legendary creature, Vehicle or Spacecraft, or
+ * text that says it can be — and applying it everywhere rejected Oathbreaker's
+ * planeswalkers, of which only 46 of 351 carry the flag.
+ */
+export function canLeadDeck(card: DeckCard, rules: FormatRules): boolean {
+  const isPlaneswalker = card.isLegendary && card.typeLine.includes('Planeswalker');
+
+  switch (rules.commanderKind) {
+    case 'planeswalker':
+      return isPlaneswalker;
+    case 'legendary_or_planeswalker':
+      return card.canBeCommander || isPlaneswalker;
+    case 'uncommon_creature':
+      // Pauper Commander asks about the printing, not the card: an uncommon
+      // creature leads, whatever else it has been printed at.
+      return card.typeLine.includes('Creature') && card.hasUncommonPrinting;
+    case 'legendary':
+    default:
+      return card.canBeCommander;
+  }
+}
+
+/**
+ * Oathbreaker's second command-zone card: an instant or sorcery, cast from the
+ * command zone. It is not a second leader, so it does not have to be able to
+ * lead and the partner rules do not apply to it.
+ */
+export function isSignatureSpell(card: DeckCard): boolean {
+  return card.typeLine.includes('Instant') || card.typeLine.includes('Sorcery');
+}
+
+/** What this format wants, for the message when a card cannot lead. */
+const COMMANDER_KIND_TEXT: Record<FormatRules['commanderKind'], string> = {
+  legendary: 'a legendary creature, Vehicle or Spacecraft, or a card whose text says it can be',
+  planeswalker: 'a legendary planeswalker',
+  legendary_or_planeswalker: 'a legendary creature or planeswalker',
+  uncommon_creature: 'a creature printed at uncommon',
+};
+
+/**
  * Commander presence, eligibility and pairing. The colour-identity restriction
  * is checked separately in checkColorIdentity, and the Commander ban list needs
  * no special handling — checkLegality already reads per-format legality, and
@@ -216,6 +259,13 @@ function checkCommander(
     return;
   }
 
+  // Oathbreaker's command zone is a planeswalker plus a signature spell, not
+  // two leaders — so the partner rules would reject every legal deck.
+  if (rules.usesSignatureSpell) {
+    checkSignatureSpell(issues, rules, command);
+    return;
+  }
+
   if (commandCount > 2) {
     issues.push({
       severity: 'error',
@@ -231,15 +281,72 @@ function checkCommander(
   }
 
   for (const card of command) {
-    if (!card.canBeCommander) {
+    if (!canLeadDeck(card, rules)) {
       issues.push({
         severity: 'error',
         code: 'missing_commander',
-        message: `${card.name} cannot be a commander — it is not a legendary creature, Vehicle or Spacecraft, and its text does not say it can be.`,
+        message: `${card.name} cannot lead a ${rules.displayName} deck — it needs ${COMMANDER_KIND_TEXT[rules.commanderKind]}.`,
         oracleId: card.oracleId,
         cardName: card.name,
       });
     }
+  }
+}
+
+/**
+ * Oathbreaker: one planeswalker and one instant or sorcery, and the spell has
+ * to sit inside the planeswalker's colour identity.
+ */
+function checkSignatureSpell(issues: DeckIssue[], rules: FormatRules, command: DeckCard[]): void {
+  const leaders = command.filter((c) => canLeadDeck(c, rules));
+  const spells = command.filter((c) => !canLeadDeck(c, rules) && isSignatureSpell(c));
+  const strays = command.filter((c) => !canLeadDeck(c, rules) && !isSignatureSpell(c));
+
+  if (leaders.length > 1) {
+    issues.push({
+      severity: 'error',
+      code: 'too_many_commanders',
+      message: `An ${rules.displayName} deck has one oathbreaker. This deck has ${leaders.length}.`,
+    });
+  }
+  if (spells.length > 1) {
+    issues.push({
+      severity: 'error',
+      code: 'too_many_commanders',
+      message: `An ${rules.displayName} deck has one signature spell. This deck has ${spells.length}.`,
+    });
+  }
+  if (spells.length === 0) {
+    issues.push({
+      severity: 'error',
+      code: 'missing_commander',
+      message: `${rules.displayName} decks need a signature spell — an instant or sorcery in the command zone, inside your oathbreaker's colour identity.`,
+    });
+  }
+
+  for (const card of strays) {
+    issues.push({
+      severity: 'error',
+      code: 'missing_commander',
+      message: `${card.name} cannot be in an ${rules.displayName} command zone — it needs ${COMMANDER_KIND_TEXT[rules.commanderKind]}, or to be an instant or sorcery as the signature spell.`,
+      oracleId: card.oracleId,
+      cardName: card.name,
+    });
+  }
+
+  // The signature spell answers to the oathbreaker's identity, and nothing
+  // else in the zone gets to widen it.
+  const allowed = leaders.reduce((mask, card) => mask | card.colorIdentityMask, 0);
+  for (const spell of spells) {
+    const outside = spell.colorIdentityMask & ~allowed;
+    if (outside === 0) continue;
+    issues.push({
+      severity: 'error',
+      code: 'color_identity',
+      message: `${spell.name} is outside your oathbreaker's colour identity — it needs ${colorsFromMask(outside).join('')}, and this deck allows ${colorsFromMask(allowed).join('') || 'colourless'}.`,
+      oracleId: spell.oracleId,
+      cardName: spell.name,
+    });
   }
 }
 
@@ -285,7 +392,13 @@ function checkColorIdentity(
 ): string | null {
   if (!rules.enforcesColorIdentity || command.length === 0) return null;
 
-  const allowed = command.reduce((mask, card) => mask | card.colorIdentityMask, 0);
+  // Under Oathbreaker only the planeswalker sets the identity — an off-colour
+  // signature spell must be reported, not allowed to widen what it is measured
+  // against. checkSignatureSpell handles the spell itself.
+  const leaders = rules.usesSignatureSpell
+    ? command.filter((card) => canLeadDeck(card, rules))
+    : command;
+  const allowed = leaders.reduce((mask, card) => mask | card.colorIdentityMask, 0);
   const allowedText = colorsFromMask(allowed).join('') || 'colourless';
 
   for (const card of cards) {
