@@ -3,6 +3,7 @@ import { setSetting, getSetting } from '../db/index.ts';
 import { CardImporter } from './importer.ts';
 import { fetchBulkEntry, fetchSets, streamBulkCards, type BulkType } from './scryfall.ts';
 import { CollectionStore } from '../collection/store.ts';
+import { checkPriceTargets } from '../pricing/alerts.ts';
 
 export type SyncPhase =
   | 'checking'
@@ -148,6 +149,8 @@ export async function runSync(
     // chart fill in without the user having to remember to click anything.
     const pricePoints = recordPriceHistory(db);
     takeValueSnapshot(db);
+    // Now that prices are current, act on any want-list target prices.
+    checkPriceTargets(db);
     if (pricePoints > 0) {
       report({
         phase: 'finalizing',
