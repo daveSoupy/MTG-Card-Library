@@ -337,6 +337,18 @@ input[type='number'] { width: 72px; }
 .legal-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dot.ok { background: var(--good); }
+
+/* The "Added X" confirmation floats as a toast so a run of quick adds never
+   reflows the card grid. Fixed to the viewport, centred near the bottom. */
+.add-toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
+  background: var(--good); color: #06231a; font-weight: 600; font-size: 13px;
+  padding: 8px 16px; border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  pointer-events: none; animation: toast-in .14s ease-out;
+}
+.add-toast.removed { background: var(--bad); color: #fff; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .add-toast { animation: none; } }
 .dot.no { background: var(--line-strong); }
 .dot.banned { background: var(--bad); }
 .dot.restricted { background: var(--warn); }
@@ -502,7 +514,9 @@ input[type='number'] { width: 72px; }
   width: 22px; height: 22px; border-radius: 5px; border: 1px solid var(--line-strong);
   background: var(--panel-2); color: var(--text-2); line-height: 1;
 }
-.qty button:hover { border-color: var(--accent); color: var(--text); }
+.qty button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+/* At the collection max (or the floor of 1) the stepper button greys out. */
+.qty button:disabled { opacity: .3; cursor: default; border-color: var(--line); }
 .qty span { min-width: 22px; text-align: center; font-family: var(--mono); font-size: 13px; }
 
 .deck-name {
@@ -840,13 +854,44 @@ input[type='number'] { width: 72px; }
 .entry-bar select { width: auto; min-width: 128px; }
 .entry-bar label.check { flex-direction: row; align-items: center; }
 
+/* Search-as-you-type dropdown (set picker, and reusable elsewhere). */
+.combobox { position: relative; }
+.combobox > input {
+  min-width: 220px; padding: 6px 9px; border-radius: 7px;
+  border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text);
+}
+.combobox > input:focus { outline: none; border-color: var(--accent); }
+.combobox-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  width: max(100%, 260px); max-height: 320px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.35); padding: 4px;
+  /* Smooth finger-scroll on touch, and keep the scroll inside the list. */
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y;
+}
+.combobox-option {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  color: var(--text-2); padding: 6px 8px; border-radius: 5px; font-size: 13px;
+}
+.combobox-option:hover { background: var(--accent-dim); color: var(--text); }
+.combobox-option.on { color: var(--text); font-weight: 600; }
+.combobox-empty { padding: 6px 8px; font-size: 12px; color: var(--text-3); }
+
 .entry-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px;
 }
-.entry-tile { position: relative; background: none; border: 0; padding: 0; border-radius: 9px; }
+.entry-tile {
+  position: relative; background: none; border: 0; padding: 0; border-radius: 9px;
+  /* Press-and-hold to remove: suppress the iOS text-select / image callout. */
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
 .entry-tile img, .entry-tile .placeholder {
   width: 100%; aspect-ratio: 488 / 680; border-radius: 8px; display: block;
   background: var(--panel-2); object-fit: cover;
+  /* The button owns the press-and-hold; make the image transparent to touch so
+     iOS doesn't hijack the long-press with its "save image" menu. */
+  pointer-events: none; -webkit-touch-callout: none;
+  -webkit-user-select: none; user-select: none;
 }
 .entry-tile .placeholder {
   display: grid; place-items: center; padding: 6px; text-align: center;
@@ -1001,6 +1046,10 @@ input[type='number'] { width: 72px; }
 .data-page {
   padding: 22px 26px; overflow-y: auto; display: grid; gap: 20px;
   align-content: start; max-width: 860px;
+  /* Without min-height:0 this grid item can't shrink below its content, so the
+     whole app scrolls (top bar and all) instead of the page scrolling inside its
+     own area — which is what made a scroll drag move everything. */
+  min-height: 0;
 }
 .data-section {
   border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
@@ -1146,7 +1195,9 @@ input[type='number'] { width: 72px; }
   color: var(--accent); font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.5);
 }
 
-.list-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; margin: 0 auto; width: 100%; }
+/* Scroll inside its own area (min-height:0 + overflow) so the top bar stays put,
+   the same as the browse/collection panes. */
+.list-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; margin: 0 auto; width: 100%; min-height: 0; overflow-y: auto; }
 .list-tabs { display: flex; flex-wrap: wrap; gap: 4px; overflow-x: auto; }
 .list-tabs button {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text-2);
@@ -1160,7 +1211,11 @@ input[type='number'] { width: 72px; }
 .section-label { margin: 8px 0 0; font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
 .add-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; background: var(--panel); }
 
-.card-picker .searchbox { margin: 0 0 6px; }
+.card-picker { position: relative; }
+.card-picker .searchbox { margin: 0; }
+/* Card matches share the set-picker dropdown, with the mana cost on the right. */
+.combobox-option.picker-option { display: flex; justify-content: space-between; gap: 8px; }
+.combobox-option.picker-option .mana { font-family: var(--mono); color: var(--text-3); font-size: 12px; }
 
 .want-rows { display: flex; flex-direction: column; gap: 4px; }
 .want-row {
@@ -1204,7 +1259,18 @@ input[type='number'] { width: 72px; }
 .trade-col { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
 .trade-col h3 { margin: 0 0 4px; font-size: 14px; display: flex; justify-content: space-between; }
 .trade-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.trade-item .want-name { flex: 1; }
+.trade-item .want-name { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+/* The set/finish/value tag on a trade item — tap to change the printing. */
+.printing-chip {
+  background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--text-2);
+  border-radius: 999px; padding: 1px 8px; font-size: 11px; font-family: var(--mono);
+}
+.printing-chip:hover { border-color: var(--accent); color: var(--text); }
+
+/* Stacked label + control, used in the trade-item dialog. */
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.field > span { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.field input, .field select { padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); }
 .trade-item select { font-size: 12px; }
 .trade-name-input { font-size: 16px; font-weight: 600; background: none; border: 0; border-bottom: 1px solid var(--line); }
 .trade-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1224,7 +1290,14 @@ input[type='number'] { width: 72px; }
   box-shadow: 0 8px 30px rgba(0,0,0,.35); padding: 8px; display: flex; flex-direction: column; gap: 6px;
   max-height: 70vh; overflow-y: auto;
 }
+.alerts-drop-head { display: flex; align-items: center; justify-content: space-between; }
+.alerts-drop-head > span { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
 .alert-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px; border-radius: 6px; background: var(--panel-2); }
+.alert-item.recent { opacity: .62; }
+.alerts-recent-label {
+  font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em;
+  margin: 4px 2px 0; padding-top: 6px; border-top: 1px solid var(--line);
+}
 .alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .alert-actions { display: flex; gap: 4px; }
 
@@ -1243,4 +1316,27 @@ input[type='number'] { width: 72px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }
   .want-field input, .want-field select { width: 54px; }
   .want-row { flex-wrap: wrap; }
+  /* On a phone the add-by-set settings scroll away with the page rather than
+     staying pinned over the cards. */
+  .entry-bar { position: static; }
+  .combobox > input { min-width: 0; width: 100%; }
+
+  /* iOS zooms into any text field with a font under 16px on focus — which is
+     why tapping a search box zoomed the whole page in. Force 16px with
+     !important so no more-specific rule (.searchbox input, .want-field input,
+     …) can drop a field back under the threshold and reintroduce the zoom. */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* Let the new-deck bar wrap instead of running its Create/Paste buttons off
+     the right edge. */
+  .new-deck { flex-wrap: wrap; }
+  .new-deck input, .new-deck select { width: 100%; flex: 1 1 140px; }
+
+  /* The alerts panel is anchored to the bell, which can sit anywhere once the
+     top bar wraps — so it ran off the screen edge. Pin it to the viewport as a
+     bottom sheet instead, always fully on-screen. */
+  .alerts-drop {
+    position: fixed; left: 8px; right: 8px; bottom: 8px; top: auto;
+    width: auto; max-width: none; max-height: 65vh;
+  }
 }

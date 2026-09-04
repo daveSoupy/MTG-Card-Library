@@ -693,6 +693,11 @@ export const updateCollectionLot = (id: number, changes: Record<string, unknown>
 export const removeCollectionLot = (id: number) =>
   send<void>(`/api/v1/collection/items/${id}`, 'DELETE');
 
+/** Undo a tap-to-add: remove one plainly-added copy of a card. */
+export const decrementCollectionCopy = (input: {
+  printingId: string; locationId: number; finish?: string; condition?: string;
+}) => send<{ removed: boolean; owned: number | null }>('/api/v1/collection/items/decrement', 'POST', input);
+
 export const fetchCollectionValue = (signal?: AbortSignal) =>
   getJson<CollectionValue>('/api/v1/collection/value', signal);
 
@@ -951,7 +956,7 @@ export type TradeStatus = 'draft' | 'completed' | 'cancelled';
 export interface TradeItem {
   id: number; direction: 'out' | 'in'; printingId: string; oracleId: string;
   name: string; setCode: string | null; collectorNumber: string | null; manaCost: string | null;
-  quantity: number; finish: string; condition: string; language: string;
+  quantity: number; ownedQuantity: number; finish: string; condition: string; language: string;
   sourceCollectionItemId: number | null; destinationLocationId: number | null;
   unitValueUsd: number | null; marketUsd: number | null; imageSmall: string | null; notes: string | null;
 }

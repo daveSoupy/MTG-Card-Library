@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  addTradeItem, cancelTrade, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
+  addTradeItem, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
   fetchLocations, fetchTrade, fetchTrades, removeTradeItem, updateTrade, updateTradeItem,
-  type CollectionLot, type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
+  type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
+import { TradeItemDialog } from './TradeItemDialog.tsx';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const sumValue = (items: Trade['items'], dir: 'out' | 'in') =>
@@ -77,29 +78,37 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const [error, setError] = useState<string | null>(null);
   const [addingOut, setAddingOut] = useState(false);
   const [addingIn, setAddingIn] = useState(false);
-  const [lotChoice, setLotChoice] = useState<{ name: string; lots: CollectionLot[] } | null>(null);
   const [confirm, setConfirm] = useState<CompleteTradeResult | null>(null);
   const [done, setDone] = useState<CompleteTradeResult | null>(null);
+  const [editingItem, setEditingItem] = useState<Trade['items'][number] | null>(null);
 
   useEffect(() => { fetchTrade(tradeId).then(setTrade).catch((e) => setError(e.message)); }, [tradeId]);
   useEffect(() => { fetchLocations().then(setLocations).catch(() => {}); }, []);
 
   const readOnly = trade?.status !== 'draft';
 
+  /**
+   * Picking a card drops it straight into the giving-away list at quantity 1 —
+   * no separate "which copies" step. The lot is chosen automatically (the
+   * largest owned lot); completion draws copies FIFO across lots anyway. The
+   * quantity is then edited in the list, capped at what you own.
+   */
   const pickOut = async (oracleId: string, name: string) => {
     const detail = await fetchCollectionCard(oracleId);
-    const owned = detail.lots.filter((l) => l.quantity > 0);
+    const owned = detail.lots.filter((l) => l.quantity > 0)
+      .sort((a, b) => b.quantity - a.quantity);
     if (owned.length === 0) { setError(`You don't own any ${name} to trade away.`); return; }
-    setLotChoice({ name, lots: owned });
-  };
-
-  const addOutLot = async (lot: CollectionLot) => {
+    const lot = owned[0];
     setTrade(await addTradeItem(tradeId, {
-      direction: 'out', printingId: lot.printing_id, quantity: lot.quantity,
+      direction: 'out', printingId: lot.printing_id, quantity: 1,
       finish: lot.finish, condition: lot.condition, language: lot.language,
       sourceCollectionItemId: lot.id, unitValueUsd: lot.unit_value_usd,
     }));
-    setLotChoice(null); setAddingOut(false);
+  };
+
+  const setItemQty = async (item: Trade['items'][number], next: number) => {
+    const capped = item.direction === 'out' ? Math.min(next, item.ownedQuantity) : next;
+    setTrade(await updateTradeItem(tradeId, item.id, { quantity: Math.max(1, capped) }));
   };
 
   const complete = async (force: boolean) => {
@@ -148,24 +157,31 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           <h3>Giving away <span className="trade-value">{money(valueOut)}</span></h3>
           {out.map((item) => (
             <div className="trade-item" key={item.id}>
-              <span className="want-name">{item.quantity}× {item.name}</span>
-              <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>
+              {!readOnly ? (
+                <span className="qty">
+                  <button onClick={() => setItemQty(item, item.quantity - 1)} disabled={item.quantity <= 1} aria-label="One fewer">−</button>
+                  <span>{item.quantity}</span>
+                  <button onClick={() => setItemQty(item, item.quantity + 1)} disabled={item.quantity >= item.ownedQuantity} aria-label="One more">+</button>
+                </span>
+              ) : <span className="dim">{item.quantity}×</span>}
+              <span className="want-name">
+                {item.name}
+                {!readOnly
+                  ? <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
+                      {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {item.condition} · {money(item.unitValueUsd)}
+                    </button>
+                  : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
+                <span className="dim"> own {item.ownedQuantity}</span>
+              </span>
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={async () => setTrade(await removeTradeItem(tradeId, item.id))}>×</button>}
             </div>
           ))}
           {!readOnly && (addingOut
-            ? (lotChoice
-              ? <div className="lot-choices">
-                  <div className="lot-choices-head">Which copies of {lotChoice.name}?</div>
-                  {lotChoice.lots.map((lot) => (
-                    <button key={lot.id} className="lot-choice" onClick={() => addOutLot(lot)}>
-                      {lot.quantity}× {String(lot.set_code).toUpperCase()} #{lot.collector_number}{lot.finish !== 'nonfoil' ? ` ${lot.finish}` : ''} · {lot.condition} · {lot.location_name} · {money(lot.unit_value_usd)}
-                    </button>
-                  ))}
-                  <button className="btn secondary small" onClick={() => setLotChoice(null)}>Back</button>
-                </div>
-              : <CardPicker placeholder="Find an owned card to give…" onPick={(c) => pickOut(c.oracleId, c.name)} />)
+            ? <>
+                <CardPicker ownedOnly placeholder="Find an owned card to give…" onPick={(c) => pickOut(c.oracleId, c.name)} />
+                <button className="btn secondary small" onClick={() => setAddingOut(false)}>Done adding</button>
+              </>
             : <button className="btn secondary small" onClick={() => setAddingOut(true)}>+ Add outgoing card</button>)}
         </section>
 
@@ -173,7 +189,21 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           <h3>Receiving <span className="trade-value">{money(valueIn)}</span></h3>
           {incoming.map((item) => (
             <div className="trade-item" key={item.id}>
-              <span className="want-name">{item.quantity}× {item.name}</span>
+              {!readOnly ? (
+                <span className="qty">
+                  <button onClick={() => setItemQty(item, item.quantity - 1)} disabled={item.quantity <= 1} aria-label="One fewer">−</button>
+                  <span>{item.quantity}</span>
+                  <button onClick={() => setItemQty(item, item.quantity + 1)} aria-label="One more">+</button>
+                </span>
+              ) : <span className="dim">{item.quantity}×</span>}
+              <span className="want-name">
+                {item.name}
+                {!readOnly && (
+                  <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
+                    {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {money(item.unitValueUsd)}
+                  </button>
+                )}
+              </span>
               {!readOnly ? (
                 <select value={item.destinationLocationId ?? ''}
                   onChange={async (e) => setTrade(await updateTradeItem(tradeId, item.id, { destinationLocationId: e.target.value ? Number(e.target.value) : null }))}>
@@ -186,11 +216,14 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
             </div>
           ))}
           {!readOnly && (addingIn
-            ? <CardPicker placeholder="Find a card you're getting…" onPick={async (c) => {
-                if (!c.printingId) { setError(`No printing for ${c.name}.`); return; }
-                setTrade(await addTradeItem(tradeId, { direction: 'in', printingId: c.printingId, quantity: 1 }));
-                setAddingIn(false);
-              }} />
+            ? <>
+                <CardPicker placeholder="Find a card you're getting…" onPick={async (c) => {
+                  if (!c.printingId) { setError(`No printing for ${c.name}.`); return; }
+                  // Keep the picker open so several incoming cards can be added.
+                  setTrade(await addTradeItem(tradeId, { direction: 'in', printingId: c.printingId, quantity: 1 }));
+                }} />
+                <button className="btn secondary small" onClick={() => setAddingIn(false)}>Done adding</button>
+              </>
             : <button className="btn secondary small" onClick={() => setAddingIn(true)}>+ Add incoming card</button>)}
         </section>
       </div>
@@ -213,9 +246,17 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           <button className="btn primary" onClick={() => complete(false)} disabled={out.length === 0 && incoming.length === 0}>
             Complete trade
           </button>
-          <button className="btn secondary" onClick={async () => { await cancelTrade(tradeId); onClose(); }}>Cancel trade</button>
           <button className="btn secondary" onClick={async () => { if (confirmDelete()) { await deleteTrade(tradeId); onClose(); } }}>Delete draft</button>
         </div>
+      )}
+
+      {editingItem && (
+        <TradeItemDialog
+          trade={trade}
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSaved={(next) => setTrade(next)}
+        />
       )}
     </div>
   );
