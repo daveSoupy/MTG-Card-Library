@@ -436,6 +436,8 @@ export interface AppSettings {
   /** Cost basis assumed when adding cards without a typed-in price. */
   defaultCostMethod: Exclude<CostMethod, 'box'>;
   defaultCostFixedUsd: number;
+  /** Price of one booster pack; the Draft cost defaults to 3× this. */
+  draftBoosterPriceUsd: number;
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>

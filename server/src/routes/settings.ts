@@ -23,6 +23,7 @@ const BOOLEAN_SETTINGS: Record<string, BooleanSetting> = {
 
 export const DEFAULT_COST_METHOD = 'default_cost_method';
 export const DEFAULT_COST_FIXED_USD = 'default_cost_fixed_usd';
+export const DRAFT_BOOSTER_PRICE_USD = 'draft_booster_price_usd';
 
 // 'box' is a per-session choice, not an app default — the default is one of the
 // methods that resolves a cost on its own.
@@ -36,6 +37,8 @@ const ENUM_SETTINGS: Record<string, EnumSetting> = {
 
 const NUMBER_SETTINGS: Record<string, NumberSetting> = {
   defaultCostFixedUsd: { key: DEFAULT_COST_FIXED_USD, default: 0 },
+  // Price of one booster pack; the Draft cost method defaults to 3× this.
+  draftBoosterPriceUsd: { key: DRAFT_BOOSTER_PRICE_USD, default: 4 },
 };
 
 type SettingsShape = Record<string, boolean | string | number>;
