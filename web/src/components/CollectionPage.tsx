@@ -238,21 +238,28 @@ function SetEntry({
 
   // Cost basis for this add session. Starts from the app default, but is
   // switchable inline so a booster box, a draft, or single cards at FNM can each
-  // assume cost differently without leaving the screen.
-  const [costMethod, setCostMethod] = useState<CostMethod>('unknown');
+  // assume cost differently without leaving the screen. 'draft' pools like 'box'
+  // but its total defaults to 3× the booster pack price.
+  const [costMethod, setCostMethod] = useState<CostMethod | 'draft'>('unknown');
   const [fixedAmount, setFixedAmount] = useState('');
   const [boxTotal, setBoxTotal] = useState('');
+  const [draftTotal, setDraftTotal] = useState('');
   const [boxBatchId, setBoxBatchId] = useState<number | null>(null);
+  const pooled = costMethod === 'box' || costMethod === 'draft';
 
-  // Seed the cost method + fixed amount from the saved app default.
+  // Seed the cost method, fixed amount, and draft total from the saved defaults.
   useEffect(() => {
     fetchSettings()
-      .then((s) => { setCostMethod(s.defaultCostMethod); setFixedAmount(s.defaultCostFixedUsd ? String(s.defaultCostFixedUsd) : ''); })
+      .then((s) => {
+        setCostMethod(s.defaultCostMethod);
+        setFixedAmount(s.defaultCostFixedUsd ? String(s.defaultCostFixedUsd) : '');
+        setDraftTotal((s.draftBoosterPriceUsd * 3).toFixed(2));
+      })
       .catch(() => { /* leave the safe 'unknown' default */ });
   }, []);
 
-  // Changing the box total starts a fresh pool on the next add.
-  useEffect(() => { setBoxBatchId(null); }, [boxTotal, costMethod]);
+  // Changing the pool total (or method) starts a fresh pool on the next add.
+  useEffect(() => { setBoxBatchId(null); }, [boxTotal, draftTotal, costMethod]);
 
   const load = useCallback(() => {
     if (!setCode) { setCards([]); return; }
@@ -274,17 +281,19 @@ function SetEntry({
   const add = async (printingId: string, name: string) => {
     setError(null);
     try {
-      // For a box split, open the cost pool on the first add and reuse it after.
+      // Box split and Draft both pool: open the cost pool on the first add and
+      // reuse it after. Draft's total is 3× a booster; a box's is typed in.
       let batchId = boxBatchId ?? undefined;
-      if (costMethod === 'box' && batchId === undefined) {
-        batchId = await openCostPool(Math.max(0, Number(boxTotal) || 0));
+      if (pooled && batchId === undefined) {
+        const total = costMethod === 'draft' ? Number(draftTotal) || 0 : Number(boxTotal) || 0;
+        batchId = await openCostPool(Math.max(0, total));
         setBoxBatchId(batchId);
       }
       await addCollectionLot({
         printingId, locationId, quantity: 1, finish, condition,
-        costMethod,
+        costMethod: pooled ? 'box' : costMethod,
         fixedAmount: costMethod === 'fixed' ? Number(fixedAmount) || 0 : undefined,
-        batchId: costMethod === 'box' ? batchId : undefined,
+        batchId: pooled ? batchId : undefined,
       });
       flash(`Added ${name}`);
       // Bump just this card's owned count in place — no full reload, so the grid
@@ -366,11 +375,12 @@ function SetEntry({
         </label>
         <label>
           <span>Cost</span>
-          <select value={costMethod} onChange={(e) => setCostMethod(e.target.value as CostMethod)}>
+          <select value={costMethod} onChange={(e) => setCostMethod(e.target.value as CostMethod | 'draft')}>
             <option value="unknown">Unknown</option>
             <option value="free">Free ($0)</option>
             <option value="market">Market price</option>
             <option value="fixed">Fixed each</option>
+            <option value="draft">Draft</option>
             <option value="box">Box split</option>
           </select>
         </label>
@@ -380,6 +390,15 @@ function SetEntry({
             <input
               type="number" min="0" step="0.01" placeholder="0.00"
               value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)}
+            />
+          </label>
+        )}
+        {costMethod === 'draft' && (
+          <label style={{ width: 116 }}>
+            <span>Draft cost $</span>
+            <input
+              type="number" min="0" step="0.01" placeholder="e.g. 12"
+              value={draftTotal} onChange={(e) => setDraftTotal(e.target.value)}
             />
           </label>
         )}
@@ -397,11 +416,12 @@ function SetEntry({
           Hide ones I have
         </label>
       </div>
-      {costMethod === 'box' && (
+      {pooled && (
         <p className="hint">
-          Every card you add here shares one pool — the box total is split evenly
-          across all of them, re-dividing as you go. Change the total to start a new
-          box.
+          Every card you add here shares one pool — the {costMethod === 'draft' ? 'draft cost' : 'box total'} is
+          split evenly across all of them, re-dividing as you go. {costMethod === 'draft'
+            ? 'It defaults to 3× the booster pack price from Data → Settings; edit it for a different draft.'
+            : 'Change the total to start a new box.'}
         </p>
       )}
 

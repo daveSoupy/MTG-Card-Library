@@ -258,13 +258,24 @@ export function DataPage({ locations, onCollectionChanged }: {
                 />
               </label>
             )}
+            <label className="cost-fixed">
+              <span className="dim">Booster pack price ($)</span>
+              <input
+                type="number" min="0" step="0.01"
+                value={settings.draftBoosterPriceUsd}
+                onChange={(e) => saveSetting('draftBoosterPriceUsd', Math.max(0, Number(e.target.value) || 0))}
+              />
+            </label>
           </div>
         )}
         <p className="hint">
           The starting assumption for a card’s cost when you don’t type a price in.
           The <strong>Add by set</strong> screen and the Add-cards dialog both begin
           from this, and you can override it per card or per session (including a
-          “box split” that spreads one lump sum across everything you add).
+          “box split” that spreads one lump sum across everything you add). The
+          <strong> Draft</strong> cost divides 3× the booster pack price above evenly
+          across the cards you add; both the pack price here and the draft total on
+          the Add screen are editable.
         </p>
       </section>
 
