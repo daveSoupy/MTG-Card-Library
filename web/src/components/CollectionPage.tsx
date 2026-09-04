@@ -8,8 +8,15 @@ import {
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
 import { Combobox } from './Combobox.tsx';
+import { WantListsPage } from './WantListsPage.tsx';
+import { TradeListsPage } from './TradeListsPage.tsx';
 
-type Tab = 'browse' | 'add' | 'sets' | 'value';
+type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
+
+const TAB_LABEL: Record<Tab, string> = {
+  browse: 'Browse', add: 'Add by set', sets: 'Set Completion', value: 'Value',
+  wants: 'Wants', tradelists: 'For trade',
+};
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
@@ -149,11 +156,19 @@ function CardLots({
             <div className="lot-head">
               <strong>{lot.quantity}×</strong>
               <span>{lot.set_name ?? lot.set_code?.toUpperCase()} #{lot.collector_number}</span>
+              {lot.finish !== 'nonfoil' && <span className="tag ok">{lot.finish}</span>}
               <span className="lot-value">{money(lot.line_value_usd)}</span>
             </div>
             <div className="lot-meta">
-              {lot.finish !== 'nonfoil' && <span className="tag ok">{lot.finish}</span>}
-              <span>{lot.condition}</span>
+              <select
+                value={lot.condition}
+                onChange={(e) => apply(() => updateCollectionLot(lot.id, { condition: e.target.value }))}
+                aria-label="Change condition"
+              >
+                {['NM', 'M', 'LP', 'MP', 'HP', 'DMG', 'unknown'].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
               <span>·</span>
               <select
                 value={lot.location_id}
@@ -386,7 +401,7 @@ export function CollectionPage() {
   const [locationFilter, setLocationFilter] = useState<number | undefined>();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ oracleId: string; printingId: string | null; finish: string } | null>(null);
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
   const [newLocation, setNewLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -461,21 +476,23 @@ export function CollectionPage() {
       <div className="deck-header">
         <div className="brand" style={{ marginRight: 8 }}>Collection</div>
         <nav className="tabs small">
-          {(['browse', 'add', 'sets', 'value'] as Tab[]).map((t) => (
+          {(['browse', 'add', 'sets', 'value', 'wants', 'tradelists'] as Tab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {t === 'browse' ? 'Browse' : t === 'add' ? 'Add by set' : t === 'sets' ? 'Sets' : 'Value'}
+              {TAB_LABEL[t]}
             </button>
           ))}
         </nav>
         <div style={{ flex: 1 }} />
-        <span className="count">
-          {value?.value.total_cards ?? 0} cards · {money(totalValue)}
-          {gain != null && (
-            <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>
-              {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)}
-            </span>
-          )}
-        </span>
+        {tab !== 'wants' && tab !== 'tradelists' && (
+          <span className="count">
+            {value?.value.total_cards ?? 0} cards · {money(totalValue)}
+            {gain != null && (
+              <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>
+                {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)}
+              </span>
+            )}
+          </span>
+        )}
       </div>
 
       {error && <div className="error" style={{ margin: 12 }}>{error}</div>}
@@ -567,22 +584,29 @@ export function CollectionPage() {
             <div className="grid">
               {cards.map((card) => (
                 <button
-                  className="card"
-                  key={card.oracleId}
-                  aria-selected={card.oracleId === selected}
-                  onClick={() => setSelected(card.oracleId)}
-                  title={`${card.name} — ${card.typeLine}`}
+                  className={`card${card.finish !== 'nonfoil' ? ' is-foil' : ''}`}
+                  key={`${card.printingId ?? card.oracleId}:${card.finish}`}
+                  aria-selected={selected?.printingId === card.printingId && selected?.finish === card.finish}
+                  onClick={() => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
+                  title={`${card.name} — ${card.setName ?? card.setCode?.toUpperCase()} #${card.collectorNumber}`}
                 >
-                  {card.printingId && card.imageSmall
-                    ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
-                    : <div className="placeholder">{card.name}</div>}
+                  <span className="card-art">
+                    {card.printingId && card.imageSmall
+                      ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
+                      : <div className="placeholder">{card.name}</div>}
+                    {card.finish !== 'nonfoil' && <span className="foil-overlay" aria-hidden="true" />}
+                  </span>
                   <span className="owned-badge">{card.ownedQuantity}</span>
+                  {card.finish !== 'nonfoil' && (
+                    <span className="foil-badge" title={card.finish}>{card.finish === 'etched' ? 'etched' : 'foil'}</span>
+                  )}
                   {card.locationCount > 1 && (
                     <span className="split-badge" title={`Split across ${card.locationCount} locations`}>
                       {card.locationCount} places
                     </span>
                   )}
                   <div className="cname">{card.name}</div>
+                  <div className="cset">{(card.setCode?.toUpperCase() ?? '')} · #{card.collectorNumber}</div>
                   <div className="cvalue">{money(card.valueUsd)}</div>
                 </button>
               ))}
@@ -593,12 +617,12 @@ export function CollectionPage() {
             {selected ? (
               <>
                 <div className="btnrow" style={{ marginBottom: 10 }}>
-                  <button className="btn" onClick={() => setAdding({ oracleId: selected })}>
+                  <button className="btn" onClick={() => setAdding({ oracleId: selected.oracleId, printingId: selected.printingId })}>
                     Add more
                   </button>
                   <button className="btn secondary" onClick={() => setSelected(null)}>Close</button>
                 </div>
-                <CardLots oracleId={selected} locations={locations} onChanged={refreshAll} />
+                <CardLots oracleId={selected.oracleId} locations={locations} onChanged={refreshAll} />
               </>
             ) : (
               <p className="empty">Select a card to see where its copies live.</p>
@@ -615,7 +639,7 @@ export function CollectionPage() {
 
       {tab === 'sets' && (
         <div className="results">
-          <h3 className="section-title">Set completion</h3>
+          <h3 className="section-title">Set Completion</h3>
           {setStats.length === 0 && <p className="empty">Add some cards to see set progress.</p>}
           {setStats.map((s) => (
             <div className="setrow" key={s.set_code}>
@@ -648,6 +672,9 @@ export function CollectionPage() {
           </p>
         </div>
       )}
+
+      {tab === 'wants' && <WantListsPage />}
+      {tab === 'tradelists' && <TradeListsPage />}
 
       {adding && (
         <AddCardsDialog

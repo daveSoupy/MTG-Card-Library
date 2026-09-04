@@ -13,8 +13,6 @@ import { SyntaxHelp } from './components/SyntaxHelp.tsx';
 import { CollectionPage } from './components/CollectionPage.tsx';
 import { DataPage } from './components/DataPage.tsx';
 import { TradesPage } from './components/TradesPage.tsx';
-import { WantListsPage } from './components/WantListsPage.tsx';
-import { TradeListsPage } from './components/TradeListsPage.tsx';
 import { AlertsBell } from './components/AlertsBell.tsx';
 
 const SORTS = [
@@ -72,13 +70,13 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
 }
 
 type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
-  | { name: 'collection' } | { name: 'trades' } | { name: 'wants' } | { name: 'tradelists' }
+  | { name: 'collection' } | { name: 'trades' }
   | { name: 'data' };
 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showSync, setShowSync] = useState(false);
-  const [view, setView] = useState<View>({ name: 'browse' });
+  const [view, setView] = useState<View>({ name: 'collection' });
 
   const [text, setText] = useState('');
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -184,29 +182,21 @@ export default function App() {
 
         <nav className="tabs">
           <button
-            className={view.name === 'browse' ? 'on' : ''}
-            onClick={() => setView({ name: 'browse' })}
-          >Browse</button>
+            className={view.name === 'collection' ? 'on' : ''}
+            onClick={() => setView({ name: 'collection' })}
+          >Collection</button>
           <button
             className={view.name === 'decks' || view.name === 'deck' ? 'on' : ''}
             onClick={() => setView({ name: 'decks' })}
           >Decks</button>
           <button
-            className={view.name === 'collection' ? 'on' : ''}
-            onClick={() => setView({ name: 'collection' })}
-          >Collection</button>
+            className={view.name === 'browse' ? 'on' : ''}
+            onClick={() => setView({ name: 'browse' })}
+          >Browse</button>
           <button
             className={view.name === 'trades' ? 'on' : ''}
             onClick={() => setView({ name: 'trades' })}
-          >Trades</button>
-          <button
-            className={view.name === 'wants' ? 'on' : ''}
-            onClick={() => setView({ name: 'wants' })}
-          >Wants</button>
-          <button
-            className={view.name === 'tradelists' ? 'on' : ''}
-            onClick={() => setView({ name: 'tradelists' })}
-          >For trade</button>
+          >Trade</button>
           <button
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => setView({ name: 'data' })}
@@ -270,8 +260,6 @@ export default function App() {
       {view.name === 'trades' && (
         <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
       )}
-      {view.name === 'wants' && <WantListsPage />}
-      {view.name === 'tradelists' && <TradeListsPage key={dataEpoch} />}
 
       {view.name === 'data' && (
         <DataPage
