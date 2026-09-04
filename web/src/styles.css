@@ -352,7 +352,7 @@ input[type='number'] { width: 72px; }
   .foil-overlay::after { animation: none; left: 130%; }
 }
 .card .cset {
-  font-size: 11px; color: var(--text-3); font-family: var(--mono);
+  font-size: 11px; margin-left: 5px; color: var(--text-3); font-family: var(--mono);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
