@@ -12,6 +12,10 @@ import { DeckBuilder } from './components/DeckBuilder.tsx';
 import { SyntaxHelp } from './components/SyntaxHelp.tsx';
 import { CollectionPage } from './components/CollectionPage.tsx';
 import { DataPage } from './components/DataPage.tsx';
+import { TradesPage } from './components/TradesPage.tsx';
+import { WantListsPage } from './components/WantListsPage.tsx';
+import { TradeListsPage } from './components/TradeListsPage.tsx';
+import { AlertsBell } from './components/AlertsBell.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -68,7 +72,8 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
 }
 
 type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
-  | { name: 'collection' } | { name: 'data' };
+  | { name: 'collection' } | { name: 'trades' } | { name: 'wants' } | { name: 'tradelists' }
+  | { name: 'data' };
 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
@@ -92,6 +97,7 @@ export default function App() {
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   // Bumped after a restore or an import, so the collection view refetches.
   const [dataEpoch, setDataEpoch] = useState(0);
+  const [alertKey, setAlertKey] = useState(0);
   const [formats, setFormats] = useState<FormatRecord[]>([]);
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
   const [theme, setTheme] = useState<Theme>(storedTheme);
@@ -190,6 +196,18 @@ export default function App() {
             onClick={() => setView({ name: 'collection' })}
           >Collection</button>
           <button
+            className={view.name === 'trades' ? 'on' : ''}
+            onClick={() => setView({ name: 'trades' })}
+          >Trades</button>
+          <button
+            className={view.name === 'wants' ? 'on' : ''}
+            onClick={() => setView({ name: 'wants' })}
+          >Wants</button>
+          <button
+            className={view.name === 'tradelists' ? 'on' : ''}
+            onClick={() => setView({ name: 'tradelists' })}
+          >For trade</button>
+          <button
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => setView({ name: 'data' })}
           >Data</button>
@@ -211,7 +229,7 @@ export default function App() {
 
         {view.name === 'browse' && (
           <>
-            <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ width: 140 }}>
+            <select value={sort} onChange={(e) => setSort(e.target.value)} className="sort-select">
               {SORTS.map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
               ))}
@@ -243,10 +261,17 @@ export default function App() {
         >
           {theme === 'system' ? '◐' : theme === 'light' ? '☀' : '☾'}
         </button>
+        <AlertsBell refreshKey={alertKey} />
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
       {view.name === 'collection' && <CollectionPage key={dataEpoch} />}
+
+      {view.name === 'trades' && (
+        <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
+      )}
+      {view.name === 'wants' && <WantListsPage />}
+      {view.name === 'tradelists' && <TradeListsPage key={dataEpoch} />}
 
       {view.name === 'data' && (
         <DataPage
@@ -320,6 +345,7 @@ export default function App() {
                   <div className="placeholder">{card.name}</div>
                 )}
                 {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
+                {(card.wantedQuantity ?? 0) > 0 && <span className="wanted-badge" title="On your want list">★</span>}
                 <div className="cname">{card.name}</div>
               </button>
             ))}

@@ -5,6 +5,8 @@ import {
   type CollectionSort, type CollectionStore,
 } from '../collection/store.ts';
 import { pushToWantList, shoppingList, wantList } from '../collection/shopping.ts';
+import { reconcileWants } from '../collection/wants.ts';
+import { AlertStore } from '../alerts/store.ts';
 
 const SORTS: CollectionSort[] = ['name', 'value', 'quantity', 'recent', 'setNumber'];
 
@@ -136,6 +138,10 @@ export function registerCollectionRoutes(
         acquiredFrom: typeof body.acquiredFrom === 'string' && body.acquiredFrom ? body.acquiredFrom : null,
         notes: typeof body.notes === 'string' && body.notes ? body.notes : null,
       });
+      // Acquiring copies directly can satisfy a want — same reconcile a trade runs.
+      const oracle = db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
+        .get(printingId) as { oracle_id: string } | undefined;
+      if (oracle) reconcileWants(db, new AlertStore(db), oracle.oracle_id);
       return reply.status(201).send({ id });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -222,14 +228,4 @@ export function registerCollectionRoutes(
     }
   });
 
-  app.get('/api/v1/want-lists', async () => ({
-    lists: db.prepare('SELECT id, name, is_default FROM want_lists ORDER BY sort_order, name').all(),
-  }));
-
-  app.get('/api/v1/want-lists/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const list = wantList(db, id);
-    if (!list) return reply.status(404).send({ error: 'No want list with that id.' });
-    return list;
-  });
 }
