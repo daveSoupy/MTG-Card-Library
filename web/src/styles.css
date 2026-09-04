@@ -1034,6 +1034,10 @@ input[type='number'] { width: 72px; }
 .data-page {
   padding: 22px 26px; overflow-y: auto; display: grid; gap: 20px;
   align-content: start; max-width: 860px;
+  /* Without min-height:0 this grid item can't shrink below its content, so the
+     whole app scrolls (top bar and all) instead of the page scrolling inside its
+     own area — which is what made a scroll drag move everything. */
+  min-height: 0;
 }
 .data-section {
   border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
@@ -1179,7 +1183,9 @@ input[type='number'] { width: 72px; }
   color: var(--accent); font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.5);
 }
 
-.list-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; margin: 0 auto; width: 100%; }
+/* Scroll inside its own area (min-height:0 + overflow) so the top bar stays put,
+   the same as the browse/collection panes. */
+.list-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; margin: 0 auto; width: 100%; min-height: 0; overflow-y: auto; }
 .list-tabs { display: flex; flex-wrap: wrap; gap: 4px; overflow-x: auto; }
 .list-tabs button {
   background: var(--panel-2); border: 1px solid var(--line); color: var(--text-2);
