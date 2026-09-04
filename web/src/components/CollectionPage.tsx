@@ -203,12 +203,17 @@ function SetEntry({
   }, [setCode]);
   useEffect(load, [load]);
 
+  /** Shows a floating confirmation for ~1.4s. */
+  const flash = (message: string) => {
+    setJustAdded(message);
+    setTimeout(() => setJustAdded((current) => (current === message ? null : current)), 1400);
+  };
+
   const add = async (printingId: string, name: string) => {
     setError(null);
     try {
       await addCollectionLot({ printingId, locationId, quantity: 1, finish, condition });
-      setJustAdded(name);
-      setTimeout(() => setJustAdded((current) => (current === name ? null : current)), 1400);
+      flash(`Added ${name}`);
       // Bump just this card's owned count in place — no full reload, so the grid
       // doesn't flash or jump to the top, and you can click the same card again
       // to add another copy.
@@ -226,8 +231,7 @@ function SetEntry({
     try {
       const result = await decrementCollectionCopy({ printingId, locationId, finish, condition });
       if (!result.removed) return; // nothing plainly-added here to take back
-      setJustAdded(`− ${name}`);
-      setTimeout(() => setJustAdded((current) => (current === `− ${name}` ? null : current)), 1400);
+      flash(`Removed ${name}`);
       setCards((prev) => prev.map((c) =>
         c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty - 1) } : c));
       onChanged();
@@ -296,7 +300,7 @@ function SetEntry({
       {error && <div className="error">{error}</div>}
       {/* Floats over the grid rather than sitting in the flow, so a rapid string
           of adds doesn't shove the card list up and down. */}
-      {justAdded && <div className="add-toast" role="status">Added {justAdded}</div>}
+      {justAdded && <div className="add-toast" role="status">{justAdded}</div>}
 
       {!setCode && (
         <p className="empty">
