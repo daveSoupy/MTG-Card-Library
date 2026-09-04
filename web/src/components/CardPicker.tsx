@@ -53,16 +53,17 @@ export function CardPicker({ onPick, placeholder, ownedOnly }: {
         <input
           value={query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          onFocus={() => setOpen(true)}
           placeholder={placeholder ?? 'Find a card — name or Scryfall syntax'}
           spellCheck={false}
           aria-label="Find a card"
         />
       </div>
-      {open && query.trim() && (
+      {open && (
         <div className="combobox-list">
-          {searching && <div className="combobox-empty">Searching…</div>}
-          {!searching && results.length === 0 && <div className="combobox-empty">No matches</div>}
+          {!query.trim() && <div className="combobox-empty">Type a card name or Scryfall syntax…</div>}
+          {query.trim() && searching && <div className="combobox-empty">Searching…</div>}
+          {query.trim() && !searching && results.length === 0 && <div className="combobox-empty">No matches</div>}
           {results.map((card) => (
             <button
               key={card.oracleId}
