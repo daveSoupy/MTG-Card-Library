@@ -17,6 +17,9 @@ export function Combobox({ options, value, onChange, placeholder }: {
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // When a choice was just made, so the focus iOS bounces back to the field
+  // right afterwards can be ignored instead of re-opening the list.
+  const chosenAt = useRef(0);
 
   const selected = options.find((o) => o.value === value);
   const q = query.trim().toLowerCase();
@@ -33,12 +36,15 @@ export function Combobox({ options, value, onChange, placeholder }: {
     return () => document.removeEventListener('pointerdown', onDown);
   }, []);
 
+  // Backstop: any change to the chosen value closes the list. Combined with the
+  // focus guard below, a selection can't leave it hanging open on iOS.
+  useEffect(() => { setOpen(false); }, [value]);
+
   const choose = (next: string) => {
+    chosenAt.current = Date.now();
     onChange(next);
     setQuery('');
     setOpen(false);
-    // Drop focus so the field can't immediately re-open (and the phone keyboard
-    // dismisses), which is what left the list hanging open on mobile.
     inputRef.current?.blur();
   };
 
@@ -48,7 +54,12 @@ export function Combobox({ options, value, onChange, placeholder }: {
         ref={inputRef}
         value={open ? query : (selected?.label ?? '')}
         placeholder={placeholder}
-        onFocus={() => { setOpen(true); setQuery(''); }}
+        onFocus={() => {
+          // Ignore the focus iOS bounces back into the field right after a pick,
+          // which was re-opening the list; a real re-tap later still opens it.
+          if (Date.now() - chosenAt.current < 600) { inputRef.current?.blur(); return; }
+          setOpen(true); setQuery('');
+        }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); (e.target as HTMLInputElement).blur(); } }}
         aria-label={placeholder}
