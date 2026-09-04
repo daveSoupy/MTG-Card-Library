@@ -8,8 +8,15 @@ import {
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
 import { Combobox } from './Combobox.tsx';
+import { WantListsPage } from './WantListsPage.tsx';
+import { TradeListsPage } from './TradeListsPage.tsx';
 
-type Tab = 'browse' | 'add' | 'sets' | 'value';
+type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
+
+const TAB_LABEL: Record<Tab, string> = {
+  browse: 'Browse', add: 'Add by set', sets: 'Sets', value: 'Value',
+  wants: 'Wants', tradelists: 'For trade',
+};
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
@@ -461,21 +468,23 @@ export function CollectionPage() {
       <div className="deck-header">
         <div className="brand" style={{ marginRight: 8 }}>Collection</div>
         <nav className="tabs small">
-          {(['browse', 'add', 'sets', 'value'] as Tab[]).map((t) => (
+          {(['browse', 'add', 'sets', 'value', 'wants', 'tradelists'] as Tab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
-              {t === 'browse' ? 'Browse' : t === 'add' ? 'Add by set' : t === 'sets' ? 'Sets' : 'Value'}
+              {TAB_LABEL[t]}
             </button>
           ))}
         </nav>
         <div style={{ flex: 1 }} />
-        <span className="count">
-          {value?.value.total_cards ?? 0} cards · {money(totalValue)}
-          {gain != null && (
-            <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>
-              {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)}
-            </span>
-          )}
-        </span>
+        {tab !== 'wants' && tab !== 'tradelists' && (
+          <span className="count">
+            {value?.value.total_cards ?? 0} cards · {money(totalValue)}
+            {gain != null && (
+              <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>
+                {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)}
+              </span>
+            )}
+          </span>
+        )}
       </div>
 
       {error && <div className="error" style={{ margin: 12 }}>{error}</div>}
@@ -648,6 +657,9 @@ export function CollectionPage() {
           </p>
         </div>
       )}
+
+      {tab === 'wants' && <WantListsPage />}
+      {tab === 'tradelists' && <TradeListsPage />}
 
       {adding && (
         <AddCardsDialog

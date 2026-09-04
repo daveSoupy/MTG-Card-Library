@@ -13,8 +13,6 @@ import { SyntaxHelp } from './components/SyntaxHelp.tsx';
 import { CollectionPage } from './components/CollectionPage.tsx';
 import { DataPage } from './components/DataPage.tsx';
 import { TradesPage } from './components/TradesPage.tsx';
-import { WantListsPage } from './components/WantListsPage.tsx';
-import { TradeListsPage } from './components/TradeListsPage.tsx';
 import { AlertsBell } from './components/AlertsBell.tsx';
 
 const SORTS = [
@@ -72,7 +70,7 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
 }
 
 type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
-  | { name: 'collection' } | { name: 'trades' } | { name: 'wants' } | { name: 'tradelists' }
+  | { name: 'collection' } | { name: 'trades' }
   | { name: 'data' };
 
 export default function App() {
@@ -184,7 +182,7 @@ export default function App() {
 
         <nav className="tabs">
           <button
-            className={view.name === 'collection' || view.name === 'wants' || view.name === 'tradelists' ? 'on' : ''}
+            className={view.name === 'collection' ? 'on' : ''}
             onClick={() => setView({ name: 'collection' })}
           >Collection</button>
           <button
@@ -257,30 +255,11 @@ export default function App() {
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
-      {(view.name === 'collection' || view.name === 'wants' || view.name === 'tradelists') && (
-        <nav className="subtabs">
-          <button
-            className={view.name === 'collection' ? 'on' : ''}
-            onClick={() => setView({ name: 'collection' })}
-          >My cards</button>
-          <button
-            className={view.name === 'wants' ? 'on' : ''}
-            onClick={() => setView({ name: 'wants' })}
-          >Wants</button>
-          <button
-            className={view.name === 'tradelists' ? 'on' : ''}
-            onClick={() => setView({ name: 'tradelists' })}
-          >For trade</button>
-        </nav>
-      )}
-
       {view.name === 'collection' && <CollectionPage key={dataEpoch} />}
 
       {view.name === 'trades' && (
         <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
       )}
-      {view.name === 'wants' && <WantListsPage />}
-      {view.name === 'tradelists' && <TradeListsPage key={dataEpoch} />}
 
       {view.name === 'data' && (
         <DataPage
