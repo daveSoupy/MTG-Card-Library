@@ -196,7 +196,7 @@ export default function App() {
           <button
             className={view.name === 'trades' ? 'on' : ''}
             onClick={() => setView({ name: 'trades' })}
-          >Trades</button>
+          >Trade</button>
           <button
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => setView({ name: 'data' })}
