@@ -1122,6 +1122,9 @@ input[type='number'] { width: 72px; }
 .storage-grid .dim:first-child { min-width: 110px; }
 .cap-editor { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
 .cap-editor input { width: 90px; }
+.cost-default { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 10px 0 4px; }
+.cost-default label { display: flex; flex-direction: column; gap: 3px; }
+.cost-default .cost-fixed input { width: 90px; }
 .download-progress {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-top: 12px; padding: 8px 10px; border: 1px solid var(--line);

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import {
-  ACQUISITION_KINDS, CONDITIONS, FINISHES, LocationInUseError,
+  ACQUISITION_KINDS, CONDITIONS, COST_METHODS, FINISHES, LocationInUseError,
   type CollectionSort, type CollectionStore,
 } from '../collection/store.ts';
 import { pushToWantList, shoppingList, wantList } from '../collection/shopping.ts';
@@ -137,6 +137,9 @@ export function registerCollectionRoutes(
         acquisitionKind: oneOf(ACQUISITION_KINDS, body.acquisitionKind),
         acquiredFrom: typeof body.acquiredFrom === 'string' && body.acquiredFrom ? body.acquiredFrom : null,
         notes: typeof body.notes === 'string' && body.notes ? body.notes : null,
+        costMethod: oneOf(COST_METHODS, body.costMethod),
+        fixedAmount: asMoney(body.fixedAmount) ?? null,
+        importBatchId: asInt(body.batchId),
       });
       // Acquiring copies directly can satisfy a want — same reconcile a trade runs.
       const oracle = db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
@@ -147,6 +150,21 @@ export function registerCollectionRoutes(
       const message = error instanceof Error ? error.message : String(error);
       return reply.status(400).send({ error: 'Could not add those cards.', detail: message });
     }
+  });
+
+  // Opens a cost pool for the 'box' method: a lump sum spread evenly across the
+  // copies later added with this batch id. Returns the id to pass as `batchId`.
+  app.post('/api/v1/collection/cost-pools', async (request, reply) => {
+    const body = (request.body ?? {}) as any;
+    const totalCostUsd = asMoney(body.totalCostUsd);
+    if (totalCostUsd === undefined || totalCostUsd === null) {
+      return reply.status(400).send({ error: 'totalCostUsd is required.' });
+    }
+    const batchId = collection.openCostPool({
+      totalCostUsd,
+      notes: typeof body.notes === 'string' && body.notes ? body.notes : null,
+    });
+    return reply.status(201).send({ batchId });
   });
 
   app.patch('/api/v1/collection/items/:id', async (request, reply) => {

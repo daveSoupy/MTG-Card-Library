@@ -270,4 +270,15 @@ export const MIGRATIONS: Migration[] = [
       ANALYZE;
     `,
   },
+  {
+    version: 12,
+    description: 'Cost-pool columns on import_batches for the box-split cost method',
+    sql: `
+      -- A cost pool: a lump sum (e.g. a booster box) spread across the lots
+      -- that reference the batch. NULL on ordinary import batches, which keep
+      -- behaving exactly as before.
+      ALTER TABLE import_batches ADD COLUMN total_cost_usd REAL;
+      ALTER TABLE import_batches ADD COLUMN split_method TEXT;
+    `,
+  },
 ];

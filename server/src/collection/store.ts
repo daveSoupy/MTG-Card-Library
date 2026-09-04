@@ -17,6 +17,17 @@ export const CONDITIONS: Condition[] = ['M', 'NM', 'LP', 'MP', 'HP', 'DMG', 'unk
 export type AcquisitionKind = 'purchase' | 'trade' | 'gift' | 'pull' | 'unknown';
 export const ACQUISITION_KINDS: AcquisitionKind[] = ['purchase', 'trade', 'gift', 'pull', 'unknown'];
 
+/**
+ * How to assume a per-copy cost basis when it isn't typed in by hand.
+ * - unknown: record nothing (NULL) — excluded from cost and gain
+ * - free:    zero — gifts, pack pulls; full market value reads as gain
+ * - market:  snapshot the printing's current price (finish-aware) at add time
+ * - fixed:   a configured dollar amount
+ * - box:     a lump sum split evenly across every copy in a cost pool (batch)
+ */
+export type CostMethod = 'unknown' | 'free' | 'market' | 'fixed' | 'box';
+export const COST_METHODS: CostMethod[] = ['unknown', 'free', 'market', 'fixed', 'box'];
+
 export class LocationInUseError extends Error {
   readonly cardCount: number;
   constructor(name: string, cardCount: number) {
@@ -250,18 +261,32 @@ export class CollectionStore {
     acquiredFrom?: string | null;
     notes?: string | null;
     importBatchId?: number | null;
+    /** Assume the cost basis when acquiredUnitCost isn't given explicitly. */
+    costMethod?: CostMethod;
+    /** The amount for the 'fixed' method. */
+    fixedAmount?: number | null;
   }): number {
     const finish = input.finish ?? 'nonfoil';
     const condition = input.condition ?? 'NM';
     const language = input.language ?? 'en';
     const quantity = Math.max(1, Math.trunc(input.quantity));
+    // A typed-in cost always wins; otherwise assume one from the method. 'box'
+    // resolves to NULL here and is set by the pool re-split after insert.
+    const unitCost = input.acquiredUnitCost !== undefined && input.acquiredUnitCost !== null
+      ? input.acquiredUnitCost
+      : this.assumeUnitCost(input.printingId, finish, input.costMethod, input.fixedAmount);
+
+    // In a cost pool the per-copy cost is managed by the re-split, not fixed at
+    // add time, so two copies of the same card must still merge even though the
+    // running cost has moved — match without the cost predicate for pool adds.
+    const poolManaged = input.costMethod === 'box' && input.importBatchId != null;
 
     return this.db.transaction(() => {
       const existing = this.db.prepare(`
         SELECT id, quantity FROM collection_items
         WHERE printing_id = ? AND location_id = ? AND finish = ? AND condition = ?
           AND language = ?
-          AND COALESCE(acquired_unit_cost, -1) = COALESCE(?, -1)
+          ${poolManaged ? '' : 'AND COALESCE(acquired_unit_cost, -1) = COALESCE(?, -1)'}
           AND COALESCE(acquired_at, '') = COALESCE(?, '')
           AND COALESCE(price_override, -1) = COALESCE(?, -1)
           -- Batch is part of the identity so an import stays undoable: merging
@@ -269,29 +294,99 @@ export class CollectionStore {
           -- the import never added.
           AND COALESCE(import_batch_id, -1) = COALESCE(?, -1)`)
         .get(input.printingId, input.locationId, finish, condition, language,
-             input.acquiredUnitCost ?? null, input.acquiredAt ?? null,
+             ...(poolManaged ? [] : [unitCost]), input.acquiredAt ?? null,
              input.priceOverride ?? null, input.importBatchId ?? null,
         ) as { id: number; quantity: number } | undefined;
 
+      let lotId: number;
       if (existing) {
         this.db.prepare('UPDATE collection_items SET quantity = ? WHERE id = ?')
           .run(existing.quantity + quantity, existing.id);
-        return existing.id;
+        lotId = existing.id;
+      } else {
+        const result = this.db.prepare(`
+          INSERT INTO collection_items
+            (printing_id, location_id, quantity, finish, condition, language, price_override,
+             acquired_at, acquired_unit_cost, acquisition_kind, acquired_from, notes,
+             import_batch_id)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(input.printingId, input.locationId, quantity, finish, condition, language,
+               input.priceOverride ?? null, input.acquiredAt ?? null,
+               unitCost, input.acquisitionKind ?? 'unknown',
+               input.acquiredFrom ?? null, input.notes ?? null,
+               input.importBatchId ?? null);
+        lotId = Number(result.lastInsertRowid);
       }
 
-      const result = this.db.prepare(`
-        INSERT INTO collection_items
-          (printing_id, location_id, quantity, finish, condition, language, price_override,
-           acquired_at, acquired_unit_cost, acquisition_kind, acquired_from, notes,
-           import_batch_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-        .run(input.printingId, input.locationId, quantity, finish, condition, language,
-             input.priceOverride ?? null, input.acquiredAt ?? null,
-             input.acquiredUnitCost ?? null, input.acquisitionKind ?? 'unknown',
-             input.acquiredFrom ?? null, input.notes ?? null,
-             input.importBatchId ?? null);
-      return Number(result.lastInsertRowid);
+      // A cost-pool ('box') batch spreads its lump sum evenly across every copy
+      // it holds, so each added lot re-divides the total over the new count.
+      if (input.importBatchId != null) this.resplitCostPool(input.importBatchId);
+      return lotId;
     })();
+  }
+
+  /**
+   * Resolves an assumed per-copy cost basis from the method. Returns NULL for
+   * 'unknown' and 'box' (box is set later by the pool re-split), and for
+   * 'market'/'fixed' when no price is available.
+   */
+  private assumeUnitCost(
+    printingId: string,
+    finish: Finish,
+    method: CostMethod | undefined,
+    fixedAmount: number | null | undefined,
+  ): number | null {
+    switch (method) {
+      case 'free':
+        return 0;
+      case 'fixed':
+        return fixedAmount != null && fixedAmount >= 0 ? fixedAmount : null;
+      case 'market': {
+        const row = this.db.prepare(
+          'SELECT price_usd, price_usd_foil FROM card_printings WHERE id = ?',
+        ).get(printingId) as { price_usd: number | null; price_usd_foil: number | null } | undefined;
+        const price = finish === 'nonfoil' ? row?.price_usd : row?.price_usd_foil;
+        return price ?? null;
+      }
+      case 'box':
+      case 'unknown':
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Opens a cost pool — an import batch carrying a lump sum to spread across the
+   * copies later added to it (the 'box' cost method). Returns the batch id.
+   */
+  openCostPool(input: { totalCostUsd: number; notes?: string | null }): number {
+    const total = Math.max(0, input.totalCostUsd);
+    const result = this.db.prepare(`
+      INSERT INTO import_batches (source, total_cost_usd, split_method, notes)
+      VALUES ('manual', ?, 'even', ?)`)
+      .run(total, input.notes ?? null);
+    return Number(result.lastInsertRowid);
+  }
+
+  /** Re-divides a cost pool's total evenly over every copy it now holds. */
+  private resplitCostPool(batchId: number): void {
+    const batch = this.db.prepare(
+      'SELECT total_cost_usd FROM import_batches WHERE id = ?',
+    ).get(batchId) as { total_cost_usd: number | null } | undefined;
+    if (!batch || batch.total_cost_usd == null) return; // ordinary import batch
+
+    const { qty } = this.db.prepare(
+      'SELECT COALESCE(SUM(quantity), 0) AS qty FROM collection_items WHERE import_batch_id = ?',
+    ).get(batchId) as { qty: number };
+    if (qty <= 0) return;
+
+    const perCopy = batch.total_cost_usd / qty;
+    this.db.prepare(
+      `UPDATE collection_items
+          SET acquired_unit_cost = ?,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+        WHERE import_batch_id = ?`,
+    ).run(perCopy, batchId);
   }
 
   updateLot(id: number, changes: Record<string, unknown>): void {

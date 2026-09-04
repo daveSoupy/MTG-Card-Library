@@ -429,8 +429,13 @@ export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
   getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
     .then((r) => r.categories);
 
+export type CostMethod = 'unknown' | 'free' | 'market' | 'fixed' | 'box';
+
 export interface AppSettings {
   autoMaintainLands: boolean;
+  /** Cost basis assumed when adding cards without a typed-in price. */
+  defaultCostMethod: Exclude<CostMethod, 'box'>;
+  defaultCostFixedUsd: number;
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>
@@ -646,7 +651,18 @@ export interface AddLotInput {
   acquisitionKind?: string;
   acquiredFrom?: string | null;
   notes?: string | null;
+  /** Assume the cost basis from a method when no explicit cost is given. */
+  costMethod?: CostMethod;
+  /** Amount for the 'fixed' method. */
+  fixedAmount?: number | null;
+  /** Cost pool (from openCostPool) to attach the lot to, for the 'box' method. */
+  batchId?: number;
 }
+
+/** Opens a cost pool for the 'box' method; returns the batch id to pass as `batchId`. */
+export const openCostPool = (totalCostUsd: number, notes?: string) =>
+  send<{ batchId: number }>('/api/v1/collection/cost-pools', 'POST', { totalCostUsd, notes })
+    .then((r) => r.batchId);
 
 export const fetchLocations = (signal?: AbortSignal) =>
   getJson<{ locations: StorageLocation[] }>('/api/v1/locations', signal).then((r) => r.locations);
