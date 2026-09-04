@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, createLocation, deleteLocation, fetchCollection, fetchCollectionCard,
-  fetchCollectionValue, fetchLocations, fetchSetChecklist, fetchSetCompletion, fetchSets,
-  imageUrl, removeCollectionLot, updateCollectionLot,
+  addCollectionLot, createLocation, decrementCollectionCopy, deleteLocation, fetchCollection,
+  fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist, fetchSetCompletion,
+  fetchSets, imageUrl, removeCollectionLot, updateCollectionLot,
   type CollectionCard, type CollectionCardDetail, type CollectionValue,
   type SetRecord, type StorageLocation,
 } from '../api.ts';
@@ -220,6 +220,36 @@ function SetEntry({
     }
   };
 
+  /** Undo — remove one copy of a card you just added (long-press a tile). */
+  const removeOne = async (printingId: string, name: string) => {
+    setError(null);
+    try {
+      const result = await decrementCollectionCopy({ printingId, locationId, finish, condition });
+      if (!result.removed) return; // nothing plainly-added here to take back
+      setJustAdded(`− ${name}`);
+      setTimeout(() => setJustAdded((current) => (current === `− ${name}` ? null : current)), 1400);
+      setCards((prev) => prev.map((c) =>
+        c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty - 1) } : c));
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Tap adds a copy; press-and-hold removes one. One press at a time, so a
+  // single timer and flag are enough for the whole grid.
+  const pressTimer = useRef<number | null>(null);
+  const longFired = useRef(false);
+  const startPress = (printingId: string, name: string) => {
+    longFired.current = false;
+    pressTimer.current = window.setTimeout(() => { longFired.current = true; removeOne(printingId, name); }, 500);
+  };
+  const endPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } };
+  const tapTile = (printingId: string, name: string) => {
+    if (longFired.current) { longFired.current = false; return; } // the hold already handled it
+    add(printingId, name);
+  };
+
   const shown = hideOwned ? cards.filter((c) => c.owned_qty === 0) : cards;
   const ownedCount = cards.filter((c) => c.owned_qty > 0).length;
 
@@ -280,17 +310,22 @@ function SetEntry({
             <span className="count">
               {ownedCount} of {cards.length} owned · showing {shown.length}
             </span>
+            <span className="hint">Tap to add · press and hold to remove one</span>
           </div>
           <div className="entry-grid">
             {shown.map((card) => (
               <button
                 className={`entry-tile${card.owned_qty > 0 ? ' owned' : ''}`}
                 key={card.printing_id}
-                onClick={() => add(card.printing_id, card.name)}
-                title={`Add ${card.name} to ${locations.find((l) => l.id === locationId)?.name}`}
+                onClick={() => tapTile(card.printing_id, card.name)}
+                onPointerDown={() => startPress(card.printing_id, card.name)}
+                onPointerUp={endPress}
+                onPointerLeave={endPress}
+                onContextMenu={(e) => e.preventDefault()}
+                title={`Tap to add ${card.name} · hold to remove one`}
               >
                 {card.image_small
-                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" />
+                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" draggable={false} />
                   : <div className="placeholder">{card.name}</div>}
                 <span className="entry-number">#{card.collector_number}</span>
                 {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}
