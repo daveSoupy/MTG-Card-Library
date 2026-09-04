@@ -96,6 +96,7 @@ body {
   color: var(--text);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 button, input, select { font: inherit; color: inherit; }
@@ -105,17 +106,29 @@ button { cursor: pointer; }
 .app {
   display: grid;
   grid-template-rows: auto 1fr;
+  /* One column, pinned to the container width. Without this the implicit grid
+     column is content-sized, so a wide child (the top bar's search row) stretches
+     the whole app past the viewport and clips on a phone. minmax(0,1fr) forbids
+     that: children must fit the screen and wrap instead. */
+  grid-template-columns: minmax(0, 1fr);
   height: 100%;
+  overflow-x: hidden;
 }
 
 .topbar {
   display: flex;
   align-items: center;
+  /* Wrap rather than overflow: at a narrow width the bar becomes a few rows
+     instead of pushing the page wider than the screen. */
+  flex-wrap: wrap;
   gap: 12px;
   padding: 10px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+
+/* Desktop width for the sort menu; the phone media query lets it shrink. */
+.sort-select { width: 140px; }
 
 .brand {
   font-weight: 700;
@@ -1124,4 +1137,110 @@ input[type='number'] { width: 72px; }
   display: flex; align-items: center; gap: 8px; justify-content: space-between;
   margin: 8px 0; padding: 5px 8px; border-radius: var(--radius);
   background: var(--accent-dim); color: var(--text); font-size: 11.5px;
+}
+
+/* ---------- Phase 6: trades, wants, trade lists, alerts ---------- */
+
+.wanted-badge {
+  position: absolute; top: 6px; left: 6px;
+  color: var(--accent); font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+
+.list-page { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 1000px; margin: 0 auto; width: 100%; }
+.list-tabs { display: flex; flex-wrap: wrap; gap: 4px; overflow-x: auto; }
+.list-tabs button {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-2);
+  padding: 5px 12px; border-radius: 999px; font-size: 13px; white-space: nowrap;
+}
+.list-tabs button.on { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }
+.list-tabs .count { margin-left: 6px; font-size: 11px; color: var(--text-3); }
+.list-tabs .list-new { color: var(--text-3); }
+.list-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.list-head h2 { margin: 0; font-size: 18px; flex: 1; min-width: 0; }
+.section-label { margin: 8px 0 0; font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.add-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; background: var(--panel); }
+
+.card-picker .searchbox { margin: 0 0 6px; }
+
+.want-rows { display: flex; flex-direction: column; gap: 4px; }
+.want-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+}
+.want-row.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.want-row.done { opacity: .7; }
+.want-thumb { width: 34px; height: 48px; object-fit: cover; border-radius: 3px; flex: none; background: var(--panel-2); }
+.want-thumb.placeholder { display: block; }
+.want-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.want-name { font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.needed-for { font-size: 11px; color: var(--accent); }
+.want-notes { font-size: 11px; color: var(--text-3); }
+.want-price { font-family: var(--mono); font-size: 12px; min-width: 54px; text-align: right; }
+.want-field { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10px; color: var(--text-3); }
+.want-field input, .want-field select { width: 62px; font-size: 12px; padding: 2px 4px; }
+.reorder { display: flex; flex-direction: column; gap: 1px; }
+.reorder button { background: none; border: 0; color: var(--text-3); font-size: 9px; line-height: 1; padding: 1px; }
+.reorder button:disabled { opacity: .25; }
+.fulfilled { margin-top: 8px; }
+.fulfilled summary { cursor: pointer; color: var(--text-3); font-size: 12px; }
+
+.lot-choices { display: flex; flex-direction: column; gap: 4px; }
+.lot-choices-head { font-size: 12px; color: var(--text-2); }
+.lot-choice {
+  text-align: left; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; color: var(--text);
+}
+.lot-choice:hover { border-color: var(--accent); }
+
+.trade-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+}
+.trade-row.draft { border-style: dashed; }
+.trade-who { font-weight: 600; flex: 1; min-width: 0; }
+.trade-value { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+
+.trade-editor .trade-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.trade-col { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
+.trade-col h3 { margin: 0 0 4px; font-size: 14px; display: flex; justify-content: space-between; }
+.trade-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.trade-item .want-name { flex: 1; }
+.trade-item select { font-size: 12px; }
+.trade-name-input { font-size: 16px; font-weight: 600; background: none; border: 0; border-bottom: 1px solid var(--line); }
+.trade-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.trade-summary { padding: 10px 12px; border-radius: var(--radius); background: var(--accent-dim); border: 1px solid var(--accent); font-size: 13px; }
+.conflict-panel { padding: 12px; border: 1px solid var(--warn); border-radius: var(--radius); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
+.conflict-panel ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+.conflict-flag { font-size: 11px; color: var(--warn); }
+
+.alerts-bell { position: relative; }
+.alert-count {
+  position: absolute; top: -4px; right: -4px; background: var(--bad); color: #fff;
+  font-size: 10px; font-weight: 700; border-radius: 999px; padding: 0 5px; line-height: 16px;
+}
+.alerts-drop {
+  position: absolute; right: 0; top: calc(100% + 6px); width: min(360px, 90vw); z-index: 40;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0,0,0,.35); padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  max-height: 70vh; overflow-y: auto;
+}
+.alert-item { display: flex; gap: 8px; align-items: flex-start; padding: 6px; border-radius: 6px; background: var(--panel-2); }
+.alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.alert-actions { display: flex; gap: 4px; }
+
+/* Narrow widths: stack the topbar into tidy rows and go one-handed. */
+@media (max-width: 620px) {
+  .topbar { gap: 8px; padding: 8px 10px; }
+  .brand { margin-right: 0; }
+  /* Tabs and search each take a full-width row (DOM order gives brand, tabs,
+     search, then the controls). Tabs scroll sideways rather than widen the page. */
+  .tabs { flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .searchbox { flex-basis: 100%; }
+  /* Sort menu shrinks and shares the controls row with the buttons. */
+  .sort-select { flex: 1 1 auto; width: auto; min-width: 0; }
+  .results { padding: 10px; }
+  .list-page { padding: 10px; }
+  .trade-editor .trade-columns { grid-template-columns: 1fr; }
+  .want-field input, .want-field select { width: 54px; }
+  .want-row { flex-wrap: wrap; }
 }
