@@ -337,6 +337,17 @@ input[type='number'] { width: 72px; }
 .legal-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dot.ok { background: var(--good); }
+
+/* The "Added X" confirmation floats as a toast so a run of quick adds never
+   reflows the card grid. Fixed to the viewport, centred near the bottom. */
+.add-toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
+  background: var(--good); color: #06231a; font-weight: 600; font-size: 13px;
+  padding: 8px 16px; border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  pointer-events: none; animation: toast-in .14s ease-out;
+}
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .add-toast { animation: none; } }
 .dot.no { background: var(--line-strong); }
 .dot.banned { background: var(--bad); }
 .dot.restricted { background: var(--warn); }
