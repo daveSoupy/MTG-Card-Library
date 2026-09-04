@@ -3,6 +3,8 @@ import { getSetting, setSetting } from '../db/index.ts';
 
 /** The single cost pool currently accepting cards, stored in app_settings. */
 export const OPEN_COST_POOL_ID = 'open_cost_pool_id';
+/** The set the open pool's session was last working through, for resume. */
+export const OPEN_COST_POOL_SET = 'open_cost_pool_set';
 
 export interface CostPoolSummary {
   id: number;
@@ -10,6 +12,8 @@ export interface CostPoolSummary {
   totalCostUsd: number;
   cardCount: number;
   perCopy: number;
+  /** Set code the session was working through, so it can be reopened. */
+  setCode: string | null;
 }
 
 /**
@@ -374,7 +378,7 @@ export class CollectionStore {
    * return. The label lives in file_name, which the import history already shows
    * and undo leaves alone. Returns the pool summary.
    */
-  openCostPool(input: { totalCostUsd: number; label?: string | null }): CostPoolSummary {
+  openCostPool(input: { totalCostUsd: number; label?: string | null; setCode?: string | null }): CostPoolSummary {
     const total = Math.max(0, input.totalCostUsd);
     const result = this.db.prepare(`
       INSERT INTO import_batches (source, file_name, total_cost_usd, split_method)
@@ -382,7 +386,13 @@ export class CollectionStore {
       .run(input.label ?? 'Cost pool', total);
     const id = Number(result.lastInsertRowid);
     setSetting(this.db, OPEN_COST_POOL_ID, String(id));
+    setSetting(this.db, OPEN_COST_POOL_SET, input.setCode ?? '');
     return this.poolSummary(id)!;
+  }
+
+  /** Remembers the set the open session is working through, for resume. */
+  setOpenPoolSet(setCode: string | null): void {
+    setSetting(this.db, OPEN_COST_POOL_SET, setCode ?? '');
   }
 
   /** The pool currently accepting cards, or null once it's finished/undone. */
@@ -405,6 +415,7 @@ export class CollectionStore {
   /** Finishes the open pool. The batch row stays as history; its lots keep their cost. */
   closeCostPool(): void {
     setSetting(this.db, OPEN_COST_POOL_ID, '');
+    setSetting(this.db, OPEN_COST_POOL_SET, '');
   }
 
   private poolSummary(id: number): CostPoolSummary | null {
@@ -421,6 +432,7 @@ export class CollectionStore {
       totalCostUsd: batch.total_cost_usd,
       cardCount: qty,
       perCopy: qty > 0 ? batch.total_cost_usd / qty : 0,
+      setCode: getSetting(this.db, OPEN_COST_POOL_SET) || null,
     };
   }
 

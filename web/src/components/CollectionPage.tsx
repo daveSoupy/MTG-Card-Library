@@ -3,8 +3,8 @@ import {
   addCollectionLot, addTradeListItem, closeCostPool, createLocation, decrementCollectionCopy,
   deleteLocation, fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations,
   fetchOpenCostPool, fetchSetChecklist, fetchSetCompletion, fetchSets, fetchSettings,
-  fetchTradeLists, imageUrl, openCostPool, removeCollectionLot, updateCollectionLot,
-  updateCostPoolTotal,
+  fetchTradeLists, imageUrl, openCostPool, removeCollectionLot, setCostPoolSet,
+  updateCollectionLot, updateCostPoolTotal,
   type CollectionCard, type CollectionCardDetail, type CollectionValue, type CostMethod,
   type CostPool, type SetRecord, type StorageLocation,
 } from '../api.ts';
@@ -265,11 +265,20 @@ function SetEntry({
         setPool(open);
         setCostMethod(open.label === 'Draft' ? 'draft' : 'box');
         setPoolTotalStr(String(open.totalCostUsd));
+        if (open.setCode) setSetCode(open.setCode); // reopen the set it was working through
       } else if (settings) {
         setCostMethod(settings.defaultCostMethod);
       }
     })();
   }, []);
+
+  // While a pool is open, remember the last set the session actually opened, so
+  // resuming reopens it. Clearing the field is not "forget" — the pool keeps the
+  // set so the banner can offer to reopen it.
+  useEffect(() => {
+    if (!pool || !setCode || setCode === pool.setCode) return;
+    setCostPoolSet(pool.id, setCode).then((p) => { if (p) setPool(p); }).catch(() => {});
+  }, [setCode, pool]);
 
   // Switching the pooled method (with nothing open yet) pre-fills a sensible
   // starting total: 3× a booster for a draft, blank for a box.
@@ -291,6 +300,8 @@ function SetEntry({
     setPool(null);
     setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
   };
+
+  const setName = (code: string) => sets.find((s) => s.code === code)?.name ?? code.toUpperCase();
 
   const load = useCallback(() => {
     if (!setCode) { setCards([]); return; }
@@ -317,7 +328,7 @@ function SetEntry({
       // count/per-card afterward.
       let current = pool;
       if (pooled && !current) {
-        current = await openCostPool(Math.max(0, Number(poolTotalStr) || 0), costMethod === 'draft' ? 'Draft' : 'Box split');
+        current = await openCostPool(Math.max(0, Number(poolTotalStr) || 0), costMethod === 'draft' ? 'Draft' : 'Box split', setCode || undefined);
         setPool(current);
       }
       await addCollectionLot({
@@ -447,6 +458,18 @@ function SetEntry({
           <span>
             <strong>{pool.label} open</strong> · {money(pool.totalCostUsd)} · {pool.cardCount}{' '}
             {pool.cardCount === 1 ? 'card' : 'cards'} · {money(pool.perCopy)} each
+            {pool.setCode && (
+              <>
+                {' · '}
+                <button
+                  className="linkish"
+                  onClick={() => setSetCode(pool.setCode!)}
+                  title="Reopen this set"
+                >
+                  {setName(pool.setCode)}{pool.setCode === setCode ? '' : ' ↩'}
+                </button>
+              </>
+            )}
           </span>
           <button className="btn secondary small" onClick={finishPool}>Finish</button>
         </div>
