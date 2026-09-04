@@ -152,19 +152,39 @@ export function registerCollectionRoutes(
     }
   });
 
-  // Opens a cost pool for the 'box' method: a lump sum spread evenly across the
-  // copies later added with this batch id. Returns the id to pass as `batchId`.
+  // The cost pool currently accepting cards (box/draft), or null.
+  app.get('/api/v1/collection/cost-pools/open', async () => ({ pool: collection.currentCostPool() }));
+
+  // Opens a cost pool: a lump sum spread evenly across the copies later added
+  // with this batch id, and marked the open pool so it resumes after a break.
   app.post('/api/v1/collection/cost-pools', async (request, reply) => {
     const body = (request.body ?? {}) as any;
     const totalCostUsd = asMoney(body.totalCostUsd);
     if (totalCostUsd === undefined || totalCostUsd === null) {
       return reply.status(400).send({ error: 'totalCostUsd is required.' });
     }
-    const batchId = collection.openCostPool({
+    const pool = collection.openCostPool({
       totalCostUsd,
-      notes: typeof body.notes === 'string' && body.notes ? body.notes : null,
+      label: typeof body.label === 'string' && body.label ? body.label : null,
     });
-    return reply.status(201).send({ batchId });
+    return reply.status(201).send({ batchId: pool.id, pool });
+  });
+
+  // Adjusts an open pool's lump sum, re-dividing it across the copies it holds.
+  app.patch('/api/v1/collection/cost-pools/:id', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Invalid pool id.' });
+    const totalCostUsd = asMoney((request.body as any)?.totalCostUsd);
+    if (totalCostUsd === undefined || totalCostUsd === null) {
+      return reply.status(400).send({ error: 'totalCostUsd is required.' });
+    }
+    return { pool: collection.updateCostPoolTotal(id, totalCostUsd) };
+  });
+
+  // Finishes the open pool (the batch stays in history; its lots keep their cost).
+  app.post('/api/v1/collection/cost-pools/close', async () => {
+    collection.closeCostPool();
+    return { pool: null };
   });
 
   app.patch('/api/v1/collection/items/:id', async (request, reply) => {

@@ -661,10 +661,32 @@ export interface AddLotInput {
   batchId?: number;
 }
 
-/** Opens a cost pool for the 'box' method; returns the batch id to pass as `batchId`. */
-export const openCostPool = (totalCostUsd: number, notes?: string) =>
-  send<{ batchId: number }>('/api/v1/collection/cost-pools', 'POST', { totalCostUsd, notes })
-    .then((r) => r.batchId);
+/** A box/draft cost pool that spreads one lump sum evenly across its cards. */
+export interface CostPool {
+  id: number;
+  label: string;
+  totalCostUsd: number;
+  cardCount: number;
+  perCopy: number;
+}
+
+/** Opens a cost pool and marks it the open one; returns its summary. */
+export const openCostPool = (totalCostUsd: number, label?: string) =>
+  send<{ batchId: number; pool: CostPool }>('/api/v1/collection/cost-pools', 'POST', { totalCostUsd, label })
+    .then((r) => r.pool);
+
+/** The pool currently accepting cards, or null. */
+export const fetchOpenCostPool = (signal?: AbortSignal) =>
+  getJson<{ pool: CostPool | null }>('/api/v1/collection/cost-pools/open', signal).then((r) => r.pool);
+
+/** Changes an open pool's lump sum, re-dividing it across its cards. */
+export const updateCostPoolTotal = (id: number, totalCostUsd: number) =>
+  send<{ pool: CostPool | null }>(`/api/v1/collection/cost-pools/${id}`, 'PATCH', { totalCostUsd })
+    .then((r) => r.pool);
+
+/** Finishes the open pool (its cards keep their cost). */
+export const closeCostPool = () =>
+  send<{ pool: null }>('/api/v1/collection/cost-pools/close', 'POST', {}).then((r) => r.pool);
 
 export const fetchLocations = (signal?: AbortSignal) =>
   getJson<{ locations: StorageLocation[] }>('/api/v1/locations', signal).then((r) => r.locations);
@@ -822,6 +844,7 @@ export interface ImportBatch {
   rowsTotal: number | null;
   rowsImported: number | null;
   rowsUnmatched: number | null;
+  totalCostUsd: number | null;
   cardsRemaining: number;
 }
 

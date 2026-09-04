@@ -255,7 +255,7 @@ export function importBatches(db: Database.Database, limit = 50) {
   return db.prepare(`
     SELECT b.id, b.source, b.file_name AS fileName, b.imported_at AS importedAt,
            b.rows_total AS rowsTotal, b.rows_imported AS rowsImported,
-           b.rows_unmatched AS rowsUnmatched,
+           b.rows_unmatched AS rowsUnmatched, b.total_cost_usd AS totalCostUsd,
            (SELECT COALESCE(sum(quantity), 0) FROM collection_items c WHERE c.import_batch_id = b.id)
              AS cardsRemaining
     FROM import_batches b

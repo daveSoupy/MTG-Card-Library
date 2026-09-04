@@ -1125,6 +1125,11 @@ input[type='number'] { width: 72px; }
 .cost-default { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 10px 0 4px; }
 .cost-default label { display: flex; flex-direction: column; gap: 3px; }
 .cost-default .cost-fixed input { width: 90px; }
+.pool-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 8px 0; padding: 7px 12px; font-size: 13px;
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: var(--radius);
+}
 .download-progress {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-top: 12px; padding: 8px 10px; border: 1px solid var(--line);

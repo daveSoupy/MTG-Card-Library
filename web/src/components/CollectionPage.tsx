@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, addTradeListItem, createLocation, decrementCollectionCopy, deleteLocation,
-  fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist,
-  fetchSetCompletion, fetchSets, fetchSettings, fetchTradeLists, imageUrl, openCostPool,
-  removeCollectionLot, updateCollectionLot,
+  addCollectionLot, addTradeListItem, closeCostPool, createLocation, decrementCollectionCopy,
+  deleteLocation, fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations,
+  fetchOpenCostPool, fetchSetChecklist, fetchSetCompletion, fetchSets, fetchSettings,
+  fetchTradeLists, imageUrl, openCostPool, removeCollectionLot, updateCollectionLot,
+  updateCostPoolTotal,
   type CollectionCard, type CollectionCardDetail, type CollectionValue, type CostMethod,
-  type SetRecord, type StorageLocation,
+  type CostPool, type SetRecord, type StorageLocation,
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
 import { Combobox } from './Combobox.tsx';
@@ -242,24 +243,54 @@ function SetEntry({
   // but its total defaults to 3× the booster pack price.
   const [costMethod, setCostMethod] = useState<CostMethod | 'draft'>('unknown');
   const [fixedAmount, setFixedAmount] = useState('');
-  const [boxTotal, setBoxTotal] = useState('');
-  const [draftTotal, setDraftTotal] = useState('');
-  const [boxBatchId, setBoxBatchId] = useState<number | null>(null);
+  const [boosterPrice, setBoosterPrice] = useState(4);
+  // The open cost pool (box/draft) lives on the server, so it survives leaving
+  // this screen, a reload, or a break, and only ends when you finish it.
+  const [pool, setPool] = useState<CostPool | null>(null);
+  const [poolTotalStr, setPoolTotalStr] = useState('');
   const pooled = costMethod === 'box' || costMethod === 'draft';
 
-  // Seed the cost method, fixed amount, and draft total from the saved defaults.
+  // Seed from the saved defaults, then resume any pool the server still has open.
   useEffect(() => {
-    fetchSettings()
-      .then((s) => {
-        setCostMethod(s.defaultCostMethod);
-        setFixedAmount(s.defaultCostFixedUsd ? String(s.defaultCostFixedUsd) : '');
-        setDraftTotal((s.draftBoosterPriceUsd * 3).toFixed(2));
-      })
-      .catch(() => { /* leave the safe 'unknown' default */ });
+    (async () => {
+      let settings: Awaited<ReturnType<typeof fetchSettings>> | null = null;
+      try { settings = await fetchSettings(); } catch { /* keep safe defaults */ }
+      if (settings) {
+        setBoosterPrice(settings.draftBoosterPriceUsd);
+        setFixedAmount(settings.defaultCostFixedUsd ? String(settings.defaultCostFixedUsd) : '');
+      }
+      let open: CostPool | null = null;
+      try { open = await fetchOpenCostPool(); } catch { /* ignore */ }
+      if (open) {
+        setPool(open);
+        setCostMethod(open.label === 'Draft' ? 'draft' : 'box');
+        setPoolTotalStr(String(open.totalCostUsd));
+      } else if (settings) {
+        setCostMethod(settings.defaultCostMethod);
+      }
+    })();
   }, []);
 
-  // Changing the pool total (or method) starts a fresh pool on the next add.
-  useEffect(() => { setBoxBatchId(null); }, [boxTotal, draftTotal, costMethod]);
+  // Switching the pooled method (with nothing open yet) pre-fills a sensible
+  // starting total: 3× a booster for a draft, blank for a box.
+  const pickMethod = (m: CostMethod | 'draft') => {
+    setCostMethod(m);
+    if (!pool) setPoolTotalStr(m === 'draft' ? (boosterPrice * 3).toFixed(2) : m === 'box' ? '' : poolTotalStr);
+  };
+
+  // Editing the total of an open pool re-splits it; with none open it's just the
+  // amount the next pool will start with.
+  const commitTotal = async () => {
+    if (!pool) return;
+    try { setPool(await updateCostPoolTotal(pool.id, Number(poolTotalStr) || 0)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+
+  const finishPool = async () => {
+    try { await closeCostPool(); } catch { /* ignore */ }
+    setPool(null);
+    setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
+  };
 
   const load = useCallback(() => {
     if (!setCode) { setCards([]); return; }
@@ -281,20 +312,21 @@ function SetEntry({
   const add = async (printingId: string, name: string) => {
     setError(null);
     try {
-      // Box split and Draft both pool: open the cost pool on the first add and
-      // reuse it after. Draft's total is 3× a booster; a box's is typed in.
-      let batchId = boxBatchId ?? undefined;
-      if (pooled && batchId === undefined) {
-        const total = costMethod === 'draft' ? Number(draftTotal) || 0 : Number(boxTotal) || 0;
-        batchId = await openCostPool(Math.max(0, total));
-        setBoxBatchId(batchId);
+      // Box split and Draft both pool. Open the server-side pool on the first
+      // add (so it survives a break), reuse it after, and refresh its running
+      // count/per-card afterward.
+      let current = pool;
+      if (pooled && !current) {
+        current = await openCostPool(Math.max(0, Number(poolTotalStr) || 0), costMethod === 'draft' ? 'Draft' : 'Box split');
+        setPool(current);
       }
       await addCollectionLot({
         printingId, locationId, quantity: 1, finish, condition,
         costMethod: pooled ? 'box' : costMethod,
         fixedAmount: costMethod === 'fixed' ? Number(fixedAmount) || 0 : undefined,
-        batchId: pooled ? batchId : undefined,
+        batchId: pooled && current ? current.id : undefined,
       });
+      if (pooled) { try { setPool(await fetchOpenCostPool()); } catch { /* keep prior */ } }
       flash(`Added ${name}`);
       // Bump just this card's owned count in place — no full reload, so the grid
       // doesn't flash or jump to the top, and you can click the same card again
@@ -375,7 +407,7 @@ function SetEntry({
         </label>
         <label>
           <span>Cost</span>
-          <select value={costMethod} onChange={(e) => setCostMethod(e.target.value as CostMethod | 'draft')}>
+          <select value={costMethod} onChange={(e) => pickMethod(e.target.value as CostMethod | 'draft')}>
             <option value="unknown">Unknown</option>
             <option value="free">Free ($0)</option>
             <option value="market">Market price</option>
@@ -393,21 +425,14 @@ function SetEntry({
             />
           </label>
         )}
-        {costMethod === 'draft' && (
-          <label style={{ width: 116 }}>
-            <span>Draft cost $</span>
+        {pooled && (
+          <label style={{ width: 120 }}>
+            <span>{costMethod === 'draft' ? 'Draft cost $' : 'Box total $'}</span>
             <input
-              type="number" min="0" step="0.01" placeholder="e.g. 12"
-              value={draftTotal} onChange={(e) => setDraftTotal(e.target.value)}
-            />
-          </label>
-        )}
-        {costMethod === 'box' && (
-          <label style={{ width: 116 }}>
-            <span>Box total $</span>
-            <input
-              type="number" min="0" step="0.01" placeholder="e.g. 120"
-              value={boxTotal} onChange={(e) => setBoxTotal(e.target.value)}
+              type="number" min="0" step="0.01" placeholder={costMethod === 'draft' ? 'e.g. 12' : 'e.g. 120'}
+              value={poolTotalStr}
+              onChange={(e) => setPoolTotalStr(e.target.value)}
+              onBlur={commitTotal}
             />
           </label>
         )}
@@ -416,12 +441,21 @@ function SetEntry({
           Hide ones I have
         </label>
       </div>
-      {pooled && (
+
+      {pool ? (
+        <div className="pool-banner">
+          <span>
+            <strong>{pool.label} open</strong> · {money(pool.totalCostUsd)} · {pool.cardCount}{' '}
+            {pool.cardCount === 1 ? 'card' : 'cards'} · {money(pool.perCopy)} each
+          </span>
+          <button className="btn secondary small" onClick={finishPool}>Finish</button>
+        </div>
+      ) : pooled && (
         <p className="hint">
-          Every card you add here shares one pool — the {costMethod === 'draft' ? 'draft cost' : 'box total'} is
-          split evenly across all of them, re-dividing as you go. {costMethod === 'draft'
-            ? 'It defaults to 3× the booster pack price from Data → Settings; edit it for a different draft.'
-            : 'Change the total to start a new box.'}
+          The first card you add opens a pool — the {costMethod === 'draft' ? 'draft cost' : 'box total'} is
+          split evenly across everything you add and keeps re-dividing as you go. It stays open
+          (even if you leave and come back) until you tap <strong>Finish</strong>.
+          {costMethod === 'draft' && ' The total defaults to 3× the booster pack price from Data → Settings.'}
         </p>
       )}
 
