@@ -1280,4 +1280,13 @@ input[type='number'] { width: 72px; }
      staying pinned over the cards. */
   .entry-bar { position: static; }
   .combobox > input { min-width: 0; width: 100%; }
+
+  /* iOS zooms into any text field with a font under 16px on focus — which is
+     why tapping a search box zoomed the whole page in. 16px stops that. */
+  input, select, textarea { font-size: 16px; }
+
+  /* Let the new-deck bar wrap instead of running its Create/Paste buttons off
+     the right edge. */
+  .new-deck { flex-wrap: wrap; }
+  .new-deck input, .new-deck select { width: 100%; flex: 1 1 140px; }
 }
