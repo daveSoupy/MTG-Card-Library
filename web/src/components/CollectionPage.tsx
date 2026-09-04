@@ -14,7 +14,7 @@ import { TradeListsPage } from './TradeListsPage.tsx';
 type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
 
 const TAB_LABEL: Record<Tab, string> = {
-  browse: 'Browse', add: 'Add by set', sets: 'Sets', value: 'Value',
+  browse: 'Browse', add: 'Add by set', sets: 'Set Completion', value: 'Value',
   wants: 'Wants', tradelists: 'For trade',
 };
 
@@ -160,7 +160,15 @@ function CardLots({
             </div>
             <div className="lot-meta">
               {lot.finish !== 'nonfoil' && <span className="tag ok">{lot.finish}</span>}
-              <span>{lot.condition}</span>
+              <select
+                value={lot.condition}
+                onChange={(e) => apply(() => updateCollectionLot(lot.id, { condition: e.target.value }))}
+                aria-label="Change condition"
+              >
+                {['NM', 'M', 'LP', 'MP', 'HP', 'DMG', 'unknown'].map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
               <span>·</span>
               <select
                 value={lot.location_id}
@@ -393,7 +401,7 @@ export function CollectionPage() {
   const [locationFilter, setLocationFilter] = useState<number | undefined>();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ oracleId: string; printingId: string | null; finish: string } | null>(null);
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
   const [newLocation, setNewLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -577,21 +585,25 @@ export function CollectionPage() {
               {cards.map((card) => (
                 <button
                   className="card"
-                  key={card.oracleId}
-                  aria-selected={card.oracleId === selected}
-                  onClick={() => setSelected(card.oracleId)}
-                  title={`${card.name} — ${card.typeLine}`}
+                  key={`${card.printingId ?? card.oracleId}:${card.finish}`}
+                  aria-selected={selected?.printingId === card.printingId && selected?.finish === card.finish}
+                  onClick={() => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
+                  title={`${card.name} — ${card.setName ?? card.setCode?.toUpperCase()} #${card.collectorNumber}`}
                 >
                   {card.printingId && card.imageSmall
                     ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
                     : <div className="placeholder">{card.name}</div>}
                   <span className="owned-badge">{card.ownedQuantity}</span>
+                  {card.finish !== 'nonfoil' && (
+                    <span className="foil-badge" title={card.finish}>{card.finish === 'etched' ? 'etched' : 'foil'}</span>
+                  )}
                   {card.locationCount > 1 && (
                     <span className="split-badge" title={`Split across ${card.locationCount} locations`}>
                       {card.locationCount} places
                     </span>
                   )}
                   <div className="cname">{card.name}</div>
+                  <div className="cset">{(card.setCode?.toUpperCase() ?? '')} · #{card.collectorNumber}</div>
                   <div className="cvalue">{money(card.valueUsd)}</div>
                 </button>
               ))}
@@ -602,12 +614,12 @@ export function CollectionPage() {
             {selected ? (
               <>
                 <div className="btnrow" style={{ marginBottom: 10 }}>
-                  <button className="btn" onClick={() => setAdding({ oracleId: selected })}>
+                  <button className="btn" onClick={() => setAdding({ oracleId: selected.oracleId, printingId: selected.printingId })}>
                     Add more
                   </button>
                   <button className="btn secondary" onClick={() => setSelected(null)}>Close</button>
                 </div>
-                <CardLots oracleId={selected} locations={locations} onChanged={refreshAll} />
+                <CardLots oracleId={selected.oracleId} locations={locations} onChanged={refreshAll} />
               </>
             ) : (
               <p className="empty">Select a card to see where its copies live.</p>
@@ -624,7 +636,7 @@ export function CollectionPage() {
 
       {tab === 'sets' && (
         <div className="results">
-          <h3 className="section-title">Set completion</h3>
+          <h3 className="section-title">Set Completion</h3>
           {setStats.length === 0 && <p className="empty">Add some cards to see set progress.</p>}
           {setStats.map((s) => (
             <div className="setrow" key={s.set_code}>

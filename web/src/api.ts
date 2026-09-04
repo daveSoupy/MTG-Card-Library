@@ -560,6 +560,10 @@ export interface CollectionCard {
   locationCount: number;
   lotCount: number;
   printingId: string | null;
+  finish: string;
+  setCode: string | null;
+  setName: string | null;
+  collectorNumber: string | null;
   imageSmall: string | null;
 }
 

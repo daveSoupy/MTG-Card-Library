@@ -130,43 +130,38 @@ export class CollectionStore {
     if (filters.query) { where.push('o.name_normalized LIKE ?'); params.push(`%${filters.query}%`); }
 
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-    // Allocation is a whole-collection property, so it is filtered after
-    // grouping rather than alongside the per-lot conditions.
-    const having = filters.unallocatedOnly
-      ? 'HAVING owned_qty > COALESCE(alloc.qty, 0)'
-      : '';
 
+    // One row per printing *and* finish, not per card name: different art (and
+    // a foil vs. its nonfoil) are genuinely different objects worth very
+    // different money, so each gets its own tile rather than being summed
+    // together under the oracle name.
     const from = `
       FROM v_collection_item_value v
       JOIN card_printings p ON p.id = v.printing_id
       JOIN oracle_cards o ON o.oracle_id = v.oracle_id
-      LEFT JOIN card_art_preferences ap ON ap.oracle_id = o.oracle_id
-      LEFT JOIN (
-          SELECT oracle_id, SUM(quantity_from_collection) AS qty FROM deck_cards
-          WHERE board IN ('main','side','command') GROUP BY oracle_id
-      ) alloc ON alloc.oracle_id = o.oracle_id
+      LEFT JOIN sets s ON s.code = p.set_code
       ${whereSql}
-      GROUP BY o.oracle_id
-      ${having}`;
+      GROUP BY v.printing_id, v.finish`;
 
     const rows = this.db.prepare(`
       SELECT o.oracle_id, o.name, o.mana_cost, o.cmc, o.type_line, o.color_identity,
+             v.printing_id, v.finish,
+             p.set_code, s.name AS set_name, p.collector_number,
              SUM(v.quantity) AS owned_qty,
-             COALESCE(alloc.qty, 0) AS allocated_qty,
-             SUM(v.quantity) - COALESCE(alloc.qty, 0) AS available_qty,
+             0 AS allocated_qty,
+             SUM(v.quantity) AS available_qty,
              SUM(v.line_value_usd) AS value_usd,
              SUM(v.line_cost_basis_usd) AS cost_usd,
              SUM(v.unrealized_gain_usd) AS gain_usd,
-             COUNT(DISTINCT v.printing_id) AS printing_count,
+             1 AS printing_count,
              COUNT(DISTINCT v.location_id) AS location_count,
              COUNT(*) AS lot_count,
              MAX(COALESCE(v.acquired_at, '')) AS last_added,
-             MIN(p.set_code) AS min_set,
-             MIN(COALESCE(p.collector_number_num, 999999)) AS min_number,
-             (SELECT dp.id FROM card_printings dp WHERE dp.id = COALESCE(ap.printing_id, o.default_printing_id)) AS printing_id,
-             (SELECT COALESCE(dp.image_small, ff.image_small) FROM card_printings dp
-                LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
-               WHERE dp.id = COALESCE(ap.printing_id, o.default_printing_id)) AS image_small
+             p.set_code AS min_set,
+             COALESCE(p.collector_number_num, 999999) AS min_number,
+             COALESCE(p.image_small,
+                      (SELECT ff.image_small FROM card_faces ff
+                        WHERE ff.printing_id = p.id AND ff.face_index = 0)) AS image_small
       ${from}
       ORDER BY ${SORT_SQL[sort]}
       LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];
@@ -459,6 +454,10 @@ function toCollectionCard(row: any) {
     locationCount: row.location_count,
     lotCount: row.lot_count,
     printingId: row.printing_id,
+    finish: row.finish,
+    setCode: row.set_code,
+    setName: row.set_name,
+    collectorNumber: row.collector_number,
     imageSmall: row.image_small,
   };
 }
