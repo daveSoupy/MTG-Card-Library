@@ -842,6 +842,27 @@ input[type='number'] { width: 72px; }
 .entry-bar select { width: auto; min-width: 128px; }
 .entry-bar label.check { flex-direction: row; align-items: center; }
 
+/* Search-as-you-type dropdown (set picker, and reusable elsewhere). */
+.combobox { position: relative; }
+.combobox > input {
+  min-width: 220px; padding: 6px 9px; border-radius: 7px;
+  border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text);
+}
+.combobox > input:focus { outline: none; border-color: var(--accent); }
+.combobox-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  width: max(100%, 260px); max-height: 320px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.35); padding: 4px;
+}
+.combobox-option {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  color: var(--text-2); padding: 6px 8px; border-radius: 5px; font-size: 13px;
+}
+.combobox-option:hover { background: var(--accent-dim); color: var(--text); }
+.combobox-option.on { color: var(--text); font-weight: 600; }
+.combobox-empty { padding: 6px 8px; font-size: 12px; color: var(--text-3); }
+
 .entry-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px;
 }
