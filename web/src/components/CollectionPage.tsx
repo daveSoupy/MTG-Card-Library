@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, createLocation, decrementCollectionCopy, deleteLocation, fetchCollection,
-  fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist, fetchSetCompletion,
-  fetchSets, imageUrl, removeCollectionLot, updateCollectionLot,
+  addCollectionLot, addTradeListItem, createLocation, decrementCollectionCopy, deleteLocation,
+  fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist,
+  fetchSetCompletion, fetchSets, fetchTradeLists, imageUrl, removeCollectionLot, updateCollectionLot,
   type CollectionCard, type CollectionCardDetail, type CollectionValue,
   type SetRecord, type StorageLocation,
 } from '../api.ts';
@@ -79,11 +79,33 @@ function CardLots({
 }) {
   const [detail, setDetail] = useState<CollectionCardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tradeListId, setTradeListId] = useState<number | null>(null);
+  const [listed, setListed] = useState<number | null>(null);
 
   const load = useCallback(() => {
     fetchCollectionCard(oracleId).then(setDetail).catch((e) => setError(e.message));
   }, [oracleId]);
   useEffect(load, [load]);
+
+  // The default trade list is where the "For trade" button lists a copy.
+  useEffect(() => {
+    fetchTradeLists()
+      .then((lists) => setTradeListId((lists.find((l) => l.is_default) ?? lists[0])?.id ?? null))
+      .catch(() => {});
+  }, []);
+
+  const listForTrade = async (lotId: number, quantity: number) => {
+    if (tradeListId == null) return;
+    setError(null);
+    try {
+      await addTradeListItem(tradeListId, lotId, { quantity });
+      setListed(lotId);
+      setTimeout(() => setListed((current) => (current === lotId ? null : current)), 1600);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const apply = async (action: () => Promise<unknown>) => {
     setError(null);
@@ -153,6 +175,10 @@ function CardLots({
               <button className="linkish"
                       onClick={() => apply(() => updateCollectionLot(lot.id, { quantity: lot.quantity - 1 }))}>
                 −1
+              </button>
+              <button className="linkish" disabled={tradeListId == null}
+                      onClick={() => listForTrade(lot.id, lot.quantity)}>
+                {listed === lot.id ? 'Listed ✓' : 'For trade'}
               </button>
               <button className="linkish danger" onClick={() => apply(() => removeCollectionLot(lot.id))}>
                 Remove
