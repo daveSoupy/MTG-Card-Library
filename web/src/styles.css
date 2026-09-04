@@ -854,6 +854,8 @@ input[type='number'] { width: 72px; }
   width: max(100%, 260px); max-height: 320px; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px;
   box-shadow: 0 8px 30px rgba(0,0,0,.35); padding: 4px;
+  /* Smooth finger-scroll on touch, and keep the scroll inside the list. */
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y;
 }
 .combobox-option {
   display: block; width: 100%; text-align: left; background: none; border: 0;
@@ -866,10 +868,18 @@ input[type='number'] { width: 72px; }
 .entry-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px;
 }
-.entry-tile { position: relative; background: none; border: 0; padding: 0; border-radius: 9px; }
+.entry-tile {
+  position: relative; background: none; border: 0; padding: 0; border-radius: 9px;
+  /* Press-and-hold to remove: suppress the iOS text-select / image callout. */
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
 .entry-tile img, .entry-tile .placeholder {
   width: 100%; aspect-ratio: 488 / 680; border-radius: 8px; display: block;
   background: var(--panel-2); object-fit: cover;
+  /* The button owns the press-and-hold; make the image transparent to touch so
+     iOS doesn't hijack the long-press with its "save image" menu. */
+  pointer-events: none; -webkit-touch-callout: none;
+  -webkit-user-select: none; user-select: none;
 }
 .entry-tile .placeholder {
   display: grid; place-items: center; padding: 6px; text-align: center;

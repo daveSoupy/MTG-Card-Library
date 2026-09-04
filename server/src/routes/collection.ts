@@ -182,6 +182,22 @@ export function registerCollectionRoutes(
     return reply.status(204).send();
   });
 
+  // Undo a tap-to-add: remove one copy of the plainly-added card.
+  app.post('/api/v1/collection/items/decrement', async (request, reply) => {
+    const body = (request.body ?? {}) as any;
+    if (typeof body.printingId !== 'string') return reply.status(400).send({ error: 'printingId is required.' });
+    const locationId = asInt(body.locationId);
+    if (locationId === undefined) return reply.status(400).send({ error: 'locationId is required.' });
+
+    const owned = collection.decrementCopy({
+      printingId: body.printingId,
+      locationId,
+      finish: oneOf(FINISHES, body.finish),
+      condition: oneOf(CONDITIONS, body.condition),
+    });
+    return { removed: owned !== null, owned };
+  });
+
   // -- value and sets --------------------------------------------------------
 
   app.get('/api/v1/collection/value', async () => ({

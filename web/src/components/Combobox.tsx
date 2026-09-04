@@ -60,9 +60,10 @@ export function Combobox({ options, value, onChange, placeholder }: {
             <button
               key={o.value}
               className={`combobox-option${o.value === value ? ' on' : ''}`}
-              // pointerDown + preventDefault: selects before the input blurs, so
-              // the tap is never lost and the list closes at once on touch.
-              onPointerDown={(e) => { e.preventDefault(); choose(o.value); }}
+              // Select on click, not pointerdown: a click never fires during a
+              // scroll drag, so the list stays scrollable on touch. choose()
+              // closes the list and blurs the field, so it doesn't linger.
+              onClick={() => choose(o.value)}
             >
               {o.label}
             </button>
