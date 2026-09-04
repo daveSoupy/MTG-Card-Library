@@ -409,18 +409,6 @@ input[type='number'] { width: 72px; }
 }
 .tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
 
-/* Secondary tab bar nested under Collection (My cards / Wants / For trade). */
-.subtabs {
-  display: flex; gap: 4px; align-items: center;
-  padding: 8px 24px; border-bottom: 1px solid var(--line);
-}
-.subtabs button {
-  background: none; border: 0; color: var(--text-3);
-  padding: 5px 13px; border-radius: 6px; font-size: 13px; cursor: pointer;
-}
-.subtabs button:hover { color: var(--text); }
-.subtabs button.on { background: var(--panel-2); color: var(--text); }
-
 /* ---------- deck list page ---------- */
 .decks-page { overflow-y: auto; padding: 22px 24px 60px; min-height: 0; }
 .decks-head {
