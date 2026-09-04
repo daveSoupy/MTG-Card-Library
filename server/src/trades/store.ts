@@ -168,23 +168,13 @@ export class TradeStore {
   updateItem(tradeId: number, itemId: number, changes: Record<string, unknown>): void {
     this.requireDraft(tradeId);
 
-    // A quantity change on an outgoing item is clamped to what is still owned.
     if (changes.quantity !== undefined) {
-      const row = this.db.prepare(
-        `SELECT direction, printing_id, finish, condition FROM trade_items WHERE id = ? AND trade_id = ?`,
-      ).get(itemId, tradeId) as
-        | { direction: Direction; printing_id: string; finish: string; condition: string }
-        | undefined;
-      let quantity = Math.max(1, Math.trunc(Number(changes.quantity)));
-      if (row?.direction === 'out') {
-        quantity = Math.min(quantity, Math.max(1, this.ownedFor(row.printing_id, row.finish, row.condition)));
-      }
-      changes = { ...changes, quantity };
+      changes = { ...changes, quantity: Math.max(1, Math.trunc(Number(changes.quantity))) };
     }
 
     const columns: Record<string, string> = {
-      quantity: 'quantity', finish: 'finish', condition: 'condition', language: 'language',
-      sourceCollectionItemId: 'source_collection_item_id',
+      quantity: 'quantity', printingId: 'printing_id', finish: 'finish', condition: 'condition',
+      language: 'language', sourceCollectionItemId: 'source_collection_item_id',
       destinationLocationId: 'destination_location_id',
       unitValueUsd: 'unit_value_usd', notes: 'notes',
     };
@@ -198,6 +188,20 @@ export class TradeStore {
     if (sets.length === 0) return;
     this.db.prepare(`UPDATE trade_items SET ${sets.join(', ')} WHERE id = ? AND trade_id = ?`)
       .run(...params, itemId, tradeId);
+
+    // Re-clamp an outgoing item to what's owned — the printing/finish/condition
+    // may have just changed, so the cap can be different from before.
+    const row = this.db.prepare(
+      `SELECT direction, printing_id, finish, condition, quantity FROM trade_items WHERE id = ? AND trade_id = ?`,
+    ).get(itemId, tradeId) as
+      | { direction: Direction; printing_id: string; finish: string; condition: string; quantity: number }
+      | undefined;
+    if (row?.direction === 'out') {
+      const cap = Math.max(1, this.ownedFor(row.printing_id, row.finish, row.condition));
+      if (row.quantity > cap) {
+        this.db.prepare('UPDATE trade_items SET quantity = ? WHERE id = ?').run(cap, itemId);
+      }
+    }
   }
 
   removeItem(tradeId: number, itemId: number): void {

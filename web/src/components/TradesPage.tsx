@@ -5,6 +5,7 @@ import {
   type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
+import { TradeItemDialog } from './TradeItemDialog.tsx';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const sumValue = (items: Trade['items'], dir: 'out' | 'in') =>
@@ -79,6 +80,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const [addingIn, setAddingIn] = useState(false);
   const [confirm, setConfirm] = useState<CompleteTradeResult | null>(null);
   const [done, setDone] = useState<CompleteTradeResult | null>(null);
+  const [editingItem, setEditingItem] = useState<Trade['items'][number] | null>(null);
 
   useEffect(() => { fetchTrade(tradeId).then(setTrade).catch((e) => setError(e.message)); }, [tradeId]);
   useEffect(() => { fetchLocations().then(setLocations).catch(() => {}); }, []);
@@ -162,7 +164,15 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                   <button onClick={() => setItemQty(item, item.quantity + 1)} disabled={item.quantity >= item.ownedQuantity} aria-label="One more">+</button>
                 </span>
               ) : <span className="dim">{item.quantity}×</span>}
-              <span className="want-name">{item.name} <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition} · own {item.ownedQuantity}</span></span>
+              <span className="want-name">
+                {item.name}
+                {!readOnly
+                  ? <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
+                      {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {item.condition} · {money(item.unitValueUsd)}
+                    </button>
+                  : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
+                <span className="dim"> own {item.ownedQuantity}</span>
+              </span>
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={async () => setTrade(await removeTradeItem(tradeId, item.id))}>×</button>}
             </div>
@@ -186,7 +196,14 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                   <button onClick={() => setItemQty(item, item.quantity + 1)} aria-label="One more">+</button>
                 </span>
               ) : <span className="dim">{item.quantity}×</span>}
-              <span className="want-name">{item.name}</span>
+              <span className="want-name">
+                {item.name}
+                {!readOnly && (
+                  <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
+                    {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {money(item.unitValueUsd)}
+                  </button>
+                )}
+              </span>
               {!readOnly ? (
                 <select value={item.destinationLocationId ?? ''}
                   onChange={async (e) => setTrade(await updateTradeItem(tradeId, item.id, { destinationLocationId: e.target.value ? Number(e.target.value) : null }))}>
@@ -231,6 +248,15 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           </button>
           <button className="btn secondary" onClick={async () => { if (confirmDelete()) { await deleteTrade(tradeId); onClose(); } }}>Delete draft</button>
         </div>
+      )}
+
+      {editingItem && (
+        <TradeItemDialog
+          trade={trade}
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+          onSaved={(next) => setTrade(next)}
+        />
       )}
     </div>
   );
