@@ -4,7 +4,7 @@ import {
   deleteLocation, fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations,
   fetchOpenCostPool, fetchSetChecklist, fetchSetCompletion, fetchSets, fetchSettings,
   fetchTradeLists, imageUrl, openCostPool, removeCollectionLot, setCostPoolSet,
-  updateCollectionLot, updateCostPoolTotal,
+  undoImportBatch, updateCollectionLot, updateCostPoolTotal,
   type CollectionCard, type CollectionCardDetail, type CollectionValue, type CostMethod,
   type CostPool, type SetRecord, type StorageLocation,
 } from '../api.ts';
@@ -301,6 +301,26 @@ function SetEntry({
     setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
   };
 
+  // Cancel abandons the session and removes every card it added — the opposite
+  // of Finish, which keeps them.
+  const cancelPool = async () => {
+    if (!pool) return;
+    const n = pool.cardCount;
+    if (n > 0 && !confirm(`Discard this ${pool.label.toLowerCase()} and remove the ${n} card${n === 1 ? '' : 's'} it added?`)) return;
+    setError(null);
+    try {
+      if (n > 0) await undoImportBatch(pool.id);
+      await closeCostPool();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setPool(null);
+    setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
+    load();
+    onChanged();
+  };
+
   const setName = (code: string) => sets.find((s) => s.code === code)?.name ?? code.toUpperCase();
 
   const load = useCallback(() => {
@@ -471,7 +491,10 @@ function SetEntry({
               </>
             )}
           </span>
-          <button className="btn secondary small" onClick={finishPool}>Finish</button>
+          <span className="pool-actions">
+            <button className="btn secondary small" onClick={finishPool} title="Keep these cards and close the pool">Finish</button>
+            <button className="btn secondary small cancel" onClick={cancelPool} title="Remove every card this pool added and close it">Cancel</button>
+          </span>
         </div>
       ) : pooled && (
         <p className="hint">
