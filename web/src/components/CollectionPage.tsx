@@ -584,15 +584,18 @@ export function CollectionPage() {
             <div className="grid">
               {cards.map((card) => (
                 <button
-                  className="card"
+                  className={`card${card.finish !== 'nonfoil' ? ' is-foil' : ''}`}
                   key={`${card.printingId ?? card.oracleId}:${card.finish}`}
                   aria-selected={selected?.printingId === card.printingId && selected?.finish === card.finish}
                   onClick={() => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
                   title={`${card.name} — ${card.setName ?? card.setCode?.toUpperCase()} #${card.collectorNumber}`}
                 >
-                  {card.printingId && card.imageSmall
-                    ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
-                    : <div className="placeholder">{card.name}</div>}
+                  <span className="card-art">
+                    {card.printingId && card.imageSmall
+                      ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
+                      : <div className="placeholder">{card.name}</div>}
+                    {card.finish !== 'nonfoil' && <span className="foil-overlay" aria-hidden="true" />}
+                  </span>
                   <span className="owned-badge">{card.ownedQuantity}</span>
                   {card.finish !== 'nonfoil' && (
                     <span className="foil-badge" title={card.finish}>{card.finish === 'etched' ? 'etched' : 'foil'}</span>
