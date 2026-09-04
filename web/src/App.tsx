@@ -78,7 +78,7 @@ type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showSync, setShowSync] = useState(false);
-  const [view, setView] = useState<View>({ name: 'browse' });
+  const [view, setView] = useState<View>({ name: 'collection' });
 
   const [text, setText] = useState('');
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -184,29 +184,21 @@ export default function App() {
 
         <nav className="tabs">
           <button
-            className={view.name === 'browse' ? 'on' : ''}
-            onClick={() => setView({ name: 'browse' })}
-          >Browse</button>
+            className={view.name === 'collection' || view.name === 'wants' || view.name === 'tradelists' ? 'on' : ''}
+            onClick={() => setView({ name: 'collection' })}
+          >Collection</button>
           <button
             className={view.name === 'decks' || view.name === 'deck' ? 'on' : ''}
             onClick={() => setView({ name: 'decks' })}
           >Decks</button>
           <button
-            className={view.name === 'collection' ? 'on' : ''}
-            onClick={() => setView({ name: 'collection' })}
-          >Collection</button>
+            className={view.name === 'browse' ? 'on' : ''}
+            onClick={() => setView({ name: 'browse' })}
+          >Browse</button>
           <button
             className={view.name === 'trades' ? 'on' : ''}
             onClick={() => setView({ name: 'trades' })}
           >Trades</button>
-          <button
-            className={view.name === 'wants' ? 'on' : ''}
-            onClick={() => setView({ name: 'wants' })}
-          >Wants</button>
-          <button
-            className={view.name === 'tradelists' ? 'on' : ''}
-            onClick={() => setView({ name: 'tradelists' })}
-          >For trade</button>
           <button
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => setView({ name: 'data' })}
@@ -264,6 +256,23 @@ export default function App() {
         <AlertsBell refreshKey={alertKey} />
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
+
+      {(view.name === 'collection' || view.name === 'wants' || view.name === 'tradelists') && (
+        <nav className="subtabs">
+          <button
+            className={view.name === 'collection' ? 'on' : ''}
+            onClick={() => setView({ name: 'collection' })}
+          >My cards</button>
+          <button
+            className={view.name === 'wants' ? 'on' : ''}
+            onClick={() => setView({ name: 'wants' })}
+          >Wants</button>
+          <button
+            className={view.name === 'tradelists' ? 'on' : ''}
+            onClick={() => setView({ name: 'tradelists' })}
+          >For trade</button>
+        </nav>
+      )}
 
       {view.name === 'collection' && <CollectionPage key={dataEpoch} />}
 
