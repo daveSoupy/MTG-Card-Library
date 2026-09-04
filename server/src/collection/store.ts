@@ -1,4 +1,16 @@
 import type Database from 'better-sqlite3';
+import { getSetting, setSetting } from '../db/index.ts';
+
+/** The single cost pool currently accepting cards, stored in app_settings. */
+export const OPEN_COST_POOL_ID = 'open_cost_pool_id';
+
+export interface CostPoolSummary {
+  id: number;
+  label: string;
+  totalCostUsd: number;
+  cardCount: number;
+  perCopy: number;
+}
 
 /**
  * Reads and writes the collection.
@@ -357,15 +369,59 @@ export class CollectionStore {
 
   /**
    * Opens a cost pool — an import batch carrying a lump sum to spread across the
-   * copies later added to it (the 'box' cost method). Returns the batch id.
+   * copies later added to it (the 'box'/'draft' methods) — and marks it the one
+   * currently accepting cards, so it survives leaving the screen and resumes on
+   * return. The label lives in file_name, which the import history already shows
+   * and undo leaves alone. Returns the pool summary.
    */
-  openCostPool(input: { totalCostUsd: number; notes?: string | null }): number {
+  openCostPool(input: { totalCostUsd: number; label?: string | null }): CostPoolSummary {
     const total = Math.max(0, input.totalCostUsd);
     const result = this.db.prepare(`
-      INSERT INTO import_batches (source, total_cost_usd, split_method, notes)
-      VALUES ('manual', ?, 'even', ?)`)
-      .run(total, input.notes ?? null);
-    return Number(result.lastInsertRowid);
+      INSERT INTO import_batches (source, file_name, total_cost_usd, split_method)
+      VALUES ('manual', ?, ?, 'even')`)
+      .run(input.label ?? 'Cost pool', total);
+    const id = Number(result.lastInsertRowid);
+    setSetting(this.db, OPEN_COST_POOL_ID, String(id));
+    return this.poolSummary(id)!;
+  }
+
+  /** The pool currently accepting cards, or null once it's finished/undone. */
+  currentCostPool(): CostPoolSummary | null {
+    const stored = getSetting(this.db, OPEN_COST_POOL_ID);
+    if (!stored) return null;
+    const summary = this.poolSummary(Number(stored));
+    if (!summary) { setSetting(this.db, OPEN_COST_POOL_ID, ''); return null; } // dangling id
+    return summary;
+  }
+
+  /** Changes a pool's lump sum and re-divides it across the copies it holds. */
+  updateCostPoolTotal(id: number, totalCostUsd: number): CostPoolSummary | null {
+    this.db.prepare('UPDATE import_batches SET total_cost_usd = ? WHERE id = ?')
+      .run(Math.max(0, totalCostUsd), id);
+    this.resplitCostPool(id);
+    return this.poolSummary(id);
+  }
+
+  /** Finishes the open pool. The batch row stays as history; its lots keep their cost. */
+  closeCostPool(): void {
+    setSetting(this.db, OPEN_COST_POOL_ID, '');
+  }
+
+  private poolSummary(id: number): CostPoolSummary | null {
+    const batch = this.db.prepare(
+      'SELECT id, file_name, total_cost_usd FROM import_batches WHERE id = ? AND total_cost_usd IS NOT NULL',
+    ).get(id) as { id: number; file_name: string | null; total_cost_usd: number } | undefined;
+    if (!batch) return null;
+    const { qty } = this.db.prepare(
+      'SELECT COALESCE(SUM(quantity), 0) AS qty FROM collection_items WHERE import_batch_id = ?',
+    ).get(id) as { qty: number };
+    return {
+      id: batch.id,
+      label: batch.file_name ?? 'Cost pool',
+      totalCostUsd: batch.total_cost_usd,
+      cardCount: qty,
+      perCopy: qty > 0 ? batch.total_cost_usd / qty : 0,
+    };
   }
 
   /** Re-divides a cost pool's total evenly over every copy it now holds. */

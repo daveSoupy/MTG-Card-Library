@@ -77,7 +77,7 @@ test('an explicit cost overrides the method', () => {
 
 test('a box pool splits its total evenly and re-splits as copies are added', () => {
   const { db, store, loc } = fixture();
-  const batchId = store.openCostPool({ totalCostUsd: 120 });
+  const { id: batchId } = store.openCostPool({ totalCostUsd: 120 });
 
   // First card in the box: whole total on the one copy.
   const a = store.addLot({ printingId: 'priced', locationId: loc, quantity: 1, costMethod: 'box', importBatchId: batchId });
@@ -98,12 +98,60 @@ test('a box pool splits its total evenly and re-splits as copies are added', () 
 
 test('box adds of the same card merge into one lot despite the moving cost', () => {
   const { db, store, loc } = fixture();
-  const batchId = store.openCostPool({ totalCostUsd: 10 });
+  const { id: batchId } = store.openCostPool({ totalCostUsd: 10 });
   store.addLot({ printingId: 'priced', locationId: loc, quantity: 1, finish: 'nonfoil', condition: 'NM', costMethod: 'box', importBatchId: batchId });
   store.addLot({ printingId: 'priced', locationId: loc, quantity: 1, finish: 'nonfoil', condition: 'NM', costMethod: 'box', importBatchId: batchId });
   const rows = db.prepare('SELECT quantity, acquired_unit_cost AS c FROM collection_items WHERE import_batch_id = ?').all(batchId) as Array<{ quantity: number; c: number }>;
   assert.equal(rows.length, 1, 'the two taps merged');
   assert.equal(rows[0].quantity, 2);
   assert.equal(rows[0].c, 5, '10 / 2 copies');
+  db.close();
+});
+
+test('opening a pool marks it the open one and summarises it', () => {
+  const { db, store, loc } = fixture();
+  const pool = store.openCostPool({ totalCostUsd: 12, label: 'Draft' });
+  assert.equal(pool.label, 'Draft');
+  assert.equal(pool.totalCostUsd, 12);
+  assert.equal(pool.cardCount, 0);
+
+  store.addLot({ printingId: 'priced', locationId: loc, quantity: 2, costMethod: 'box', importBatchId: pool.id });
+  const open = store.currentCostPool();
+  assert.equal(open?.id, pool.id);
+  assert.equal(open?.cardCount, 2);
+  assert.equal(open?.perCopy, 6, '12 / 2');
+  db.close();
+});
+
+test('a pool resumes across separate add calls, then closes on finish', () => {
+  const { db, store, loc } = fixture();
+  const pool = store.openCostPool({ totalCostUsd: 30 });
+
+  // First "session".
+  store.addLot({ printingId: 'priced', locationId: loc, quantity: 1, costMethod: 'box', importBatchId: pool.id });
+  // ...step away... resume by reading the still-open pool and adding more.
+  const resumed = store.currentCostPool();
+  assert.equal(resumed?.id, pool.id, 'the same pool is still open');
+  store.addLot({ printingId: 'unpriced', locationId: loc, quantity: 2, costMethod: 'box', importBatchId: resumed!.id });
+  assert.equal(store.currentCostPool()?.perCopy, 10, '30 / 3 copies across both sessions');
+
+  store.closeCostPool();
+  assert.equal(store.currentCostPool(), null, 'no pool open after finishing');
+  // The lots keep the cost they were split to.
+  const perCopy = (db.prepare('SELECT acquired_unit_cost AS c FROM collection_items WHERE import_batch_id = ? LIMIT 1').get(pool.id) as { c: number }).c;
+  assert.equal(perCopy, 10);
+  db.close();
+});
+
+test('updateCostPoolTotal re-divides across the copies held', () => {
+  const { db, store, loc } = fixture();
+  const pool = store.openCostPool({ totalCostUsd: 100 });
+  store.addLot({ printingId: 'priced', locationId: loc, quantity: 4, costMethod: 'box', importBatchId: pool.id });
+  assert.equal(store.currentCostPool()?.perCopy, 25);
+
+  const updated = store.updateCostPoolTotal(pool.id, 40);
+  assert.equal(updated?.perCopy, 10, '40 / 4');
+  const cost = (db.prepare('SELECT acquired_unit_cost AS c FROM collection_items WHERE import_batch_id = ? LIMIT 1').get(pool.id) as { c: number }).c;
+  assert.equal(cost, 10);
   db.close();
 });

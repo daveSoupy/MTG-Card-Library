@@ -392,8 +392,17 @@ export function DataPage({ locations, onCollectionChanged }: {
                   <span>{formatWhen(batch.importedAt)}</span>
                   <span>{batch.fileName ?? batch.source}</span>
                   <span className="dim">
-                    {batch.rowsImported} of {batch.rowsTotal} rows
-                    {batch.rowsUnmatched ? `, ${batch.rowsUnmatched} unmatched` : ''}
+                    {batch.totalCostUsd != null ? (
+                      <>
+                        ${batch.totalCostUsd.toFixed(2)} · {batch.cardsRemaining} cards
+                        {batch.cardsRemaining > 0 && ` · $${(batch.totalCostUsd / batch.cardsRemaining).toFixed(2)} each`}
+                      </>
+                    ) : (
+                      <>
+                        {batch.rowsImported} of {batch.rowsTotal} rows
+                        {batch.rowsUnmatched ? `, ${batch.rowsUnmatched} unmatched` : ''}
+                      </>
+                    )}
                   </span>
                   {batch.cardsRemaining > 0 ? (
                     <button className="btn secondary small" onClick={() => undo(batch)} disabled={busy}>
