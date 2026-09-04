@@ -294,7 +294,9 @@ function SetEntry({
       </div>
 
       {error && <div className="error">{error}</div>}
-      {justAdded && <div className="verdict ok">Added {justAdded}.</div>}
+      {/* Floats over the grid rather than sitting in the flow, so a rapid string
+          of adds doesn't shove the card list up and down. */}
+      {justAdded && <div className="add-toast" role="status">Added {justAdded}</div>}
 
       {!setCode && (
         <p className="empty">
