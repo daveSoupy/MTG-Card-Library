@@ -191,6 +191,7 @@ function SetEntry({
   const [condition, setCondition] = useState('NM');
   const [hideOwned, setHideOwned] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [toastRemoving, setToastRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -203,8 +204,9 @@ function SetEntry({
   }, [setCode]);
   useEffect(load, [load]);
 
-  /** Shows a floating confirmation for ~1.4s. */
-  const flash = (message: string) => {
+  /** Shows a floating confirmation for ~1.4s — red when it's a removal. */
+  const flash = (message: string, removing = false) => {
+    setToastRemoving(removing);
     setJustAdded(message);
     setTimeout(() => setJustAdded((current) => (current === message ? null : current)), 1400);
   };
@@ -231,7 +233,7 @@ function SetEntry({
     try {
       const result = await decrementCollectionCopy({ printingId, locationId, finish, condition });
       if (!result.removed) return; // nothing plainly-added here to take back
-      flash(`Removed ${name}`);
+      flash(`Removed ${name}`, true);
       setCards((prev) => prev.map((c) =>
         c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty - 1) } : c));
       onChanged();
@@ -300,7 +302,7 @@ function SetEntry({
       {error && <div className="error">{error}</div>}
       {/* Floats over the grid rather than sitting in the flow, so a rapid string
           of adds doesn't shove the card list up and down. */}
-      {justAdded && <div className="add-toast" role="status">{justAdded}</div>}
+      {justAdded && <div className={`add-toast${toastRemoving ? ' removed' : ''}`} role="status">{justAdded}</div>}
 
       {!setCode && (
         <p className="empty">
