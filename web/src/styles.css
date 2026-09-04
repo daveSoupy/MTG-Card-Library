@@ -1282,8 +1282,10 @@ input[type='number'] { width: 72px; }
   .combobox > input { min-width: 0; width: 100%; }
 
   /* iOS zooms into any text field with a font under 16px on focus — which is
-     why tapping a search box zoomed the whole page in. 16px stops that. */
-  input, select, textarea { font-size: 16px; }
+     why tapping a search box zoomed the whole page in. Force 16px with
+     !important so no more-specific rule (.searchbox input, .want-field input,
+     …) can drop a field back under the threshold and reintroduce the zoom. */
+  input, select, textarea { font-size: 16px !important; }
 
   /* Let the new-deck bar wrap instead of running its Create/Paste buttons off
      the right edge. */
