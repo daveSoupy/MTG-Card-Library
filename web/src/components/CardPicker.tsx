@@ -19,17 +19,24 @@ export function CardPicker({ onPick, placeholder, ownedOnly }: {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return; }
+    // An owned-only picker browses the collection even before you type, so the
+    // giving-away side opens straight onto the cards you own.
+    if (!query.trim() && !ownedOnly) { setResults([]); return; }
     const controller = new AbortController();
     const timer = setTimeout(() => {
       setSearching(true);
-      searchCards({ q: query, ownedOnly, limit: 25, sort: 'relevance' }, controller.signal)
+      searchCards({
+        q: query,
+        ownedOnly,
+        limit: ownedOnly ? 60 : 25,
+        sort: query.trim() ? 'relevance' : 'name',
+      }, controller.signal)
         .then((r) => setResults(r.cards))
         .catch((e) => { if (e.name !== 'AbortError') setResults([]); })
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query]);
+  }, [query, ownedOnly]);
 
   // Tap/click outside closes the dropdown (works on touch too).
   useEffect(() => {
@@ -61,9 +68,11 @@ export function CardPicker({ onPick, placeholder, ownedOnly }: {
       </div>
       {open && (
         <div className="combobox-list">
-          {!query.trim() && <div className="combobox-empty">Type a card name or Scryfall syntax…</div>}
-          {query.trim() && searching && <div className="combobox-empty">Searching…</div>}
-          {query.trim() && !searching && results.length === 0 && <div className="combobox-empty">No matches</div>}
+          {!ownedOnly && !query.trim() && <div className="combobox-empty">Type a card name or Scryfall syntax…</div>}
+          {(query.trim() || ownedOnly) && searching && results.length === 0 && <div className="combobox-empty">Searching…</div>}
+          {(query.trim() || ownedOnly) && !searching && results.length === 0 && (
+            <div className="combobox-empty">{ownedOnly ? 'No matching cards you own.' : 'No matches'}</div>
+          )}
           {results.map((card) => (
             <button
               key={card.oracleId}
