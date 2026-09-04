@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, createLocation, deleteLocation, fetchCollection, fetchCollectionCard,
-  fetchCollectionValue, fetchLocations, fetchSetChecklist, fetchSetCompletion, fetchSets,
-  imageUrl, removeCollectionLot, updateCollectionLot,
+  addCollectionLot, addTradeListItem, createLocation, decrementCollectionCopy, deleteLocation,
+  fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist,
+  fetchSetCompletion, fetchSets, fetchTradeLists, imageUrl, removeCollectionLot, updateCollectionLot,
   type CollectionCard, type CollectionCardDetail, type CollectionValue,
   type SetRecord, type StorageLocation,
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
+import { Combobox } from './Combobox.tsx';
 
 type Tab = 'browse' | 'add' | 'sets' | 'value';
 
@@ -78,11 +79,33 @@ function CardLots({
 }) {
   const [detail, setDetail] = useState<CollectionCardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tradeListId, setTradeListId] = useState<number | null>(null);
+  const [listed, setListed] = useState<number | null>(null);
 
   const load = useCallback(() => {
     fetchCollectionCard(oracleId).then(setDetail).catch((e) => setError(e.message));
   }, [oracleId]);
   useEffect(load, [load]);
+
+  // The default trade list is where the "For trade" button lists a copy.
+  useEffect(() => {
+    fetchTradeLists()
+      .then((lists) => setTradeListId((lists.find((l) => l.is_default) ?? lists[0])?.id ?? null))
+      .catch(() => {});
+  }, []);
+
+  const listForTrade = async (lotId: number, quantity: number) => {
+    if (tradeListId == null) return;
+    setError(null);
+    try {
+      await addTradeListItem(tradeListId, lotId, { quantity });
+      setListed(lotId);
+      setTimeout(() => setListed((current) => (current === lotId ? null : current)), 1600);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const apply = async (action: () => Promise<unknown>) => {
     setError(null);
@@ -153,6 +176,10 @@ function CardLots({
                       onClick={() => apply(() => updateCollectionLot(lot.id, { quantity: lot.quantity - 1 }))}>
                 −1
               </button>
+              <button className="linkish" disabled={tradeListId == null}
+                      onClick={() => listForTrade(lot.id, lot.quantity)}>
+                {listed === lot.id ? 'Listed ✓' : 'For trade'}
+              </button>
               <button className="linkish danger" onClick={() => apply(() => removeCollectionLot(lot.id))}>
                 Remove
               </button>
@@ -190,6 +217,7 @@ function SetEntry({
   const [condition, setCondition] = useState('NM');
   const [hideOwned, setHideOwned] = useState(false);
   const [justAdded, setJustAdded] = useState<string | null>(null);
+  const [toastRemoving, setToastRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -202,17 +230,56 @@ function SetEntry({
   }, [setCode]);
   useEffect(load, [load]);
 
+  /** Shows a floating confirmation for ~1.4s — red when it's a removal. */
+  const flash = (message: string, removing = false) => {
+    setToastRemoving(removing);
+    setJustAdded(message);
+    setTimeout(() => setJustAdded((current) => (current === message ? null : current)), 1400);
+  };
+
   const add = async (printingId: string, name: string) => {
     setError(null);
     try {
       await addCollectionLot({ printingId, locationId, quantity: 1, finish, condition });
-      setJustAdded(name);
-      setTimeout(() => setJustAdded((current) => (current === name ? null : current)), 1400);
-      load();
+      flash(`Added ${name}`);
+      // Bump just this card's owned count in place — no full reload, so the grid
+      // doesn't flash or jump to the top, and you can click the same card again
+      // to add another copy.
+      setCards((prev) => prev.map((c) =>
+        c.printing_id === printingId ? { ...c, owned_qty: c.owned_qty + 1 } : c));
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  };
+
+  /** Undo — remove one copy of a card you just added (long-press a tile). */
+  const removeOne = async (printingId: string, name: string) => {
+    setError(null);
+    try {
+      const result = await decrementCollectionCopy({ printingId, locationId, finish, condition });
+      if (!result.removed) return; // nothing plainly-added here to take back
+      flash(`Removed ${name}`, true);
+      setCards((prev) => prev.map((c) =>
+        c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty - 1) } : c));
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Tap adds a copy; press-and-hold removes one. One press at a time, so a
+  // single timer and flag are enough for the whole grid.
+  const pressTimer = useRef<number | null>(null);
+  const longFired = useRef(false);
+  const startPress = (printingId: string, name: string) => {
+    longFired.current = false;
+    pressTimer.current = window.setTimeout(() => { longFired.current = true; removeOne(printingId, name); }, 500);
+  };
+  const endPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } };
+  const tapTile = (printingId: string, name: string) => {
+    if (longFired.current) { longFired.current = false; return; } // the hold already handled it
+    add(printingId, name);
   };
 
   const shown = hideOwned ? cards.filter((c) => c.owned_qty === 0) : cards;
@@ -225,12 +292,12 @@ function SetEntry({
       <div className="entry-bar">
         <label>
           <span>Set</span>
-          <select value={setCode} onChange={(e) => setSetCode(e.target.value)}>
-            <option value="">Choose a set…</option>
-            {sets.map((s) => (
-              <option key={s.code} value={s.code}>{s.name} ({s.code.toUpperCase()})</option>
-            ))}
-          </select>
+          <Combobox
+            options={sets.map((s) => ({ value: s.code, label: `${s.name} (${s.code.toUpperCase()})` }))}
+            value={setCode}
+            onChange={setSetCode}
+            placeholder="Search sets…"
+          />
         </label>
         <label>
           <span>Into</span>
@@ -259,7 +326,9 @@ function SetEntry({
       </div>
 
       {error && <div className="error">{error}</div>}
-      {justAdded && <div className="verdict ok">Added {justAdded}.</div>}
+      {/* Floats over the grid rather than sitting in the flow, so a rapid string
+          of adds doesn't shove the card list up and down. */}
+      {justAdded && <div className={`add-toast${toastRemoving ? ' removed' : ''}`} role="status">{justAdded}</div>}
 
       {!setCode && (
         <p className="empty">
@@ -275,17 +344,22 @@ function SetEntry({
             <span className="count">
               {ownedCount} of {cards.length} owned · showing {shown.length}
             </span>
+            <span className="hint">Tap to add · press and hold to remove one</span>
           </div>
           <div className="entry-grid">
             {shown.map((card) => (
               <button
                 className={`entry-tile${card.owned_qty > 0 ? ' owned' : ''}`}
                 key={card.printing_id}
-                onClick={() => add(card.printing_id, card.name)}
-                title={`Add ${card.name} to ${locations.find((l) => l.id === locationId)?.name}`}
+                onClick={() => tapTile(card.printing_id, card.name)}
+                onPointerDown={() => startPress(card.printing_id, card.name)}
+                onPointerUp={endPress}
+                onPointerLeave={endPress}
+                onContextMenu={(e) => e.preventDefault()}
+                title={`Tap to add ${card.name} · hold to remove one`}
               >
                 {card.image_small
-                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" />
+                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" draggable={false} />
                   : <div className="placeholder">{card.name}</div>}
                 <span className="entry-number">#{card.collector_number}</span>
                 {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}

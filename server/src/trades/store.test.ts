@@ -51,6 +51,44 @@ const owned = (db: Database.Database, oracleId: string) =>
 const binderId = (db: Database.Database) =>
   (db.prepare(`SELECT id FROM storage_locations WHERE name='Binder'`).get() as { id: number }).id;
 
+test('a new trade defaults its date to today, but keeps an explicit one', () => {
+  const { db, trades } = fixture();
+  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+  const auto = trades.get(trades.create({ counterpartyName: 'Dave' }));
+  assert.equal(auto.tradeDate, today);
+
+  const explicit = trades.get(trades.create({ counterpartyName: 'Dave', tradeDate: '2020-01-01' }));
+  assert.equal(explicit.tradeDate, '2020-01-01');
+  db.close();
+});
+
+test('an outgoing quantity is capped at what you own', () => {
+  const { db, collection, trades } = fixture();
+  collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 3, condition: 'NM' });
+  const id = trades.create({ counterpartyName: 'Dave' });
+
+  // Asking for 10 of 3 owned clamps to 3.
+  trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 10, condition: 'NM' });
+  let item = trades.get(id).items.find((i) => i.direction === 'out')!;
+  assert.equal(item.quantity, 3);
+  assert.equal(item.ownedQuantity, 3);
+
+  // Editing back up beyond owned re-clamps.
+  trades.updateItem(id, item.id, { quantity: 99 });
+  item = trades.get(id).items.find((i) => i.direction === 'out')!;
+  assert.equal(item.quantity, 3);
+
+  // A second row for the same card can't push the trade over what's owned.
+  trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 5, condition: 'NM' });
+  const outQty = trades.get(id).items.filter((i) => i.direction === 'out').reduce((n, i) => n + i.quantity, 0);
+  assert.equal(outQty, 3, 'total outgoing never exceeds owned');
+
+  // Incoming has no such cap — you can receive as many as you like.
+  trades.addItem(id, { direction: 'in', printingId: 'p-bolt', quantity: 12 });
+  assert.equal(trades.get(id).items.find((i) => i.direction === 'in')!.quantity, 12);
+  db.close();
+});
+
 test('a draft does not touch the collection until completed', () => {
   const { db, collection, trades } = fixture();
   collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 2 });

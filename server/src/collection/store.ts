@@ -329,6 +329,42 @@ export class CollectionStore {
     this.db.prepare('DELETE FROM collection_items WHERE id = ?').run(id);
   }
 
+  /**
+   * Removes one copy of a plainly-added card — the undo for the tap-to-add,
+   * add-by-set flow. Targets the same lot addLot would have merged into (no cost
+   * basis, no override, not from an import), decrementing it or deleting it at
+   * zero. Never touches a lot that carries a purchase price, so a mis-tap can't
+   * quietly erase cost history. Returns the copies now owned there, or null when
+   * there was nothing to remove.
+   */
+  decrementCopy(input: {
+    printingId: string; locationId: number; finish?: Finish; condition?: Condition; language?: string;
+  }): number | null {
+    const finish = input.finish ?? 'nonfoil';
+    const condition = input.condition ?? 'NM';
+    const language = input.language ?? 'en';
+
+    return this.db.transaction(() => {
+      const lot = this.db.prepare(`
+        SELECT id, quantity FROM collection_items
+        WHERE printing_id = ? AND location_id = ? AND finish = ? AND condition = ? AND language = ?
+          AND acquired_unit_cost IS NULL AND acquired_at IS NULL
+          AND price_override IS NULL AND import_batch_id IS NULL
+        ORDER BY id DESC LIMIT 1`)
+        .get(input.printingId, input.locationId, finish, condition, language) as
+        | { id: number; quantity: number } | undefined;
+      if (!lot) return null;
+
+      if (lot.quantity > 1) {
+        this.db.prepare('UPDATE collection_items SET quantity = ? WHERE id = ?')
+          .run(lot.quantity - 1, lot.id);
+        return lot.quantity - 1;
+      }
+      this.db.prepare('DELETE FROM collection_items WHERE id = ?').run(lot.id);
+      return 0;
+    })();
+  }
+
   // -- value -----------------------------------------------------------------
 
   value() {
