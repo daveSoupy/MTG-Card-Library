@@ -19,6 +19,9 @@ export function CardPicker({ onPick, placeholder, ownedOnly }: {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Only load while the dropdown is open, and reload every time it opens — so
+    // reopening after a pick repopulates the list without a type-and-delete.
+    if (!open) return;
     // An owned-only picker browses the collection even before you type, so the
     // giving-away side opens straight onto the cards you own.
     if (!query.trim() && !ownedOnly) { setResults([]); return; }
@@ -36,7 +39,7 @@ export function CardPicker({ onPick, placeholder, ownedOnly }: {
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly]);
+  }, [query, ownedOnly, open]);
 
   // Tap/click outside closes the dropdown (works on touch too).
   useEffect(() => {
