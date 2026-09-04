@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addCollectionLot, addTradeListItem, createLocation, decrementCollectionCopy, deleteLocation,
   fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist,
-  fetchSetCompletion, fetchSets, fetchTradeLists, imageUrl, removeCollectionLot, updateCollectionLot,
-  type CollectionCard, type CollectionCardDetail, type CollectionValue,
+  fetchSetCompletion, fetchSets, fetchSettings, fetchTradeLists, imageUrl, openCostPool,
+  removeCollectionLot, updateCollectionLot,
+  type CollectionCard, type CollectionCardDetail, type CollectionValue, type CostMethod,
   type SetRecord, type StorageLocation,
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
@@ -235,6 +236,24 @@ function SetEntry({
   const [toastRemoving, setToastRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Cost basis for this add session. Starts from the app default, but is
+  // switchable inline so a booster box, a draft, or single cards at FNM can each
+  // assume cost differently without leaving the screen.
+  const [costMethod, setCostMethod] = useState<CostMethod>('unknown');
+  const [fixedAmount, setFixedAmount] = useState('');
+  const [boxTotal, setBoxTotal] = useState('');
+  const [boxBatchId, setBoxBatchId] = useState<number | null>(null);
+
+  // Seed the cost method + fixed amount from the saved app default.
+  useEffect(() => {
+    fetchSettings()
+      .then((s) => { setCostMethod(s.defaultCostMethod); setFixedAmount(s.defaultCostFixedUsd ? String(s.defaultCostFixedUsd) : ''); })
+      .catch(() => { /* leave the safe 'unknown' default */ });
+  }, []);
+
+  // Changing the box total starts a fresh pool on the next add.
+  useEffect(() => { setBoxBatchId(null); }, [boxTotal, costMethod]);
+
   const load = useCallback(() => {
     if (!setCode) { setCards([]); return; }
     setLoading(true);
@@ -255,7 +274,18 @@ function SetEntry({
   const add = async (printingId: string, name: string) => {
     setError(null);
     try {
-      await addCollectionLot({ printingId, locationId, quantity: 1, finish, condition });
+      // For a box split, open the cost pool on the first add and reuse it after.
+      let batchId = boxBatchId ?? undefined;
+      if (costMethod === 'box' && batchId === undefined) {
+        batchId = await openCostPool(Math.max(0, Number(boxTotal) || 0));
+        setBoxBatchId(batchId);
+      }
+      await addCollectionLot({
+        printingId, locationId, quantity: 1, finish, condition,
+        costMethod,
+        fixedAmount: costMethod === 'fixed' ? Number(fixedAmount) || 0 : undefined,
+        batchId: costMethod === 'box' ? batchId : undefined,
+      });
       flash(`Added ${name}`);
       // Bump just this card's owned count in place — no full reload, so the grid
       // doesn't flash or jump to the top, and you can click the same card again
@@ -334,11 +364,46 @@ function SetEntry({
             {['NM', 'M', 'LP', 'MP', 'HP', 'DMG'].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
+        <label>
+          <span>Cost</span>
+          <select value={costMethod} onChange={(e) => setCostMethod(e.target.value as CostMethod)}>
+            <option value="unknown">Unknown</option>
+            <option value="free">Free ($0)</option>
+            <option value="market">Market price</option>
+            <option value="fixed">Fixed each</option>
+            <option value="box">Box split</option>
+          </select>
+        </label>
+        {costMethod === 'fixed' && (
+          <label style={{ width: 96 }}>
+            <span>$ each</span>
+            <input
+              type="number" min="0" step="0.01" placeholder="0.00"
+              value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)}
+            />
+          </label>
+        )}
+        {costMethod === 'box' && (
+          <label style={{ width: 116 }}>
+            <span>Box total $</span>
+            <input
+              type="number" min="0" step="0.01" placeholder="e.g. 120"
+              value={boxTotal} onChange={(e) => setBoxTotal(e.target.value)}
+            />
+          </label>
+        )}
         <label className="check">
           <input type="checkbox" checked={hideOwned} onChange={(e) => setHideOwned(e.target.checked)} />
           Hide ones I have
         </label>
       </div>
+      {costMethod === 'box' && (
+        <p className="hint">
+          Every card you add here shares one pool — the box total is split evenly
+          across all of them, re-dividing as you go. Change the total to start a new
+          box.
+        </p>
+      )}
 
       {error && <div className="error">{error}</div>}
       {/* Floats over the grid rather than sitting in the flow, so a rapid string
