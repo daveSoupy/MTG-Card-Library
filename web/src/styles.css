@@ -1243,7 +1243,18 @@ input[type='number'] { width: 72px; }
 .trade-col { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
 .trade-col h3 { margin: 0 0 4px; font-size: 14px; display: flex; justify-content: space-between; }
 .trade-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.trade-item .want-name { flex: 1; }
+.trade-item .want-name { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+/* The set/finish/value tag on a trade item — tap to change the printing. */
+.printing-chip {
+  background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--text-2);
+  border-radius: 999px; padding: 1px 8px; font-size: 11px; font-family: var(--mono);
+}
+.printing-chip:hover { border-color: var(--accent); color: var(--text); }
+
+/* Stacked label + control, used in the trade-item dialog. */
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.field > span { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+.field input, .field select { padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); }
 .trade-item select { font-size: 12px; }
 .trade-name-input { font-size: 16px; font-weight: 600; background: none; border: 0; border-bottom: 1px solid var(--line); }
 .trade-actions { display: flex; gap: 8px; flex-wrap: wrap; }
