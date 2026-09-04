@@ -1,8 +1,24 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, fetchCard, imageUrl,
-  type CardDetail, type CardPrinting, type StorageLocation,
+  addCollectionLot, fetchCard, fetchSettings, imageUrl,
+  type CardDetail, type CardPrinting, type CostMethod, type StorageLocation,
 } from '../api.ts';
+
+/** The suggested "paid each" for a printing under a cost method, as a string. */
+function suggestedCost(
+  method: CostMethod,
+  printing: CardPrinting | undefined,
+  finish: string,
+  fixedUsd: number,
+): string {
+  if (method === 'free') return '0';
+  if (method === 'fixed') return fixedUsd ? String(fixedUsd) : '';
+  if (method === 'market') {
+    const price = finish === 'nonfoil' ? printing?.priceUsd : printing?.priceUsdFoil;
+    return price != null ? String(price) : '';
+  }
+  return ''; // unknown / box → no assumption in the dialog
+}
 
 const CONDITIONS = [
   ['NM', 'Near Mint'], ['M', 'Mint'], ['LP', 'Lightly Played'],
@@ -52,7 +68,13 @@ export function AddCardsDialog({
   const [acquiredAt, setAcquiredAt] = useState('');
   const [kind, setKind] = useState('purchase');
   const [override, setOverride] = useState('');
-  const [showDetail, setShowDetail] = useState(false);
+  const [showDetail, setShowDetail] = useState(true);
+
+  // The app's default cost method pre-fills "paid each"; once you edit the cost
+  // yourself we stop overwriting it.
+  const [costMethod, setCostMethod] = useState<CostMethod>('unknown');
+  const [defaultFixed, setDefaultFixed] = useState(0);
+  const costTouched = useRef(false);
 
   useEffect(() => {
     fetchCard(oracleId)
@@ -69,8 +91,21 @@ export function AddCardsDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    fetchSettings()
+      .then((s) => { setCostMethod(s.defaultCostMethod); setDefaultFixed(s.defaultCostFixedUsd); })
+      .catch(() => { /* leave the safe 'unknown' default */ });
+  }, []);
+
   const printing: CardPrinting | undefined =
     card?.printings.find((p) => p.id === selectedPrinting) ?? card?.printings[0];
+
+  // Pre-fill "paid each" from the default method as the printing/finish change,
+  // until you type your own cost.
+  useEffect(() => {
+    if (costTouched.current) return;
+    setCost(suggestedCost(costMethod, printing, finish, defaultFixed));
+  }, [costMethod, printing, finish, defaultFixed]);
 
   const submit = async () => {
     if (!selectedPrinting || !locationId) return;
@@ -181,7 +216,8 @@ export function AddCardsDialog({
                       <span>Paid each</span>
                       <input
                         type="number" min="0" step="0.01" placeholder="—"
-                        value={cost} onChange={(e) => setCost(e.target.value)}
+                        value={cost}
+                        onChange={(e) => { costTouched.current = true; setCost(e.target.value); }}
                       />
                     </label>
                     <label style={{ flex: 1 }}>

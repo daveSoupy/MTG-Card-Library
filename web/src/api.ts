@@ -429,8 +429,15 @@ export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
   getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
     .then((r) => r.categories);
 
+export type CostMethod = 'unknown' | 'free' | 'market' | 'fixed' | 'box';
+
 export interface AppSettings {
   autoMaintainLands: boolean;
+  /** Cost basis assumed when adding cards without a typed-in price. */
+  defaultCostMethod: Exclude<CostMethod, 'box'>;
+  defaultCostFixedUsd: number;
+  /** Price of one booster pack; the Draft cost defaults to 3× this. */
+  draftBoosterPriceUsd: number;
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>
@@ -646,7 +653,47 @@ export interface AddLotInput {
   acquisitionKind?: string;
   acquiredFrom?: string | null;
   notes?: string | null;
+  /** Assume the cost basis from a method when no explicit cost is given. */
+  costMethod?: CostMethod;
+  /** Amount for the 'fixed' method. */
+  fixedAmount?: number | null;
+  /** Cost pool (from openCostPool) to attach the lot to, for the 'box' method. */
+  batchId?: number;
 }
+
+/** A box/draft cost pool that spreads one lump sum evenly across its cards. */
+export interface CostPool {
+  id: number;
+  label: string;
+  totalCostUsd: number;
+  cardCount: number;
+  perCopy: number;
+  /** Set the session was working through, so it can be reopened. */
+  setCode: string | null;
+}
+
+/** Opens a cost pool and marks it the open one; returns its summary. */
+export const openCostPool = (totalCostUsd: number, label?: string, setCode?: string) =>
+  send<{ batchId: number; pool: CostPool }>('/api/v1/collection/cost-pools', 'POST', { totalCostUsd, label, setCode })
+    .then((r) => r.pool);
+
+/** The pool currently accepting cards, or null. */
+export const fetchOpenCostPool = (signal?: AbortSignal) =>
+  getJson<{ pool: CostPool | null }>('/api/v1/collection/cost-pools/open', signal).then((r) => r.pool);
+
+/** Changes an open pool's lump sum, re-dividing it across its cards. */
+export const updateCostPoolTotal = (id: number, totalCostUsd: number) =>
+  send<{ pool: CostPool | null }>(`/api/v1/collection/cost-pools/${id}`, 'PATCH', { totalCostUsd })
+    .then((r) => r.pool);
+
+/** Remembers the set the open session is working through, for resume. */
+export const setCostPoolSet = (id: number, setCode: string | null) =>
+  send<{ pool: CostPool | null }>(`/api/v1/collection/cost-pools/${id}`, 'PATCH', { setCode })
+    .then((r) => r.pool);
+
+/** Finishes the open pool (its cards keep their cost). */
+export const closeCostPool = () =>
+  send<{ pool: null }>('/api/v1/collection/cost-pools/close', 'POST', {}).then((r) => r.pool);
 
 export const fetchLocations = (signal?: AbortSignal) =>
   getJson<{ locations: StorageLocation[] }>('/api/v1/locations', signal).then((r) => r.locations);
@@ -804,6 +851,7 @@ export interface ImportBatch {
   rowsTotal: number | null;
   rowsImported: number | null;
   rowsUnmatched: number | null;
+  totalCostUsd: number | null;
   cardsRemaining: number;
 }
 

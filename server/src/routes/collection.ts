@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import {
-  ACQUISITION_KINDS, CONDITIONS, FINISHES, LocationInUseError,
+  ACQUISITION_KINDS, CONDITIONS, COST_METHODS, FINISHES, LocationInUseError,
   type CollectionSort, type CollectionStore,
 } from '../collection/store.ts';
 import { pushToWantList, shoppingList, wantList } from '../collection/shopping.ts';
@@ -137,6 +137,9 @@ export function registerCollectionRoutes(
         acquisitionKind: oneOf(ACQUISITION_KINDS, body.acquisitionKind),
         acquiredFrom: typeof body.acquiredFrom === 'string' && body.acquiredFrom ? body.acquiredFrom : null,
         notes: typeof body.notes === 'string' && body.notes ? body.notes : null,
+        costMethod: oneOf(COST_METHODS, body.costMethod),
+        fixedAmount: asMoney(body.fixedAmount) ?? null,
+        importBatchId: asInt(body.batchId),
       });
       // Acquiring copies directly can satisfy a want — same reconcile a trade runs.
       const oracle = db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
@@ -147,6 +150,45 @@ export function registerCollectionRoutes(
       const message = error instanceof Error ? error.message : String(error);
       return reply.status(400).send({ error: 'Could not add those cards.', detail: message });
     }
+  });
+
+  // The cost pool currently accepting cards (box/draft), or null.
+  app.get('/api/v1/collection/cost-pools/open', async () => ({ pool: collection.currentCostPool() }));
+
+  // Opens a cost pool: a lump sum spread evenly across the copies later added
+  // with this batch id, and marked the open pool so it resumes after a break.
+  app.post('/api/v1/collection/cost-pools', async (request, reply) => {
+    const body = (request.body ?? {}) as any;
+    const totalCostUsd = asMoney(body.totalCostUsd);
+    if (totalCostUsd === undefined || totalCostUsd === null) {
+      return reply.status(400).send({ error: 'totalCostUsd is required.' });
+    }
+    const pool = collection.openCostPool({
+      totalCostUsd,
+      label: typeof body.label === 'string' && body.label ? body.label : null,
+      setCode: typeof body.setCode === 'string' && body.setCode ? body.setCode.toLowerCase() : null,
+    });
+    return reply.status(201).send({ batchId: pool.id, pool });
+  });
+
+  // Adjusts an open pool: its lump sum (re-dividing it across the copies it
+  // holds) and/or the set the session is working through (for resume).
+  app.patch('/api/v1/collection/cost-pools/:id', async (request, reply) => {
+    const id = asInt((request.params as any).id);
+    if (id === undefined) return reply.status(400).send({ error: 'Invalid pool id.' });
+    const body = (request.body ?? {}) as any;
+    const totalCostUsd = asMoney(body.totalCostUsd);
+    if (totalCostUsd !== undefined && totalCostUsd !== null) collection.updateCostPoolTotal(id, totalCostUsd);
+    if ('setCode' in body) {
+      collection.setOpenPoolSet(typeof body.setCode === 'string' && body.setCode ? body.setCode.toLowerCase() : null);
+    }
+    return { pool: collection.currentCostPool() };
+  });
+
+  // Finishes the open pool (the batch stays in history; its lots keep their cost).
+  app.post('/api/v1/collection/cost-pools/close', async () => {
+    collection.closeCostPool();
+    return { pool: null };
   });
 
   app.patch('/api/v1/collection/items/:id', async (request, reply) => {
