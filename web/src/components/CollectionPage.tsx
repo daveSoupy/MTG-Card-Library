@@ -156,10 +156,10 @@ function CardLots({
             <div className="lot-head">
               <strong>{lot.quantity}×</strong>
               <span>{lot.set_name ?? lot.set_code?.toUpperCase()} #{lot.collector_number}</span>
+              {lot.finish !== 'nonfoil' && <span className="tag ok">{lot.finish}</span>}
               <span className="lot-value">{money(lot.line_value_usd)}</span>
             </div>
             <div className="lot-meta">
-              {lot.finish !== 'nonfoil' && <span className="tag ok">{lot.finish}</span>}
               <select
                 value={lot.condition}
                 onChange={(e) => apply(() => updateCollectionLot(lot.id, { condition: e.target.value }))}
