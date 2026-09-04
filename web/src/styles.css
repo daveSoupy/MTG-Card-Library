@@ -1211,7 +1211,11 @@ input[type='number'] { width: 72px; }
 .section-label { margin: 8px 0 0; font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
 .add-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; background: var(--panel); }
 
-.card-picker .searchbox { margin: 0 0 6px; }
+.card-picker { position: relative; }
+.card-picker .searchbox { margin: 0; }
+/* Card matches share the set-picker dropdown, with the mana cost on the right. */
+.combobox-option.picker-option { display: flex; justify-content: space-between; gap: 8px; }
+.combobox-option.picker-option .mana { font-family: var(--mono); color: var(--text-3); font-size: 12px; }
 
 .want-rows { display: flex; flex-direction: column; gap: 4px; }
 .want-row {
