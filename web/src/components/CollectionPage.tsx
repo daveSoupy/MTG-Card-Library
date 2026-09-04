@@ -179,9 +179,23 @@ function CardLots({
               >
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              {lot.acquired_unit_cost != null
-                ? <span>paid {money(lot.acquired_unit_cost)} each</span>
-                : <span className="note-inline">cost unknown</span>}
+              <span className="lot-paid">
+                paid $
+                <input
+                  key={`paid-${lot.id}-${lot.acquired_unit_cost ?? ''}`}
+                  type="number" min="0" step="0.01" placeholder="unknown"
+                  defaultValue={lot.acquired_unit_cost ?? ''}
+                  aria-label="What you paid for each copy"
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim();
+                    const next = raw === '' ? null : Number(raw);
+                    if (next === (lot.acquired_unit_cost ?? null)) return;
+                    apply(() => updateCollectionLot(lot.id, { acquiredUnitCost: next }));
+                  }}
+                />
+                each
+              </span>
               {lot.is_overridden ? <span className="tag warn">override</span> : null}
             </div>
             <div className="lot-actions">
@@ -233,6 +247,14 @@ function SetEntry({
   const [finish, setFinish] = useState('nonfoil');
   const [condition, setCondition] = useState('NM');
   const [hideOwned, setHideOwned] = useState(false);
+  // "Hide ones I have" hides a snapshot of what you owned when it was switched on
+  // (re-taken on each set load), not a live filter — so a card you add during
+  // the session stays put and you can keep adding copies of it.
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const hideOwnedRef = useRef(false);
+  hideOwnedRef.current = hideOwned;
+  const snapshotHidden = (list: { printing_id: string; owned_qty: number }[]) =>
+    setHiddenIds(new Set(list.filter((c) => c.owned_qty > 0).map((c) => c.printing_id)));
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [toastRemoving, setToastRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -327,7 +349,7 @@ function SetEntry({
     if (!setCode) { setCards([]); return; }
     setLoading(true);
     fetchSetChecklist(setCode)
-      .then(setCards)
+      .then((list) => { setCards(list); if (hideOwnedRef.current) snapshotHidden(list); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [setCode]);
@@ -399,7 +421,7 @@ function SetEntry({
     add(printingId, name);
   };
 
-  const shown = hideOwned ? cards.filter((c) => c.owned_qty === 0) : cards;
+  const shown = hideOwned ? cards.filter((c) => !hiddenIds.has(c.printing_id)) : cards;
   const ownedCount = cards.filter((c) => c.owned_qty > 0).length;
 
   return (
@@ -468,7 +490,15 @@ function SetEntry({
           </label>
         )}
         <label className="check">
-          <input type="checkbox" checked={hideOwned} onChange={(e) => setHideOwned(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={hideOwned}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setHideOwned(on);
+              if (on) snapshotHidden(cards); else setHiddenIds(new Set());
+            }}
+          />
           Hide ones I have
         </label>
       </div>
