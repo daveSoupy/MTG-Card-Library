@@ -1266,4 +1266,8 @@ input[type='number'] { width: 72px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }
   .want-field input, .want-field select { width: 54px; }
   .want-row { flex-wrap: wrap; }
+  /* On a phone the add-by-set settings scroll away with the page rather than
+     staying pinned over the cards. */
+  .entry-bar { position: static; }
+  .combobox > input { min-width: 0; width: 100%; }
 }
