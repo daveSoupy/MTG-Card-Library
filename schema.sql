@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 11;
+PRAGMA user_version = 12;
 
 
 -- =====================================================================
@@ -470,7 +470,12 @@ CREATE UNIQUE INDEX idx_location_single_default ON storage_locations(is_default)
 -- =====================================================================
 
 -- Lets a bad CSV import (Phase 5) be undone as a unit instead of hunted
--- down row by row.
+-- down row by row. Also serves as a "cost pool" for the box-split cost
+-- method: total_cost_usd is a lump sum (e.g. a booster box) and split_method
+-- says how it is spread across the lots that reference this batch. When
+-- total_cost_usd is set, adding a lot to the batch re-divides it across every
+-- copy in the batch (even split -> acquired_unit_cost = total / SUM(quantity)).
+-- Plain import batches leave both NULL and behave exactly as before.
 CREATE TABLE import_batches (
     id              INTEGER PRIMARY KEY,
     source          TEXT NOT NULL,      -- 'csv','deckbox','tcgplayer','manabox','manual','trade','ocr'
@@ -479,7 +484,9 @@ CREATE TABLE import_batches (
     rows_total      INTEGER,
     rows_imported   INTEGER,
     rows_unmatched  INTEGER,
-    notes           TEXT
+    notes           TEXT,
+    total_cost_usd  REAL,
+    split_method    TEXT
 );
 
 CREATE TABLE collection_items (

@@ -100,7 +100,7 @@ export function DataPage({ locations, onCollectionChanged }: {
     try { setDownload(await cancelImageDownload()); } catch (cause: any) { setError(cause.message); }
   };
 
-  const toggleSetting = async (key: keyof AppSettings, value: boolean) => {
+  const saveSetting = async <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
     try {
       setSettings(await updateSettings({ [key]: value }));
@@ -222,7 +222,7 @@ export function DataPage({ locations, onCollectionChanged }: {
             <input
               type="checkbox"
               checked={settings.autoMaintainLands}
-              onChange={(e) => toggleSetting('autoMaintainLands', e.target.checked)}
+              onChange={(e) => saveSetting('autoMaintainLands', e.target.checked)}
             />
             Keep basic lands in step automatically
           </label>
@@ -232,6 +232,50 @@ export function DataPage({ locations, onCollectionChanged }: {
           split by colour — adding a dual removes a basic, and it stops once you have
           enough lands. The “Add lands” button in the deck builder does the same thing
           on demand and is always available.
+        </p>
+
+        {settings && (
+          <div className="cost-default">
+            <label>
+              <span className="dim">Default cost basis when adding cards</span>
+              <select
+                value={settings.defaultCostMethod}
+                onChange={(e) => saveSetting('defaultCostMethod', e.target.value as AppSettings['defaultCostMethod'])}
+              >
+                <option value="unknown">Unknown — record no cost</option>
+                <option value="free">Free — $0 (gifts, pack pulls)</option>
+                <option value="market">Market price when added</option>
+                <option value="fixed">Fixed amount per card</option>
+              </select>
+            </label>
+            {settings.defaultCostMethod === 'fixed' && (
+              <label className="cost-fixed">
+                <span className="dim">Amount ($)</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={settings.defaultCostFixedUsd}
+                  onChange={(e) => saveSetting('defaultCostFixedUsd', Math.max(0, Number(e.target.value) || 0))}
+                />
+              </label>
+            )}
+            <label className="cost-fixed">
+              <span className="dim">Booster pack price ($)</span>
+              <input
+                type="number" min="0" step="0.01"
+                value={settings.draftBoosterPriceUsd}
+                onChange={(e) => saveSetting('draftBoosterPriceUsd', Math.max(0, Number(e.target.value) || 0))}
+              />
+            </label>
+          </div>
+        )}
+        <p className="hint">
+          The starting assumption for a card’s cost when you don’t type a price in.
+          The <strong>Add by set</strong> screen and the Add-cards dialog both begin
+          from this, and you can override it per card or per session (including a
+          “box split” that spreads one lump sum across everything you add). The
+          <strong> Draft</strong> cost divides 3× the booster pack price above evenly
+          across the cards you add; both the pack price here and the draft total on
+          the Add screen are editable.
         </p>
       </section>
 
@@ -348,8 +392,17 @@ export function DataPage({ locations, onCollectionChanged }: {
                   <span>{formatWhen(batch.importedAt)}</span>
                   <span>{batch.fileName ?? batch.source}</span>
                   <span className="dim">
-                    {batch.rowsImported} of {batch.rowsTotal} rows
-                    {batch.rowsUnmatched ? `, ${batch.rowsUnmatched} unmatched` : ''}
+                    {batch.totalCostUsd != null ? (
+                      <>
+                        ${batch.totalCostUsd.toFixed(2)} · {batch.cardsRemaining} cards
+                        {batch.cardsRemaining > 0 && ` · $${(batch.totalCostUsd / batch.cardsRemaining).toFixed(2)} each`}
+                      </>
+                    ) : (
+                      <>
+                        {batch.rowsImported} of {batch.rowsTotal} rows
+                        {batch.rowsUnmatched ? `, ${batch.rowsUnmatched} unmatched` : ''}
+                      </>
+                    )}
                   </span>
                   {batch.cardsRemaining > 0 ? (
                     <button className="btn secondary small" onClick={() => undo(batch)} disabled={busy}>

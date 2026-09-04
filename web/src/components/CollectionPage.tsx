@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, addTradeListItem, createLocation, decrementCollectionCopy, deleteLocation,
-  fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetChecklist,
-  fetchSetCompletion, fetchSets, fetchTradeLists, imageUrl, removeCollectionLot, updateCollectionLot,
-  type CollectionCard, type CollectionCardDetail, type CollectionValue,
-  type SetRecord, type StorageLocation,
+  addCollectionLot, addTradeListItem, closeCostPool, createLocation, decrementCollectionCopy,
+  deleteLocation, fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations,
+  fetchOpenCostPool, fetchSetChecklist, fetchSetCompletion, fetchSets, fetchSettings,
+  fetchTradeLists, imageUrl, openCostPool, removeCollectionLot, setCostPoolSet,
+  undoImportBatch, updateCollectionLot, updateCostPoolTotal,
+  type CollectionCard, type CollectionCardDetail, type CollectionValue, type CostMethod,
+  type CostPool, type SetRecord, type StorageLocation,
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
 import { Combobox } from './Combobox.tsx';
@@ -177,9 +179,23 @@ function CardLots({
               >
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              {lot.acquired_unit_cost != null
-                ? <span>paid {money(lot.acquired_unit_cost)} each</span>
-                : <span className="note-inline">cost unknown</span>}
+              <span className="lot-paid">
+                paid $
+                <input
+                  key={`paid-${lot.id}-${lot.acquired_unit_cost ?? ''}`}
+                  type="number" min="0" step="0.01" placeholder="unknown"
+                  defaultValue={lot.acquired_unit_cost ?? ''}
+                  aria-label="What you paid for each copy"
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim();
+                    const next = raw === '' ? null : Number(raw);
+                    if (next === (lot.acquired_unit_cost ?? null)) return;
+                    apply(() => updateCollectionLot(lot.id, { acquiredUnitCost: next }));
+                  }}
+                />
+                each
+              </span>
               {lot.is_overridden ? <span className="tag warn">override</span> : null}
             </div>
             <div className="lot-actions">
@@ -231,15 +247,109 @@ function SetEntry({
   const [finish, setFinish] = useState('nonfoil');
   const [condition, setCondition] = useState('NM');
   const [hideOwned, setHideOwned] = useState(false);
+  // "Hide ones I have" hides a snapshot of what you owned when it was switched on
+  // (re-taken on each set load), not a live filter — so a card you add during
+  // the session stays put and you can keep adding copies of it.
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const hideOwnedRef = useRef(false);
+  hideOwnedRef.current = hideOwned;
+  const snapshotHidden = (list: { printing_id: string; owned_qty: number }[]) =>
+    setHiddenIds(new Set(list.filter((c) => c.owned_qty > 0).map((c) => c.printing_id)));
   const [justAdded, setJustAdded] = useState<string | null>(null);
   const [toastRemoving, setToastRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Cost basis for this add session. Starts from the app default, but is
+  // switchable inline so a booster box, a draft, or single cards at FNM can each
+  // assume cost differently without leaving the screen. 'draft' pools like 'box'
+  // but its total defaults to 3× the booster pack price.
+  const [costMethod, setCostMethod] = useState<CostMethod | 'draft'>('unknown');
+  const [fixedAmount, setFixedAmount] = useState('');
+  const [boosterPrice, setBoosterPrice] = useState(4);
+  // The open cost pool (box/draft) lives on the server, so it survives leaving
+  // this screen, a reload, or a break, and only ends when you finish it.
+  const [pool, setPool] = useState<CostPool | null>(null);
+  const [poolTotalStr, setPoolTotalStr] = useState('');
+  const pooled = costMethod === 'box' || costMethod === 'draft';
+
+  // Seed from the saved defaults, then resume any pool the server still has open.
+  useEffect(() => {
+    (async () => {
+      let settings: Awaited<ReturnType<typeof fetchSettings>> | null = null;
+      try { settings = await fetchSettings(); } catch { /* keep safe defaults */ }
+      if (settings) {
+        setBoosterPrice(settings.draftBoosterPriceUsd);
+        setFixedAmount(settings.defaultCostFixedUsd ? String(settings.defaultCostFixedUsd) : '');
+      }
+      let open: CostPool | null = null;
+      try { open = await fetchOpenCostPool(); } catch { /* ignore */ }
+      if (open) {
+        setPool(open);
+        setCostMethod(open.label === 'Draft' ? 'draft' : 'box');
+        setPoolTotalStr(String(open.totalCostUsd));
+        if (open.setCode) setSetCode(open.setCode); // reopen the set it was working through
+      } else if (settings) {
+        setCostMethod(settings.defaultCostMethod);
+      }
+    })();
+  }, []);
+
+  // While a pool is open, remember the last set the session actually opened, so
+  // resuming reopens it. Clearing the field is not "forget" — the pool keeps the
+  // set so the banner can offer to reopen it.
+  useEffect(() => {
+    if (!pool || !setCode || setCode === pool.setCode) return;
+    setCostPoolSet(pool.id, setCode).then((p) => { if (p) setPool(p); }).catch(() => {});
+  }, [setCode, pool]);
+
+  // Switching the pooled method (with nothing open yet) pre-fills a sensible
+  // starting total: 3× a booster for a draft, blank for a box.
+  const pickMethod = (m: CostMethod | 'draft') => {
+    setCostMethod(m);
+    if (!pool) setPoolTotalStr(m === 'draft' ? (boosterPrice * 3).toFixed(2) : m === 'box' ? '' : poolTotalStr);
+  };
+
+  // Editing the total of an open pool re-splits it; with none open it's just the
+  // amount the next pool will start with.
+  const commitTotal = async () => {
+    if (!pool) return;
+    try { setPool(await updateCostPoolTotal(pool.id, Number(poolTotalStr) || 0)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+
+  const finishPool = async () => {
+    try { await closeCostPool(); } catch { /* ignore */ }
+    setPool(null);
+    setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
+  };
+
+  // Cancel abandons the session and removes every card it added — the opposite
+  // of Finish, which keeps them.
+  const cancelPool = async () => {
+    if (!pool) return;
+    const n = pool.cardCount;
+    if (n > 0 && !confirm(`Discard this ${pool.label.toLowerCase()} and remove the ${n} card${n === 1 ? '' : 's'} it added?`)) return;
+    setError(null);
+    try {
+      if (n > 0) await undoImportBatch(pool.id);
+      await closeCostPool();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setPool(null);
+    setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
+    load();
+    onChanged();
+  };
+
+  const setName = (code: string) => sets.find((s) => s.code === code)?.name ?? code.toUpperCase();
 
   const load = useCallback(() => {
     if (!setCode) { setCards([]); return; }
     setLoading(true);
     fetchSetChecklist(setCode)
-      .then(setCards)
+      .then((list) => { setCards(list); if (hideOwnedRef.current) snapshotHidden(list); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [setCode]);
@@ -255,7 +365,21 @@ function SetEntry({
   const add = async (printingId: string, name: string) => {
     setError(null);
     try {
-      await addCollectionLot({ printingId, locationId, quantity: 1, finish, condition });
+      // Box split and Draft both pool. Open the server-side pool on the first
+      // add (so it survives a break), reuse it after, and refresh its running
+      // count/per-card afterward.
+      let current = pool;
+      if (pooled && !current) {
+        current = await openCostPool(Math.max(0, Number(poolTotalStr) || 0), costMethod === 'draft' ? 'Draft' : 'Box split', setCode || undefined);
+        setPool(current);
+      }
+      await addCollectionLot({
+        printingId, locationId, quantity: 1, finish, condition,
+        costMethod: pooled ? 'box' : costMethod,
+        fixedAmount: costMethod === 'fixed' ? Number(fixedAmount) || 0 : undefined,
+        batchId: pooled && current ? current.id : undefined,
+      });
+      if (pooled) { try { setPool(await fetchOpenCostPool()); } catch { /* keep prior */ } }
       flash(`Added ${name}`);
       // Bump just this card's owned count in place — no full reload, so the grid
       // doesn't flash or jump to the top, and you can click the same card again
@@ -297,7 +421,7 @@ function SetEntry({
     add(printingId, name);
   };
 
-  const shown = hideOwned ? cards.filter((c) => c.owned_qty === 0) : cards;
+  const shown = hideOwned ? cards.filter((c) => !hiddenIds.has(c.printing_id)) : cards;
   const ownedCount = cards.filter((c) => c.owned_qty > 0).length;
 
   return (
@@ -334,11 +458,82 @@ function SetEntry({
             {['NM', 'M', 'LP', 'MP', 'HP', 'DMG'].map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
+        <label>
+          <span>Cost</span>
+          <select value={costMethod} onChange={(e) => pickMethod(e.target.value as CostMethod | 'draft')}>
+            <option value="unknown">Unknown</option>
+            <option value="free">Free ($0)</option>
+            <option value="market">Market price</option>
+            <option value="fixed">Fixed each</option>
+            <option value="draft">Draft</option>
+            <option value="box">Box split</option>
+          </select>
+        </label>
+        {costMethod === 'fixed' && (
+          <label style={{ width: 96 }}>
+            <span>$ each</span>
+            <input
+              type="number" min="0" step="0.01" placeholder="0.00"
+              value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)}
+            />
+          </label>
+        )}
+        {pooled && (
+          <label style={{ width: 120 }}>
+            <span>{costMethod === 'draft' ? 'Draft cost $' : 'Box total $'}</span>
+            <input
+              type="number" min="0" step="0.01" placeholder={costMethod === 'draft' ? 'e.g. 12' : 'e.g. 120'}
+              value={poolTotalStr}
+              onChange={(e) => setPoolTotalStr(e.target.value)}
+              onBlur={commitTotal}
+            />
+          </label>
+        )}
         <label className="check">
-          <input type="checkbox" checked={hideOwned} onChange={(e) => setHideOwned(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={hideOwned}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setHideOwned(on);
+              if (on) snapshotHidden(cards); else setHiddenIds(new Set());
+            }}
+          />
           Hide ones I have
         </label>
       </div>
+
+      {pool ? (
+        <div className="pool-banner">
+          <span>
+            <strong>{pool.label} open</strong> · {money(pool.totalCostUsd)} · {pool.cardCount}{' '}
+            {pool.cardCount === 1 ? 'card' : 'cards'} · {money(pool.perCopy)} each
+            {pool.setCode && (
+              <>
+                {' · '}
+                <button
+                  className="linkish"
+                  onClick={() => setSetCode(pool.setCode!)}
+                  title="Reopen this set"
+                >
+                  {setName(pool.setCode)}{pool.setCode === setCode ? '' : ' ↩'}
+                </button>
+              </>
+            )}
+          </span>
+          <span className="pool-actions">
+            <button className="btn secondary small" onClick={finishPool} title="Keep these cards and close the pool">Finish</button>
+            <button className="btn secondary small cancel" onClick={cancelPool} title="Remove every card this pool added and close it">Cancel</button>
+          </span>
+        </div>
+      ) : pooled && (
+        <p className="hint">
+          The first card you add opens a pool — the {costMethod === 'draft' ? 'draft cost' : 'box total'} is
+          split evenly across everything you add and keeps re-dividing as you go. It stays open
+          (even if you leave and come back) until you tap <strong>Finish</strong>.
+          {costMethod === 'draft' && ' The total defaults to 3× the booster pack price from Data → Settings.'}
+        </p>
+      )}
 
       {error && <div className="error">{error}</div>}
       {/* Floats over the grid rather than sitting in the flow, so a rapid string
