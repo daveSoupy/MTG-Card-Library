@@ -7,6 +7,7 @@ import {
   type SetRecord, type StorageLocation,
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
+import { Combobox } from './Combobox.tsx';
 
 type Tab = 'browse' | 'add' | 'sets' | 'value';
 
@@ -208,7 +209,11 @@ function SetEntry({
       await addCollectionLot({ printingId, locationId, quantity: 1, finish, condition });
       setJustAdded(name);
       setTimeout(() => setJustAdded((current) => (current === name ? null : current)), 1400);
-      load();
+      // Bump just this card's owned count in place — no full reload, so the grid
+      // doesn't flash or jump to the top, and you can click the same card again
+      // to add another copy.
+      setCards((prev) => prev.map((c) =>
+        c.printing_id === printingId ? { ...c, owned_qty: c.owned_qty + 1 } : c));
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -225,12 +230,12 @@ function SetEntry({
       <div className="entry-bar">
         <label>
           <span>Set</span>
-          <select value={setCode} onChange={(e) => setSetCode(e.target.value)}>
-            <option value="">Choose a set…</option>
-            {sets.map((s) => (
-              <option key={s.code} value={s.code}>{s.name} ({s.code.toUpperCase()})</option>
-            ))}
-          </select>
+          <Combobox
+            options={sets.map((s) => ({ value: s.code, label: `${s.name} (${s.code.toUpperCase()})` }))}
+            value={setCode}
+            onChange={setSetCode}
+            placeholder="Search sets…"
+          />
         </label>
         <label>
           <span>Into</span>
