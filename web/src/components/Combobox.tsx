@@ -16,6 +16,7 @@ export function Combobox({ options, value, onChange, placeholder }: {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const selected = options.find((o) => o.value === value);
   const q = query.trim().toLowerCase();
@@ -24,18 +25,27 @@ export function Combobox({ options, value, onChange, placeholder }: {
   const shown = matches.slice(0, 100);
 
   useEffect(() => {
-    const onDown = (event: MouseEvent) => {
+    // pointerdown covers touch as well as mouse, so a tap outside closes it.
+    const onDown = (event: Event) => {
       if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
   }, []);
 
-  const choose = (next: string) => { onChange(next); setOpen(false); setQuery(''); };
+  const choose = (next: string) => {
+    onChange(next);
+    setQuery('');
+    setOpen(false);
+    // Drop focus so the field can't immediately re-open (and the phone keyboard
+    // dismisses), which is what left the list hanging open on mobile.
+    inputRef.current?.blur();
+  };
 
   return (
     <div className="combobox" ref={ref}>
       <input
+        ref={inputRef}
         value={open ? query : (selected?.label ?? '')}
         placeholder={placeholder}
         onFocus={() => { setOpen(true); setQuery(''); }}
@@ -50,7 +60,9 @@ export function Combobox({ options, value, onChange, placeholder }: {
             <button
               key={o.value}
               className={`combobox-option${o.value === value ? ' on' : ''}`}
-              onClick={() => choose(o.value)}
+              // pointerDown + preventDefault: selects before the input blurs, so
+              // the tap is never lost and the list closes at once on touch.
+              onPointerDown={(e) => { e.preventDefault(); choose(o.value); }}
             >
               {o.label}
             </button>
