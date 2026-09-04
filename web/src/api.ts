@@ -668,11 +668,13 @@ export interface CostPool {
   totalCostUsd: number;
   cardCount: number;
   perCopy: number;
+  /** Set the session was working through, so it can be reopened. */
+  setCode: string | null;
 }
 
 /** Opens a cost pool and marks it the open one; returns its summary. */
-export const openCostPool = (totalCostUsd: number, label?: string) =>
-  send<{ batchId: number; pool: CostPool }>('/api/v1/collection/cost-pools', 'POST', { totalCostUsd, label })
+export const openCostPool = (totalCostUsd: number, label?: string, setCode?: string) =>
+  send<{ batchId: number; pool: CostPool }>('/api/v1/collection/cost-pools', 'POST', { totalCostUsd, label, setCode })
     .then((r) => r.pool);
 
 /** The pool currently accepting cards, or null. */
@@ -682,6 +684,11 @@ export const fetchOpenCostPool = (signal?: AbortSignal) =>
 /** Changes an open pool's lump sum, re-dividing it across its cards. */
 export const updateCostPoolTotal = (id: number, totalCostUsd: number) =>
   send<{ pool: CostPool | null }>(`/api/v1/collection/cost-pools/${id}`, 'PATCH', { totalCostUsd })
+    .then((r) => r.pool);
+
+/** Remembers the set the open session is working through, for resume. */
+export const setCostPoolSet = (id: number, setCode: string | null) =>
+  send<{ pool: CostPool | null }>(`/api/v1/collection/cost-pools/${id}`, 'PATCH', { setCode })
     .then((r) => r.pool);
 
 /** Finishes the open pool (its cards keep their cost). */

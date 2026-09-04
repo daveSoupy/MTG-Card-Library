@@ -166,19 +166,23 @@ export function registerCollectionRoutes(
     const pool = collection.openCostPool({
       totalCostUsd,
       label: typeof body.label === 'string' && body.label ? body.label : null,
+      setCode: typeof body.setCode === 'string' && body.setCode ? body.setCode.toLowerCase() : null,
     });
     return reply.status(201).send({ batchId: pool.id, pool });
   });
 
-  // Adjusts an open pool's lump sum, re-dividing it across the copies it holds.
+  // Adjusts an open pool: its lump sum (re-dividing it across the copies it
+  // holds) and/or the set the session is working through (for resume).
   app.patch('/api/v1/collection/cost-pools/:id', async (request, reply) => {
     const id = asInt((request.params as any).id);
     if (id === undefined) return reply.status(400).send({ error: 'Invalid pool id.' });
-    const totalCostUsd = asMoney((request.body as any)?.totalCostUsd);
-    if (totalCostUsd === undefined || totalCostUsd === null) {
-      return reply.status(400).send({ error: 'totalCostUsd is required.' });
+    const body = (request.body ?? {}) as any;
+    const totalCostUsd = asMoney(body.totalCostUsd);
+    if (totalCostUsd !== undefined && totalCostUsd !== null) collection.updateCostPoolTotal(id, totalCostUsd);
+    if ('setCode' in body) {
+      collection.setOpenPoolSet(typeof body.setCode === 'string' && body.setCode ? body.setCode.toLowerCase() : null);
     }
-    return { pool: collection.updateCostPoolTotal(id, totalCostUsd) };
+    return { pool: collection.currentCostPool() };
   });
 
   // Finishes the open pool (the batch stays in history; its lots keep their cost).

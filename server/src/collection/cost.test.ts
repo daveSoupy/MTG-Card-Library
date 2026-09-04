@@ -143,6 +143,20 @@ test('a pool resumes across separate add calls, then closes on finish', () => {
   db.close();
 });
 
+test('the open pool remembers the set the session was working through', () => {
+  const { db, store } = fixture();
+  const pool = store.openCostPool({ totalCostUsd: 12, label: 'Draft', setCode: 'tst' });
+  assert.equal(pool.setCode, 'tst');
+  assert.equal(store.currentCostPool()?.setCode, 'tst');
+
+  store.setOpenPoolSet('abc');
+  assert.equal(store.currentCostPool()?.setCode, 'abc');
+
+  store.closeCostPool();
+  assert.equal(store.currentCostPool(), null);
+  db.close();
+});
+
 test('updateCostPoolTotal re-divides across the copies held', () => {
   const { db, store, loc } = fixture();
   const pool = store.openCostPool({ totalCostUsd: 100 });
