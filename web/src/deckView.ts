@@ -9,7 +9,7 @@ import type { DeckCard } from './api.ts';
  * wrong, can be tested directly.
  */
 
-export type DeckSort = 'type' | 'mana' | 'color' | 'name' | 'price' | 'rarity' | 'category';
+export type DeckSort = 'type' | 'mana' | 'color' | 'name' | 'price' | 'rarity' | 'category' | 'template';
 export type DeckViewMode = 'list' | 'cards';
 
 export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
@@ -20,7 +20,20 @@ export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
   { value: 'price', label: 'Price' },
   { value: 'rarity', label: 'Rarity' },
   { value: 'category', label: 'Category' },
+  { value: 'template', label: 'Template' },
 ];
+
+/** Mirrors the server's sync/categories.ts CATEGORY_LABELS for display only. */
+const TAG_CATEGORY_LABEL: Record<string, string> = {
+  removal: 'Removal',
+  draw: 'Card draw',
+  ramp: 'Ramp',
+  recursion: 'Recursion',
+  protection: 'Protection',
+  tutor: 'Tutor',
+  sweeper: 'Board wipes',
+  counterspell: 'Counterspell',
+};
 
 export interface CardGroup {
   key: string;
@@ -110,6 +123,29 @@ export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
         put(rarity, RARITY_LABEL[rarity] ?? rarity, rank === -1 ? RARITY_ORDER.length : rank, card);
         break;
       }
+      case 'template': {
+        // Presentation grouping only — a card can match several template
+        // categories at once (see the stats panel's Template section, which
+        // counts every match), but a decklist heading needs exactly one
+        // bucket per card. Priority: a manual category always wins; failing
+        // that, the alphabetically-first tag category; failing that, the
+        // land/creature split; failing that, Uncategorised.
+        const manual = card.category?.trim();
+        if (manual) {
+          put(manual.toLowerCase(), manual, 0, card);
+          break;
+        }
+        const tagCategory = [...card.categories].sort()[0];
+        if (tagCategory) {
+          put(tagCategory, TAG_CATEGORY_LABEL[tagCategory] ?? tagCategory, 1, card);
+          break;
+        }
+        const type = card.typeLine.toLowerCase();
+        if (type.includes('land')) { put('lands', 'Lands', 2, card); break; }
+        if (type.includes('creature')) { put('creatures', 'Creatures', 3, card); break; }
+        put('zzz-uncategorised', 'Uncategorised', 4, card);
+        break;
+      }
       // Name and price read as one continuous run; splitting them into headings
       // would hide exactly the ordering the sort exists to show.
       case 'name':
@@ -150,7 +186,7 @@ export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
       label: bucket.label,
       count: bucket.cards.reduce((total, card) => total + card.quantity, 0),
       cards: bucket.cards.sort(
-        sort === 'type' || sort === 'color' || sort === 'rarity' || sort === 'category'
+        sort === 'type' || sort === 'color' || sort === 'rarity' || sort === 'category' || sort === 'template'
           ? curveThenName : withinGroup,
       ),
     }))

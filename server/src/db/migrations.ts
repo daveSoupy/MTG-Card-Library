@@ -281,4 +281,79 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE import_batches ADD COLUMN split_method TEXT;
     `,
   },
+  {
+    version: 13,
+    description: 'Deck-building templates (Phase 7)',
+    sql: `
+      CREATE TABLE IF NOT EXISTS card_categories (
+          oracle_id  TEXT NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+          category   TEXT NOT NULL,
+          PRIMARY KEY (oracle_id, category)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS idx_cardcat_category ON card_categories(category);
+
+      CREATE TABLE IF NOT EXISTS deck_templates (
+          id           INTEGER PRIMARY KEY,
+          name         TEXT NOT NULL,
+          format_code  TEXT REFERENCES formats(code) ON DELETE SET NULL,
+          archetype    TEXT,
+          description  TEXT,
+          is_builtin   INTEGER NOT NULL DEFAULT 0,
+          sort_order   INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS deck_template_targets (
+          template_id  INTEGER NOT NULL REFERENCES deck_templates(id) ON DELETE CASCADE,
+          category     TEXT NOT NULL,
+          ideal        INTEGER NOT NULL,
+          min_count    INTEGER,
+          max_count    INTEGER,
+          note         TEXT,
+          sort_order   INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (template_id, category)
+      );
+
+      ALTER TABLE decks ADD COLUMN template_id INTEGER REFERENCES deck_templates(id) ON DELETE SET NULL;
+
+      INSERT INTO deck_templates (id, name, format_code, archetype, description, is_builtin, sort_order) VALUES
+          (1, 'Commander — General',    'commander', NULL,       'The widely-cited Command Zone shape for a 100-card singleton deck.', 1, 10),
+          (2, 'Commander — High Power', 'commander', NULL,       'Fewer lands, more ramp and tutors — built to close the game fast.',   1, 20),
+          (3, '60-Card Aggro',          NULL,        'aggro',    'A fast, creature-heavy shell for 60-card constructed formats.',       1, 30),
+          (4, '60-Card Midrange',       NULL,        'midrange', 'A balanced 60-card shell: card advantage backed by removal.',         1, 40),
+          (5, '60-Card Control',        NULL,        'control',  'Few creatures, lots of answers, closing the game later.',             1, 50),
+          (6, 'Limited 40-Card',        NULL,        'limited',  'The standard draft/sealed deck shape.',                                1, 60);
+
+      INSERT INTO deck_template_targets (template_id, category, ideal, sort_order) VALUES
+          (1, 'lands',        38, 0),
+          (1, 'ramp',         10, 1),
+          (1, 'draw',         10, 2),
+          (1, 'removal',       5, 3),
+          (1, 'sweeper',       3, 4),
+
+          (2, 'lands',        35, 0),
+          (2, 'ramp',         14, 1),
+          (2, 'tutor',         8, 2),
+          (2, 'draw',          8, 3),
+          (2, 'removal',       6, 4),
+          (2, 'sweeper',       2, 5),
+
+          (3, 'lands',        22, 0),
+          (3, 'creatures',    26, 1),
+          (3, 'removal',       8, 2),
+
+          (4, 'lands',        24, 0),
+          (4, 'creatures',    20, 1),
+          (4, 'removal',      12, 2),
+          (4, 'draw',          4, 3),
+
+          (5, 'lands',        26, 0),
+          (5, 'creatures',     4, 1),
+          (5, 'removal',      12, 2),
+          (5, 'counterspell',  8, 3),
+          (5, 'draw',          8, 4),
+
+          (6, 'lands',        17, 0),
+          (6, 'creatures',    15, 1);
+    `,
+  },
 ];

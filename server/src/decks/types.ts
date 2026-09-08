@@ -44,6 +44,8 @@ export interface DeckCard {
   quantityFromCollection: number;
   commanderRole: CommanderRole | null;
   category: string | null;
+  /** Phase 7: card_categories membership — the tag-derived categories this card matches. */
+  categories: string[];
   sortOrder: number;
 
   cmc: number;
@@ -87,6 +89,8 @@ export interface Deck {
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
+  /** The template this deck is tracked against, or null — Phase 7's off state. */
+  templateId: number | null;
 }
 
 export interface DeckWithCards extends Deck {

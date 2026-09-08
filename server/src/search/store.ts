@@ -48,6 +48,8 @@ export interface SearchFilters {
    * are shown until you ask for them to go.
    */
   excludeUniversesBeyond?: boolean;
+  /** Phase 7 shortfall links: cards resolved into this card_categories value. */
+  category?: string;
 }
 
 export type SortOrder = 'relevance' | 'name' | 'manaValue' | 'newest' | 'price' | 'edhrec';
@@ -281,6 +283,11 @@ export class CardSearchStore {
     }
     if (typeof filters.minCmc === 'number') { where.push('o.cmc >= ?'); params.push(filters.minCmc); }
     if (typeof filters.maxCmc === 'number') { where.push('o.cmc <= ?'); params.push(filters.maxCmc); }
+    if (filters.category) {
+      where.push(`EXISTS (SELECT 1 FROM card_categories cc
+                          WHERE cc.oracle_id = o.oracle_id AND cc.category = ?)`);
+      params.push(filters.category);
+    }
 
     return { where, params, freeText: compiled.freeText };
   }

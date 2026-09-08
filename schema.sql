@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 12;
+PRAGMA user_version = 13;
 
 
 -- =====================================================================
@@ -376,6 +376,19 @@ CREATE TABLE card_name_variants (
 );
 CREATE INDEX idx_variant_norm ON card_name_variants(variant_normalized);
 
+-- Phase 7: resolved category membership ('removal', 'ramp', 'draw', ...),
+-- not the whole Scryfall Tagger oracle-tag graph. The closure over each
+-- category's tag hierarchy is walked at sync time, from the official
+-- 'oracle_tags' bulk file, and rewritten here in one transaction — see
+-- runSync's syncCardCategories step. A card counts toward every category it
+-- matches, so this is deliberately a membership table, not a single column.
+CREATE TABLE card_categories (
+    oracle_id  TEXT NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+    category   TEXT NOT NULL,
+    PRIMARY KEY (oracle_id, category)
+) WITHOUT ROWID;
+CREATE INDEX idx_cardcat_category ON card_categories(category);
+
 -- On-disk image cache. Rows are disposable; deleting one just means
 -- re-fetching. Kept in the DB so a size cap / LRU eviction is a query.
 CREATE TABLE image_cache (
@@ -646,13 +659,43 @@ CREATE TABLE printing_price_history (
 -- ON DELETE CASCADE + a view — no fix-up pass, and no way to leak.
 -- =====================================================================
 
--- cover_printing_id is last because ALTER TABLE ADD COLUMN appends, and a
--- migrated database has to match this file column for column. Its comment is
--- out here rather than beside it because a comment inside the column list
--- corrupts the DDL SQLite rewrites during DROP COLUMN.
+-- Phase 7: "what should this deck contain?" — a named shape (roughly 38
+-- lands, 10 ramp, 10 draw for a Commander deck) that a deck can opt into.
+-- Seeded, editable and clonable; presented in the UI as a starting point, not
+-- a rule. decks.template_id being NULL is the off state.
+CREATE TABLE deck_templates (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT NOT NULL,
+    format_code  TEXT REFERENCES formats(code) ON DELETE SET NULL,
+    archetype    TEXT,                 -- 'aggro', 'midrange', 'control', null
+    description  TEXT,
+    is_builtin   INTEGER NOT NULL DEFAULT 0,
+    sort_order   INTEGER NOT NULL DEFAULT 0
+);
+
+-- One row per category a template cares about. 'category' matches either a
+-- card_categories value ('removal', 'ramp', ...) or one of the two synthetic
+-- categories resolved straight from type_line: 'lands' and 'creatures'.
+CREATE TABLE deck_template_targets (
+    template_id  INTEGER NOT NULL REFERENCES deck_templates(id) ON DELETE CASCADE,
+    category     TEXT NOT NULL,
+    ideal        INTEGER NOT NULL,
+    min_count    INTEGER,
+    max_count    INTEGER,
+    note         TEXT,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (template_id, category)
+);
+
+-- cover_printing_id and template_id are last because ALTER TABLE ADD COLUMN
+-- appends, and a migrated database has to match this file column for column.
+-- Their comments are out here rather than beside them because a comment
+-- inside the column list corrupts the DDL SQLite rewrites during DROP COLUMN.
 --
 -- cover_printing_id: the card whose art fronts this deck in the list. NULL
 -- means "work it out from the contents" — see DeckStore.list().
+-- template_id: the shape this deck is tracked against, chosen per deck. NULL
+-- is the off state — Phase 7's "Follow a template" picker's none option.
 CREATE TABLE decks (
     id              INTEGER PRIMARY KEY,
     name            TEXT    NOT NULL,
@@ -667,7 +710,8 @@ CREATE TABLE decks (
     sort_order      INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
-    cover_printing_id TEXT REFERENCES card_printings(id) ON DELETE SET NULL
+    cover_printing_id TEXT REFERENCES card_printings(id) ON DELETE SET NULL,
+    template_id       INTEGER REFERENCES deck_templates(id) ON DELETE SET NULL
 );
 CREATE INDEX idx_decks_format ON decks(format_code);
 CREATE INDEX idx_decks_home   ON decks(home_location_id);
@@ -1317,3 +1361,48 @@ INSERT INTO app_settings (key, value) VALUES
     ('last_bulk_sync_at',     ''),
     ('image_cache_max_bytes', '2147483648'),
     ('scryfall_user_agent',   'MTGLibrary/1.0 (macOS; personal collection manager)');
+
+-- Phase 7 built-in deck templates. 'lands' and 'creatures' are the two
+-- synthetic categories resolved from type_line rather than card_categories;
+-- everything else matches a card_categories.category value.
+INSERT INTO deck_templates (id, name, format_code, archetype, description, is_builtin, sort_order) VALUES
+    (1, 'Commander — General',    'commander', NULL,       'The widely-cited Command Zone shape for a 100-card singleton deck.', 1, 10),
+    (2, 'Commander — High Power', 'commander', NULL,       'Fewer lands, more ramp and tutors — built to close the game fast.',   1, 20),
+    (3, '60-Card Aggro',          NULL,        'aggro',    'A fast, creature-heavy shell for 60-card constructed formats.',       1, 30),
+    (4, '60-Card Midrange',       NULL,        'midrange', 'A balanced 60-card shell: card advantage backed by removal.',         1, 40),
+    (5, '60-Card Control',        NULL,        'control',  'Few creatures, lots of answers, closing the game later.',             1, 50),
+    (6, 'Limited 40-Card',        NULL,        'limited',  'The standard draft/sealed deck shape.',                                1, 60);
+
+-- These are community heuristics, not deck-construction rules — the UI must
+-- say so wherever a template is shown.
+INSERT INTO deck_template_targets (template_id, category, ideal, sort_order) VALUES
+    (1, 'lands',        38, 0),
+    (1, 'ramp',         10, 1),
+    (1, 'draw',         10, 2),
+    (1, 'removal',       5, 3),
+    (1, 'sweeper',       3, 4),
+
+    (2, 'lands',        35, 0),
+    (2, 'ramp',         14, 1),
+    (2, 'tutor',         8, 2),
+    (2, 'draw',          8, 3),
+    (2, 'removal',       6, 4),
+    (2, 'sweeper',       2, 5),
+
+    (3, 'lands',        22, 0),
+    (3, 'creatures',    26, 1),
+    (3, 'removal',       8, 2),
+
+    (4, 'lands',        24, 0),
+    (4, 'creatures',    20, 1),
+    (4, 'removal',      12, 2),
+    (4, 'draw',          4, 3),
+
+    (5, 'lands',        26, 0),
+    (5, 'creatures',     4, 1),
+    (5, 'removal',      12, 2),
+    (5, 'counterspell',  8, 3),
+    (5, 'draw',          8, 4),
+
+    (6, 'lands',        17, 0),
+    (6, 'creatures',    15, 1);

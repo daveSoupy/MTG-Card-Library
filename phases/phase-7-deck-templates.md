@@ -85,11 +85,11 @@ A card counts toward **every** category it matches — a creature that draws car
 
 ## Sync
 
-**The tag data is not a Scryfall bulk-data type.** Scryfall's bulk-data endpoint publishes exactly five types (Oracle Cards, Unique Artwork, Default Cards, All Cards, Rulings). The tag hierarchy comes from Scryfall Tagger, a separate community project with no official export guarantee. Before implementing: pin the exact URL the counts above were measured against, record it in this doc and in `scryfall.ts`, and treat it as a third-party source that may go away or change shape.
+**Built-time correction:** this section originally scoped the tag data as a raw third-party Tagger scrape with no official export guarantee, requiring a pinned ad-hoc URL. By the time this was built, Scryfall had folded it into bulk data proper — `GET https://api.scryfall.com/bulk-data` now lists an `oracle_tags` entry (and a sibling `art_tags`) alongside `oracle_cards`/`default_cards`, documented at https://scryfall.com/docs/api/tags. Implementation (`server/src/sync/categories.ts`) fetches it the same way as the card bulk files — same listing endpoint, same gzipped JSONL download — rather than a separately-pinned URL. The counts in the table above were measured against this source and re-verified live during the build (removal 6,691 / draw 4,478 / ramp 2,423 / recursion 2,338 / protection 1,354 / tutor 1,212 / sweeper 976 / counterspell 559 — within the "±normal drift" the table already expected). The rest of this section's guidance still holds:
 
 - Fetch it after the card import, in the same worker, as a separate step from the official bulk-data sync.
 - Resolve each template category's closure and rewrite `card_categories` in one transaction.
-- **A failure here must not fail the card sync** — templates degrade to manual categories, which still work. Given the source, this rule is load-bearing, not boilerplate.
+- **A failure here must not fail the card sync** — templates degrade to manual categories, which still work. `syncCardCategories()` catches its own errors and reports success/failure as a boolean rather than throwing, so this holds regardless of how reliable the source turns out to be.
 
 ## UI
 
