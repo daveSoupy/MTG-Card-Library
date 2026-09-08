@@ -6,7 +6,7 @@ Mostly surfacing what already runs, plus two genuinely new pieces.
 
 - **Daily collection value snapshot.** `collection_value_snapshots` is populated by `CollectionStore.takeSnapshot()`, called at the end of every sync in `runSync.ts`. One row per day: value, cost basis, cumulative realized gain.
 - **Per-card price history.** `printing_price_history` is written by `runSync.ts` whenever a *tracked* printing's price moves — scoped by the `v_tracked_printings` view (owned, on a trade list, or an active want-list item), not all ~500k printings.
-- **The whole-collection value graph.** `GET /api/v1/collection/value` returns a `history` array and `CollectionPage.tsx` renders it as a hand-rolled inline SVG sparkline (`ValueChart`). No charting library.
+- **The whole-collection value graph.** `GET /api/v1/collection/value` returns a `history` array and `CollectionValuePanel.tsx` renders it as a hand-rolled inline SVG sparkline (`ValueChart`). No charting library.
 
 ## Schema
 

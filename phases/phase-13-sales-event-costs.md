@@ -21,7 +21,7 @@ Next unused `user_version` at build time. One `ALTER TABLE events ADD COLUMN ent
 
 ## New: reversing a sale
 
-Phase 6's long-press undo doesn't cover this — `startPress` in `CollectionPage.tsx` only calls `removeOne` on a tile you just added and never touches `collection_disposals`. Add a "Reverse" action on a sale disposal that deletes the row and restores the lot's quantity in one transaction. A straight undo of the row, not an edit history.
+Phase 6's long-press undo doesn't cover this — `startPress` in `AddBySetTab.tsx` only calls `removeOne` on a tile you just added and never touches `collection_disposals`. Add a "Reverse" action on a sale disposal that deletes the row and restores the lot's quantity in one transaction. A straight undo of the row, not an edit history.
 
 ## New: surface what's already computed
 

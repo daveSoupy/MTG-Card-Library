@@ -7,13 +7,13 @@ Split out of Phase 9: this touches every card grid in the app, and there's no ex
 There's no shared card-tile component. Tiles render independently in four places, each with its own markup:
 
 - `App.tsx` — browse/search results grid (`.card`, inside `.grid`)
-- `CollectionPage.tsx` — the "add by set" grid (`.entry-tile`)
-- `CollectionPage.tsx` — owned lot tiles, including the foil overlay (`.card`, separate from browse's)
-- `DeckBuilder.tsx` — cards inside an open deck in `'cards'` view mode (`.deck-tile`, inside `.deck-grid`)
+- `AddBySetTab.tsx` — the "add by set" grid (`.entry-tile`)
+- `OwnedGrid.tsx` — owned lot tiles, including the foil overlay (`.card`, separate from browse's)
+- `DeckTile.tsx` — cards inside an open deck in `'cards'` view mode (`.deck-tile`, inside `.deck-grid` in `DeckPanes.tsx`)
 
 A density toggle has to reach all four.
 
-**Separate from the deck builder's existing List/Cards toggle.** `DeckBuilder.tsx`'s `view === 'list'` renders `.deck-row` (plain text, no art) and predates this phase. Density applies only within `'cards'` view; `'list'` is untouched.
+**Separate from the deck builder's existing List/Cards toggle.** `DeckBuilder.tsx` owns the `view === 'list'` state; `DeckPanes.tsx` renders `.deck-row` (via `DeckRow.tsx`, plain text, no art) in that mode, and it predates this phase. Density applies only within `'cards'` view; `'list'` is untouched.
 
 ## The four levels
 
@@ -39,7 +39,7 @@ Deck builder only. A deck tops out around 100–250 cards across a handful of ty
 
 ## Interaction, in Lined-up specifically
 
-- **Desktop: hover preview.** `.deck-row` already calls `onPreview` on `onMouseEnter` in list view. Reuse that callback for Lined-up's mostly-obscured tiles.
+- **Desktop: hover preview.** `DeckRow.tsx`'s `.deck-row` already calls `onPreview` on `onMouseEnter` in list view. Reuse that callback for Lined-up's mostly-obscured tiles.
 - **Mobile: tap opens the preview, not the controls.** Touch has no hover, so a tap shows the full card. Phase 9's qty/art/remove controls are reachable from a small button on that preview. A deliberate exception to Phase 9's tap-to-reveal pattern — one small branch in Lined-up's tap handler.
 
 ## Persistence & scope

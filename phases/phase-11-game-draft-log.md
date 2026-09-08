@@ -4,7 +4,7 @@ Two things travel together here: match results, and "what did I actually draft."
 
 ## What already exists
 
-- **The Draft cost-pool.** `CollectionPage.tsx` has a `costMethod === 'draft'` path that opens a pool (`import_batches`, doubling as a cost pool via `total_cost_usd` / `split_method`) defaulting to 3× a booster's price, split across whatever's added while it's open. This already answers "what did I draft and what did it cost per card."
+- **The Draft cost-pool.** `CostPoolControls.tsx` (used from `AddBySetTab.tsx`) has a `costMethod === 'draft'` path that opens a pool (`import_batches`, doubling as a cost pool via `total_cost_usd` / `split_method`) defaulting to 3× a booster's price, split across whatever's added while it's open. This already answers "what did I draft and what did it cost per card."
 - **Formats are data-driven; `draft` and `sealed` aren't seeded.** `formats` is the table Phase 2 reads for every legality rule. Add `draft` and `sealed` as seeded rows (min deck size 40, no singleton, no sideboard cap). **Legality checking needs an explicit skip:** `checkLegality()` in `server/src/decks/validate.ts` and the query in `decks/store.ts` join `card_legalities` by `format_code`, and Scryfall never publishes legalities for draft or sealed. Without a skip keyed off `format_code IN ('draft','sealed')`, every card in a draft deck validates as illegal.
 - **Decks already support freeform tags** (`deck_tags`) and `home_location_id`. A pool built into a playable deck is a normal Deck row with `format_code = 'draft'`.
 
