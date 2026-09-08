@@ -15,6 +15,9 @@ import { CollectionValuePanel } from './CollectionValuePanel.tsx';
 import { AddBySetTab } from './AddBySetTab.tsx';
 import { OwnedGrid, type OwnedGridSelection } from './OwnedGrid.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { CustomizeView } from './CustomizeView.tsx';
+import { groupByField, type GroupBy } from '../deckView.ts';
+import type { Density, DensityPage } from '../density.ts';
 
 type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
 
@@ -25,6 +28,22 @@ const TAB_LABEL: Record<Tab, string> = {
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
+
+const COLLECTION_SORTS = [
+  ['name', 'Name'],
+  ['value', 'Value'],
+  ['quantity', 'Quantity'],
+  ['setNumber', 'Set and number'],
+  ['recent', 'Recently added'],
+] as const;
+
+/**
+ * A collection row carries neither `rarity` nor `colors` — the browse endpoint
+ * has both, this one aggregates lots — so those two groupings are left off
+ * here rather than filing every card into one bucket. Adding them is an API
+ * change, which Phase 10 puts out of scope.
+ */
+const COLLECTION_GROUPS: GroupBy[] = ['none', 'type', 'subtype', 'colorIdentity', 'mana', 'set'];
 
 // ---------------------------------------------------------- card detail
 
@@ -264,7 +283,19 @@ function CardLots({
 
 // ------------------------------------------------------------------ page
 
-export function CollectionPage() {
+export function CollectionPage({
+  page,
+  density,
+  onDensity,
+  densityOverridden,
+  onResetDensity,
+}: {
+  page: DensityPage;
+  density: Density;
+  onDensity: (density: Density) => void;
+  densityOverridden: boolean;
+  onResetDensity: () => void;
+}) {
   const [tab, setTab] = useState<Tab>('browse');
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [sets, setSets] = useState<SetRecord[]>([]);
@@ -276,6 +307,7 @@ export function CollectionPage() {
   const [locationFilter, setLocationFilter] = useState<number | undefined>();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [selected, setSelected] = useState<OwnedGridSelection | null>(null);
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
   const [newLocation, setNewLocation] = useState('');
@@ -433,16 +465,6 @@ export function CollectionPage() {
               </div>
             </div>
 
-            <div className="fgroup">
-              <h3>Sort</h3>
-              <select value={sort} onChange={(e) => setSort(e.target.value)}>
-                <option value="name">Name</option>
-                <option value="value">Value</option>
-                <option value="quantity">Quantity</option>
-                <option value="setNumber">Set and number</option>
-                <option value="recent">Recently added</option>
-              </select>
-            </div>
           </aside>
 
           <main className="results">
@@ -459,6 +481,20 @@ export function CollectionPage() {
               <span className="count">
                 {loading ? 'Loading…' : `${totals.distinctCards} cards · ${totals.totalCards} copies · ${money(totals.totalValue)}`}
               </span>
+              <CustomizeView
+                page={page}
+                density={density}
+                onDensity={onDensity}
+                densityOverridden={densityOverridden}
+                onResetDensity={onResetDensity}
+                groupBy={groupBy}
+                onGroupBy={setGroupBy}
+                groupOptions={COLLECTION_GROUPS}
+                sort={sort}
+                onSort={setSort}
+                sortOptions={COLLECTION_SORTS}
+                unavailableNote="Rarity and colour groupings need fields the collection endpoint does not return."
+              />
             </div>
 
             {!loading && cards.length === 0 && (
@@ -468,11 +504,27 @@ export function CollectionPage() {
               </p>
             )}
 
-            <OwnedGrid
-              cards={cards}
-              selected={selected}
-              onSelect={(card) => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
-            />
+            {/* The collection browses one capped page (120 rows) with no
+                "Load more", so grouping is over what came back — the counts
+                say "loaded" whenever that is short of the real total. */}
+            {groupByField(cards, groupBy, (card) => card.ownedQuantity).map((group) => (
+              <div key={group.key}>
+                {group.key !== 'all' && (
+                  <h4 className="group-head">
+                    {group.label}
+                    <span className="count">
+                      {cards.length < totals.distinctCards ? `${group.count} loaded` : group.count}
+                    </span>
+                  </h4>
+                )}
+                <OwnedGrid
+                  cards={group.cards}
+                  selected={selected}
+                  density={density}
+                  onSelect={(card) => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
+                />
+              </div>
+            ))}
             <BackToTop label="Back to the top of the collection" />
           </main>
 
@@ -502,7 +554,13 @@ export function CollectionPage() {
 
       {tab === 'add' && (
         <div className="results">
-          <AddBySetTab sets={sets} locations={locations} onChanged={refreshAll} />
+          <AddBySetTab
+            sets={sets}
+            locations={locations}
+            onChanged={refreshAll}
+            density={density}
+            onDensity={onDensity}
+          />
           <BackToTop />
         </div>
       )}

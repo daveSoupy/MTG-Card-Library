@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupCards, DECK_SORTS, type DeckSort } from './deckView.ts';
+import {
+  DECK_SORTS, groupByField, groupCards, identityKey,
+  type DeckSort, type GroupBy,
+} from './deckView.ts';
 import type { DeckCard } from './api.ts';
 
 let nextId = 1;
@@ -134,5 +137,109 @@ test('every sort handles an empty deck and keeps every card', () => {
     assert.deepEqual(groupCards([], value), [], `${value} on an empty deck`);
     const total = groupCards(deck, value).flatMap((g) => g.cards).length;
     assert.equal(total, deck.length, `${value} must not drop or duplicate cards`);
+  }
+});
+
+// -------------------------------------------------- Phase 10: shared grouping
+
+test('type-alpha reads a type group alphabetically where type reads up the curve', () => {
+  const deck = [
+    card({ name: 'Zeta', cmc: 1 }),
+    card({ name: 'Alpha', cmc: 3 }),
+    card({ name: 'Beta', cmc: 1 }),
+  ];
+  assert.deepEqual(namesIn(groupCards(deck, 'type'), 'Creature'), ['Beta', 'Zeta', 'Alpha']);
+  assert.deepEqual(namesIn(groupCards(deck, 'type-alpha'), 'Creature'), ['Alpha', 'Beta', 'Zeta']);
+  // Same groups either way — only the order inside them differs.
+  assert.deepEqual(
+    labels(groupCards(deck, 'type')),
+    labels(groupCards(deck, 'type-alpha')),
+  );
+});
+
+test('the colour tint keys off the same buckets the colour grouping does', () => {
+  assert.equal(identityKey('G'), 'G');
+  assert.equal(identityKey('WU'), 'M');
+  assert.equal(identityKey(''), 'C');
+  assert.equal(identityKey(null), 'C');
+});
+
+test('groupByField works on a browse hit, which has no quantity of its own', () => {
+  const hit = {
+    name: 'Lightning Bolt', typeLine: 'Instant', cmc: 1,
+    colorIdentity: 'R', colors: 'R', rarity: 'common', setCode: 'lea', setName: 'Alpha',
+  };
+  const groups = groupByField([hit, { ...hit, name: 'Shock' }], 'type');
+  assert.deepEqual(labels(groups), ['Instant']);
+  // One copy per row, since a search result stands for exactly one card.
+  assert.equal(groups[0].count, 2);
+});
+
+test('a count function covers sources that name their quantity differently', () => {
+  const lot = { name: 'Sol Ring', typeLine: 'Artifact', cmc: 1, colorIdentity: '', ownedQuantity: 4 };
+  const groups = groupByField([lot], 'type', (c) => c.ownedQuantity);
+  assert.equal(groups[0].count, 4);
+});
+
+test('grouping leaves the order the server sorted rows into alone', () => {
+  const base = { typeLine: 'Creature — Elf', cmc: 2, colorIdentity: 'G' };
+  const rows = [{ ...base, name: 'Zeta' }, { ...base, name: 'Alpha' }, { ...base, name: 'Mu' }];
+  // Re-sorting here would silently override the Sort By the user picked in
+  // the same panel.
+  assert.deepEqual(
+    groupByField(rows, 'type')[0].cards.map((c) => c.name),
+    ['Zeta', 'Alpha', 'Mu'],
+  );
+});
+
+test('subtype takes the first subtype off the type line', () => {
+  const rows = [
+    { name: 'Wizard', typeLine: 'Creature — Human Wizard', cmc: 2, colorIdentity: 'U' },
+    { name: 'Forest', typeLine: 'Basic Land — Forest', cmc: 0, colorIdentity: 'G' },
+    { name: 'Bolt', typeLine: 'Instant', cmc: 1, colorIdentity: 'R' },
+  ];
+  // Subtype-less cards collect at the end rather than under a blank heading.
+  assert.deepEqual(labels(groupByField(rows, 'subtype')), ['Forest', 'Human', 'No subtype']);
+});
+
+test('set grouping labels by set name and falls back to the code', () => {
+  const rows = [
+    { name: 'A', typeLine: 'Instant', cmc: 1, colorIdentity: '', setCode: 'lea', setName: 'Alpha' },
+    { name: 'B', typeLine: 'Instant', cmc: 1, colorIdentity: '', setCode: 'mh3', setName: null },
+    { name: 'C', typeLine: 'Instant', cmc: 1, colorIdentity: '', setCode: null },
+  ];
+  assert.deepEqual(labels(groupByField(rows, 'set')), ['Alpha', 'MH3', 'No set']);
+});
+
+test('Colour falls back to colour identity where a source has no colors field', () => {
+  // A collection row carries only its identity; a browse hit carries both, and
+  // the two genuinely differ for a card like Kozilek's Return.
+  const lot = { name: 'Lot', typeLine: 'Instant', cmc: 1, colorIdentity: 'R' };
+  const hit = { ...lot, name: 'Hit', colors: '' };
+  assert.deepEqual(labels(groupByField([lot], 'color')), ['Red']);
+  assert.deepEqual(labels(groupByField([hit], 'color')), ['Colourless']);
+  assert.deepEqual(labels(groupByField([hit], 'colorIdentity')), ['Red']);
+});
+
+test('grouping by nothing is one unheaded run, whatever the source', () => {
+  const rows = [{ name: 'A', typeLine: 'Instant', cmc: 1, colorIdentity: '' }];
+  const groups = groupByField(rows, 'none');
+  assert.equal(groups.length, 1);
+  // The 'all' key is what every grid keys "no heading" off.
+  assert.equal(groups[0].key, 'all');
+});
+
+test('every universal grouping keeps every card', () => {
+  const rows = [
+    { name: 'A', typeLine: 'Creature — Elf', cmc: 2, colorIdentity: 'G', colors: 'G', rarity: 'rare', setCode: 'lea' },
+    { name: 'B', typeLine: 'Land', cmc: 0, colorIdentity: '', colors: '', rarity: null, setCode: null },
+    { name: 'C', typeLine: 'Instant', cmc: 9, colorIdentity: 'WU', colors: 'WU', rarity: 'mythic', setCode: 'mh3' },
+  ];
+  const every: GroupBy[] =
+    ['none', 'type', 'subtype', 'rarity', 'color', 'colorIdentity', 'mana', 'set'];
+  for (const by of every) {
+    assert.deepEqual(groupByField([], by), [], `${by} on nothing`);
+    const total = groupByField(rows, by).flatMap((g) => g.cards).length;
+    assert.equal(total, rows.length, `${by} must not drop or duplicate cards`);
   }
 });

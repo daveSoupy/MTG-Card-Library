@@ -19,15 +19,21 @@ import {
 import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
 import { useUndoStack } from '../undo.ts';
 import { useNarrow } from '../viewport.ts';
+import { type Density } from '../density.ts';
 
 export function DeckBuilder({
   deckId,
   formats,
   onBack,
+  density,
+  onDensity,
 }: {
   deckId: number;
   formats: FormatRecord[];
   onBack: () => void;
+  /** The deck builder's own density — the one page that offers Lined-up. */
+  density: Density;
+  onDensity: (density: Density) => void;
 }) {
   const [deck, setDeck] = useState<Deck | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +49,7 @@ export function DeckBuilder({
   const [pickerGold, setPickerGold] = useState(false);
   const [pickerHybrid, setPickerHybrid] = useState(false);
   const [results, setResults] = useState<Awaited<ReturnType<typeof searchCards>>['cards']>([]);
+  const [resultsTotal, setResultsTotal] = useState(0);
   const [searching, setSearching] = useState(false);
   const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
   const [artFor, setArtFor] = useState<DeckCard | null>(null);
@@ -186,6 +193,7 @@ export function DeckBuilder({
       // enough of a request to run a search.
       if (!query && !ownedOnly && !pickingCommander && !colorFilterActive && !pickerCategory) {
         setResults([]);
+        setResultsTotal(0);
         return;
       }
       setSearching(true);
@@ -213,6 +221,7 @@ export function DeckBuilder({
       )
         .then((r) => {
           setResults(r.cards);
+          setResultsTotal(r.total);
           // Warm the small art so a card's deck tile paints from cache the
           // instant it is added — the reason an owned card felt faster to add
           // was simply that its art was already on disk.
@@ -399,6 +408,8 @@ export function DeckBuilder({
         cardSort={cardSort}
         setView={setView}
         setCardSort={setCardSort}
+        density={density}
+        onDensity={onDensity}
         listRef={listRef}
         setArtFor={setArtFor}
         setError={setError}
@@ -416,7 +427,7 @@ export function DeckBuilder({
         picker={{
           query, setQuery, ownedOnly, setOwnedOnly,
           pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
-          results, searching, pickingCommander, setPickingCommander, searchInput,
+          results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
           preview, setPreview, coverNote, setCoverNote,
         }}
       />

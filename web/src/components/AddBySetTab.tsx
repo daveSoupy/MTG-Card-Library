@@ -5,6 +5,7 @@ import {
 } from '../api.ts';
 import { Combobox } from './Combobox.tsx';
 import { CostPoolBanner, CostPoolFields, useCostPool } from './CostPoolControls.tsx';
+import { DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density } from '../density.ts';
 
 /**
  * Set-scoped entry.
@@ -17,10 +18,15 @@ export function AddBySetTab({
   sets,
   locations,
   onChanged,
+  density = 'full',
+  onDensity,
 }: {
   sets: SetRecord[];
   locations: StorageLocation[];
   onChanged: () => void;
+  /** Shared with the collection's owned grid — this is a tab of that page. */
+  density?: Density;
+  onDensity?: (density: Density) => void;
 }) {
   const [setCode, setSetCode] = useState('');
   const [cards, setCards] = useState<Awaited<ReturnType<typeof fetchSetChecklist>>>([]);
@@ -156,6 +162,25 @@ export function AddBySetTab({
           </select>
         </label>
         <CostPoolFields state={costPool} />
+        {onDensity && (
+          <label>
+            <span>Size</span>
+            <div className="density-choices">
+              {DENSITIES_FOR.collection.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`density-choice${option === density ? ' on' : ''}`}
+                  aria-pressed={option === density}
+                  title={DENSITY_HINT[option]}
+                  onClick={() => onDensity(option)}
+                >
+                  {DENSITY_LABEL[option]}
+                </button>
+              ))}
+            </div>
+          </label>
+        )}
         <label className="check">
           <input
             type="checkbox"
@@ -205,11 +230,24 @@ export function AddBySetTab({
                 onContextMenu={(e) => e.preventDefault()}
                 title={`Tap to add ${card.name} · hold to remove one`}
               >
-                {card.image_small
-                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" draggable={false} />
-                  : <div className="placeholder">{card.name}</div>}
-                <span className="entry-number">#{card.collector_number}</span>
-                {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}
+                {/* Ultra-compact is a checklist rather than a wall of art:
+                    the collector number and the name are what you read off a
+                    binder page, so the image is left out of the DOM entirely. */}
+                {density === 'ultra' ? (
+                  <span className="text-row">
+                    <span className="tr-set">#{card.collector_number}</span>
+                    <span className="tr-name">{card.name}</span>
+                    <span className="tr-qty">{card.owned_qty > 0 ? `×${card.owned_qty}` : ''}</span>
+                  </span>
+                ) : (
+                  <>
+                    {card.image_small
+                      ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" draggable={false} />
+                      : <div className="placeholder">{card.name}</div>}
+                    <span className="entry-number">#{card.collector_number}</span>
+                    {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}
+                  </>
+                )}
               </button>
             ))}
           </div>

@@ -1613,3 +1613,201 @@ input[type='number'] { width: 72px; }
 
   .back-to-top { right: 12px; bottom: 12px; }
 }
+
+
+/* ---------- display density -------------------------------------------------
+   Four card grids render independently — browse results, the collection's owned
+   lots, add-by-set and the deck builder's card view — so density is one
+   attribute on the app root rather than four toggles. Full and Compact are
+   purely this stylesheet; Ultra-compact and Lined-up also change what those
+   four render (no <img> at all, and a cascade instead of a grid). */
+
+/* Name + mana cost on one line. The cost is only shown at Compact, where the
+   art is too small to read one off; at Full the card itself has it. */
+.card .cname { display: flex; align-items: baseline; gap: 6px; }
+.card .cname .cname-text {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.card .cname .cmana {
+  display: none; margin-left: auto; flex: 0 0 auto;
+  font-family: var(--mono); font-size: 10px; color: var(--text-3);
+}
+[data-density='compact'] .card .cname .cmana { display: inline; }
+
+/* Compact sizes the *container*, never the tile: tiles are width:100%, so the
+   column formula is the only thing that decides how big a card is. */
+[data-density='compact'] .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+[data-density='compact'] .deck-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 7px; }
+[data-density='compact'] .entry-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 7px; }
+[data-density='compact'] .card .cname { font-size: 11px; margin-top: 3px; }
+[data-density='compact'] .card .cset,
+[data-density='compact'] .card .cvalue { font-size: 10px; }
+[data-density='compact'] .want-toggle { width: 26px; height: 26px; font-size: 13px; }
+
+/* One text row per card: no art element in the DOM, so nothing is fetched. */
+.text-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 5px 8px; font-size: 13px; text-align: left;
+}
+.tr-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-set, .tr-qty, .tr-price {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 11px; color: var(--text-3);
+}
+.tr-qty { color: var(--text-2); min-width: 30px; text-align: right; }
+.tr-price { min-width: 54px; text-align: right; }
+
+[data-density='ultra'] .grid,
+[data-density='ultra'] .deck-grid,
+[data-density='ultra'] .entry-grid { display: block; gap: 0; margin: 4px 0 12px; }
+[data-density='ultra'] .card,
+[data-density='ultra'] .deck-tile,
+[data-density='ultra'] .entry-tile {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; border-radius: 6px;
+  border-bottom: 1px solid var(--line);
+}
+[data-density='ultra'] .card:hover,
+[data-density='ultra'] .deck-tile:hover,
+[data-density='ultra'] .entry-tile:hover { transform: none; background: var(--panel-2); }
+[data-density='ultra'] .entry-tile.owned .text-row { opacity: .5; }
+/* Nothing is laid over a row, so the star sits in it. */
+[data-density='ultra'] .want-toggle {
+  position: static; flex: 0 0 auto; width: 26px; height: 26px; font-size: 13px; margin-right: 4px;
+}
+/* Same for the tile controls: no art to reveal them over, so they stay put. */
+[data-density='ultra'] .tile-controls {
+  position: static; flex: 0 0 auto; opacity: 1;
+  background: none; padding: 0 4px 0 0; border-radius: 0;
+}
+[data-density='ultra'] .deck-tile.error,
+[data-density='ultra'] .deck-tile.warning { outline: none; }
+[data-density='ultra'] .deck-tile.error { box-shadow: inset 3px 0 0 var(--bad); }
+[data-density='ultra'] .deck-tile.warning { box-shadow: inset 3px 0 0 var(--warn); }
+
+/* ---------- lined-up (deck builder only) ------------------------------------
+   A cascade per group, the way a pile of cards fans out: each card is pulled up
+   over the one before it so only its name and mana cost show, and the last card
+   in a column — which nothing is drawn after — shows in full. */
+.deck-cascade {
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  gap: 16px 12px; margin: 6px 0 14px;
+}
+/* Exactly one card wide, and never wider than the pane — so narrowing the
+   centre column past one card still shows one column, not zero and not a
+   horizontal scrollbar. */
+.cascade-col {
+  --cascade-card-w: 150px;
+  flex: 0 0 auto; min-width: 0;
+  width: min(var(--cascade-card-w), 100%);
+}
+.cascade-col h4 { margin: 0 0 6px; }
+/* The pull-up. A card is 680/488 ≈ 1.393 times its own width tall, and a
+   percentage margin resolves against the containing block's *width* — so
+   -121% leaves about 13% of the card's height showing, which is its name and
+   mana cost, and stays right however wide the column ends up. No z-index:
+   DOM order paints each later card over the one before it. */
+.cascade-col .deck-tile[data-cascade='stacked'] { margin-top: -121%; }
+/* Raised only while it is being used, so a covered card's controls are
+   reachable and its art is readable on a desktop. */
+.cascade-col .deck-tile:hover,
+.cascade-col .deck-tile:focus-within { z-index: 2; }
+/* A card with no art of its own has no printed name in the strip either. */
+.cascade-strip {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: 4px 6px; font-size: 11px; color: var(--text-2);
+  background: var(--panel-2); border-radius: 8px 8px 0 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Tapped in Lined-up on a touch screen, where there is no hover to uncover a
+   card with. The tile controls are one button away rather than gone. */
+.cascade-preview {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0, 0, 0, .62);
+  display: grid; place-items: center; padding: 16px;
+}
+.cascade-preview-body {
+  background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); padding: 10px;
+  width: min(360px, 92vw); display: flex; flex-direction: column; gap: 8px;
+}
+.cascade-preview-body img { width: 100%; border-radius: 10px; display: block; }
+.cascade-preview-body .placeholder {
+  display: grid; place-items: center; aspect-ratio: 488 / 680;
+  background: var(--panel-2); border-radius: 10px; color: var(--text-3); padding: 10px;
+}
+.cascade-preview-bar { display: flex; align-items: center; gap: 8px; }
+.cascade-preview-bar strong {
+  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cascade-preview-controls { display: flex; gap: 6px; justify-content: center; }
+.cascade-preview-controls button {
+  width: 46px; height: 40px; border-radius: 7px; font-size: 16px;
+  border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text-2);
+}
+.cascade-preview-controls button:hover { border-color: var(--accent); color: var(--text); }
+
+/* ---------- customize view --------------------------------------------------
+   Group By, Sort By and View Style in one panel, shared by Browse, the
+   collection and the deck-builder picker. */
+.customize-view { position: relative; }
+.customize-summary {
+  margin-left: 6px; font-family: var(--mono); font-size: 11px; color: var(--text-3);
+}
+.customize-drop {
+  position: absolute; right: 0; top: calc(100% + 6px); width: min(300px, 92vw); z-index: 40;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .35);
+  padding: 10px; display: flex; flex-direction: column; gap: 10px;
+}
+/* Anchored to a button that sits near the left edge once the topbar wraps, so
+   at phone widths it ran off the screen — the same problem, and the same fix,
+   as the alerts panel: pin it to the viewport as a bottom sheet. */
+@media (max-width: 620px) {
+  .customize-drop {
+    position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px;
+    width: auto; max-width: none; max-height: 70vh; overflow-y: auto;
+  }
+}
+.customize-section { display: flex; flex-direction: column; gap: 5px; }
+.customize-label {
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-3); font-family: var(--mono);
+}
+.customize-drop .note { margin: 0; font-size: 11px; }
+.picker-customize { margin: 8px 0 4px; }
+
+.density-choices { display: flex; flex-wrap: wrap; gap: 4px; }
+.density-choice {
+  border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text-2);
+  border-radius: 6px; padding: 4px 8px; font-size: 12px;
+}
+.density-choice:hover { border-color: var(--accent); color: var(--text); }
+.density-choice.on { background: var(--accent-dim); border-color: var(--accent); color: var(--text); }
+
+/* A grouped Browse / collection / picker list. The count says "loaded" while
+   more rows are still a page away, so it never reads as a total. */
+.group-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 16px 0 6px; padding-bottom: 4px;
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  border-bottom: 1px solid var(--line);
+}
+.group-head:first-child { margin-top: 0; }
+
+/* ---------- colour identity on the deck list --------------------------------
+   A bar inside the problem border rather than instead of it, so a banned card
+   still shows red down its edge and its colour at the same time. */
+.deck-row { --id-tint: transparent; }
+.deck-row[data-identity='W'] { --id-tint: var(--w); }
+.deck-row[data-identity='U'] { --id-tint: var(--u); }
+.deck-row[data-identity='B'] { --id-tint: var(--b); }
+.deck-row[data-identity='R'] { --id-tint: var(--r); }
+.deck-row[data-identity='G'] { --id-tint: var(--g); }
+.deck-row[data-identity='M'] { --id-tint: var(--m); }
+.deck-row[data-identity='C'] { --id-tint: var(--line-strong); }
+.deck-row { position: relative; padding-left: 9px; }
+.deck-row::before {
+  content: ''; position: absolute; left: 1px; top: 2px; bottom: 2px; width: 3px;
+  border-radius: 2px; background: var(--id-tint); opacity: .85;
+}

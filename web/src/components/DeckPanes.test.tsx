@@ -38,7 +38,7 @@ function fakePicker(overrides: Partial<DeckPickerState> = {}): DeckPickerState {
   return {
     query: '', setQuery: vi.fn(), ownedOnly: false, setOwnedOnly: vi.fn(),
     pickerColors: [], setPickerColors: vi.fn(), pickerGold: false, setPickerGold: vi.fn(),
-    pickerHybrid: false, setPickerHybrid: vi.fn(), results: [], searching: false,
+    pickerHybrid: false, setPickerHybrid: vi.fn(), results: [], resultsTotal: 0, searching: false,
     pickingCommander: false, setPickingCommander: vi.fn(), searchInput: createRef(),
     preview: null, setPreview: vi.fn(), coverNote: null, setCoverNote: vi.fn(),
     ...overrides,
@@ -58,6 +58,8 @@ describe('DeckPanes', () => {
         view="list"
         cardSort="type"
         setView={vi.fn()}
+        density="full"
+        onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
         picker={fakePicker()}
@@ -86,6 +88,8 @@ describe('DeckPanes', () => {
         view="list"
         cardSort="type"
         setView={vi.fn()}
+        density="full"
+        onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
         picker={fakePicker()}
@@ -124,6 +128,8 @@ describe('DeckPanes', () => {
         view="list"
         cardSort="type"
         setView={vi.fn()}
+        density="full"
+        onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
         picker={fakePicker()}

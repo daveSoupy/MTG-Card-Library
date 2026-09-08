@@ -16,6 +16,12 @@ import { DataPage } from './components/DataPage.tsx';
 import { TradesPage } from './components/TradesPage.tsx';
 import { AlertsBell } from './components/AlertsBell.tsx';
 import { BackToTop } from './components/BackToTop.tsx';
+import { CustomizeView } from './components/CustomizeView.tsx';
+import { groupByField, type GroupBy } from './deckView.ts';
+import {
+  DENSITY_HINT, DENSITY_LABEL, effectiveDensity, loadDensity, nextDensity,
+  savePageDensity, saveGlobalDensity, type Density, type DensityPage,
+} from './density.ts';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -27,6 +33,13 @@ const SORTS = [
 ] as const;
 
 const PAGE_SIZE = 60;
+
+/** Browse hits are full card records, so every universal grouping applies. */
+const BROWSE_GROUPS: GroupBy[] =
+  ['none', 'type', 'subtype', 'rarity', 'color', 'colorIdentity', 'mana', 'set'];
+
+const money = (value: number | null | undefined) =>
+  value == null ? '—' : `$${Number(value).toFixed(2)}`;
 
 type Theme = 'system' | 'light' | 'dark';
 const THEME_KEY = 'mtg.theme';
@@ -75,6 +88,15 @@ type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number 
   | { name: 'collection' } | { name: 'trades' }
   | { name: 'data' };
 
+/** Which page's density the topbar toggle is currently setting. The views with
+ *  no card grid at all have none, and report the global default instead. */
+function densityPageFor(view: View): DensityPage | null {
+  if (view.name === 'browse') return 'browse';
+  if (view.name === 'collection') return 'collection';
+  if (view.name === 'deck') return 'deck';
+  return null;
+}
+
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showSync, setShowSync] = useState(false);
@@ -101,6 +123,8 @@ export default function App() {
   const [formats, setFormats] = useState<FormatRecord[]>([]);
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
   const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [densityPrefs, setDensityPrefs] = useState(loadDensity);
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [wantLists, setWantLists] = useState<NamedList[]>([]);
   // Overrides the "wanted" state a search result or card detail carries from
   // its own fetch, so an add/remove reflects immediately without waiting on
@@ -119,6 +143,36 @@ export default function App() {
     else root.setAttribute('data-theme', theme);
     try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
   }, [theme]);
+
+  // The active page's density, which is what `data-density` on the app root
+  // carries — Full and Compact are pure CSS off that attribute, while
+  // Ultra-compact and Lined-up also change what each grid renders.
+  const densityPage = densityPageFor(view);
+  const density = effectiveDensity(densityPrefs, densityPage);
+
+  /** Everything a page's Customize View panel needs to override the default. */
+  const densityControlsFor = (page: DensityPage) => ({
+    page,
+    density: effectiveDensity(densityPrefs, page),
+    densityOverridden: densityPrefs.overrides[page] !== undefined,
+    onDensity: (next: Density) => {
+      savePageDensity(page, next);
+      setDensityPrefs((current) => ({
+        ...current,
+        overrides: { ...current.overrides, [page]: next },
+      }));
+    },
+    onResetDensity: () => {
+      savePageDensity(page, null);
+      setDensityPrefs((current) => {
+        const overrides = { ...current.overrides };
+        delete overrides[page];
+        return { ...current, overrides };
+      });
+    },
+  });
+
+  const browseDensity = densityControlsFor('browse');
 
   const searchInput = useRef<HTMLInputElement>(null);
 
@@ -254,7 +308,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className="app" data-density={density}>
       <header className="topbar">
         <div className="brand">MTG <span>Library</span></div>
 
@@ -297,11 +351,15 @@ export default function App() {
 
         {view.name === 'browse' && (
           <>
-            <select value={sort} onChange={(e) => setSort(e.target.value)} className="sort-select">
-              {SORTS.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
+            <CustomizeView
+              {...browseDensity}
+              groupBy={groupBy}
+              onGroupBy={setGroupBy}
+              groupOptions={BROWSE_GROUPS}
+              sort={sort}
+              onSort={setSort}
+              sortOptions={SORTS}
+            />
             <button className="btn secondary" onClick={() => setFiltersOpen((v) => !v)}>
               Filters{filtersAreActive(filters) ? ' •' : ''}
             </button>
@@ -321,6 +379,27 @@ export default function App() {
             Random
           </button>
         )}
+        {/* The global default. A page's own Customize View panel overrides it,
+            and the cycle only offers what the page being looked at can show —
+            Lined-up is the deck builder's alone. */}
+        <button
+          className="btn secondary density-toggle"
+          title={`Card size: ${DENSITY_LABEL[density]} — ${DENSITY_HINT[density]}. Click to change.`}
+          aria-label={`Card size: ${DENSITY_LABEL[density]}`}
+          onClick={() => {
+            const next = nextDensity(density, densityPage);
+            saveGlobalDensity(next);
+            // Setting the default from the topbar clears the page's override,
+            // so the control the user just used is the one that took effect.
+            setDensityPrefs((current) => {
+              const overrides = { ...current.overrides };
+              if (densityPage) delete overrides[densityPage];
+              return { global: next, overrides };
+            });
+          }}
+        >
+          {density === 'full' ? '▢' : density === 'lined' ? '▤' : density === 'compact' ? '▦' : '☰'}
+        </button>
         <button
           className="btn secondary theme-toggle"
           title={`Theme: ${THEME_LABEL[theme]} — click to change`}
@@ -333,7 +412,9 @@ export default function App() {
         <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
-      {view.name === 'collection' && <CollectionPage key={dataEpoch} />}
+      {view.name === 'collection' && (
+        <CollectionPage key={dataEpoch} {...densityControlsFor('collection')} />
+      )}
 
       {view.name === 'trades' && (
         <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
@@ -355,6 +436,7 @@ export default function App() {
           deckId={view.id}
           formats={formats}
           onBack={() => setView({ name: 'decks' })}
+          {...densityControlsFor('deck')}
         />
       )}
 
@@ -396,42 +478,81 @@ export default function App() {
             </p>
           )}
 
-          <div className="grid">
-            {cards.map((card) => {
-              const wanted = isWanted(card.oracleId, card.wantedQuantity);
-              return (
-                <div
-                  key={card.oracleId}
-                  role="button"
-                  tabIndex={0}
-                  className="card"
-                  aria-selected={card.oracleId === selected}
-                  onClick={() => setSelected(card.oracleId)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(card.oracleId); } }}
-                  title={`${card.name} — ${card.typeLine}`}
-                >
-                  {card.printingId && card.imageSmall ? (
-                    <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
-                  ) : (
-                    <div className="placeholder">{card.name}</div>
-                  )}
-                  {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
-                  {wantLists.length > 0 && (
-                    <button
-                      type="button"
-                      className={`want-toggle${wanted ? ' wanted' : ''}`}
-                      disabled={pendingWant.has(card.oracleId)}
-                      title={wanted ? 'Remove from want list' : 'Add to want list'}
-                      onClick={(e) => { e.stopPropagation(); toggleWantList(card.oracleId, wanted); }}
+          {/* Grouping runs client-side over the rows that are loaded, so a
+              header count is only ever "what you can see" until the last page
+              lands — it says so rather than reading as a total. */}
+          {groupByField(cards, groupBy).map((group) => (
+            <div key={group.key}>
+              {group.key !== 'all' && (
+                <h4 className="group-head">
+                  {group.label}
+                  <span className="count">
+                    {cards.length < total ? `${group.count} loaded` : group.count}
+                  </span>
+                </h4>
+              )}
+              <div className="grid">
+                {group.cards.map((card) => {
+                  const wanted = isWanted(card.oracleId, card.wantedQuantity);
+                  return (
+                    <div
+                      key={card.oracleId}
+                      role="button"
+                      tabIndex={0}
+                      className="card"
+                      aria-selected={card.oracleId === selected}
+                      onClick={() => setSelected(card.oracleId)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(card.oracleId); } }}
+                      title={`${card.name} — ${card.typeLine}`}
                     >
-                      ★
-                    </button>
-                  )}
-                  <div className="cname">{card.name}</div>
-                </div>
-              );
-            })}
-          </div>
+                      {/* Ultra-compact leaves the art out of the DOM rather
+                          than hiding it: the point is not downloading a
+                          thumbnail per row for a list you are scanning. */}
+                      {density === 'ultra' ? (
+                        <div className="text-row">
+                          <span className="tr-name">{card.name}</span>
+                          <span className="tr-set">
+                            {card.setCode?.toUpperCase() ?? ''}
+                            {card.collectorNumber ? ` #${card.collectorNumber}` : ''}
+                          </span>
+                          <span className="tr-qty">
+                            {card.ownedQuantity > 0 ? `×${card.ownedQuantity}` : ''}
+                          </span>
+                          <span className="tr-price">{money(card.priceUsd)}</span>
+                        </div>
+                      ) : (
+                        <>
+                          {card.printingId && card.imageSmall ? (
+                            <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
+                          ) : (
+                            <div className="placeholder">{card.name}</div>
+                          )}
+                          {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
+                          <div className="cname">
+                            <span className="cname-text">{card.name}</span>
+                            {/* Shown at Compact, where the art is too small to
+                                read a cost off. Hidden at Full by the sheet. */}
+                            <span className="cmana">{card.manaCost ?? ''}</span>
+                          </div>
+                        </>
+                      )}
+                      {wantLists.length > 0 && (
+                        <button
+                          type="button"
+                          className={`want-toggle${wanted ? ' wanted' : ''}`}
+                          disabled={pendingWant.has(card.oracleId)}
+                          title={wanted ? 'Remove from want list' : 'Add to want list'}
+                          onClick={(e) => { e.stopPropagation(); toggleWantList(card.oracleId, wanted); }}
+                        >
+                          ★
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
 
           <BackToTop label="Back to the top of the results" />
 

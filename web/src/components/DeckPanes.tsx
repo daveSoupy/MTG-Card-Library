@@ -4,13 +4,19 @@ import {
   type Board, type CardSummary, type Deck, type DeckCard,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
+import { CascadePreview } from './CascadePreview.tsx';
+import { CustomizeView } from './CustomizeView.tsx';
 import { DeckRow } from './DeckRow.tsx';
 import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { PaneDivider } from './PaneDivider.tsx';
 import {
-  DECK_SORTS, groupCards, type DeckSort, type DeckViewMode,
+  DECK_SORTS, groupByField, groupCards, type DeckSort, type DeckViewMode, type GroupBy,
 } from '../deckView.ts';
+import {
+  DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density,
+} from '../density.ts';
+import { useCoarsePointer } from '../viewport.ts';
 
 const BOARD_LABEL: Record<Board, string> = {
   command: 'Command zone',
@@ -20,6 +26,32 @@ const BOARD_LABEL: Record<Board, string> = {
 };
 
 const BOARDS_TO_SHOW: Board[] = ['command', 'main', 'side', 'maybe'];
+
+/** The picker searches full card records, so every universal grouping applies. */
+const PICKER_GROUPS: GroupBy[] =
+  ['none', 'type', 'subtype', 'rarity', 'color', 'colorIdentity', 'mana', 'set'];
+
+/** Ordering for the picker's own results, applied client-side over the shortlist
+ *  the server already returned — this search is capped, not paginated. */
+const PICKER_SORTS = [
+  ['relevance', 'Best match'],
+  ['name', 'Name'],
+  ['manaValue', 'Mana value'],
+  ['price', 'Price'],
+] as const;
+
+function sortPickerResults(cards: CardSummary[], sort: string): CardSummary[] {
+  const byName = (a: CardSummary, b: CardSummary) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  switch (sort) {
+    case 'name': return [...cards].sort(byName);
+    case 'manaValue': return [...cards].sort((a, b) => a.cmc - b.cmc || byName(a, b));
+    // Unpriced cards sort last rather than as free, the same as the decklist.
+    case 'price': return [...cards].sort((a, b) =>
+      (b.priceUsd ?? -1) - (a.priceUsd ?? -1) || byName(a, b));
+    default: return cards;
+  }
+}
 
 export type DeckPickerState = {
   query: string;
@@ -33,6 +65,8 @@ export type DeckPickerState = {
   pickerHybrid: boolean;
   setPickerHybrid: (fn: (prev: boolean) => boolean) => void;
   results: CardSummary[];
+  /** Total matches, of which `results` is the capped shortlist. */
+  resultsTotal: number;
   searching: boolean;
   pickingCommander: boolean;
   setPickingCommander: (value: boolean) => void;
@@ -54,6 +88,8 @@ export function DeckPanes({
   cardSort,
   setView,
   setCardSort,
+  density,
+  onDensity,
   listRef,
   picker,
   setArtFor,
@@ -80,6 +116,10 @@ export function DeckPanes({
   cardSort: DeckSort;
   setView: (view: DeckViewMode) => void;
   setCardSort: (sort: DeckSort) => void;
+  /** Applies within 'cards' view only — 'list' renders `DeckRow`, which has no
+   *  art to size and so is unaffected by any of the four levels. */
+  density: Density;
+  onDensity: (density: Density) => void;
   listRef: RefObject<HTMLDivElement | null>;
   picker: DeckPickerState;
   setArtFor: (card: DeckCard | null) => void;
@@ -101,9 +141,16 @@ export function DeckPanes({
   const {
     query, setQuery, ownedOnly, setOwnedOnly,
     pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
-    results, searching, pickingCommander, setPickingCommander, searchInput,
+    results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
     preview, setPreview, coverNote, setCoverNote,
   } = picker;
+
+  const [pickerGroupBy, setPickerGroupBy] = useState<GroupBy>('none');
+  const [pickerSort, setPickerSort] = useState('relevance');
+  // Lined-up covers all but a name strip and touch has no hover, so a tap
+  // opens the card whole instead of the tile controls.
+  const coarsePointer = useCoarsePointer();
+  const [cascadeCard, setCascadeCard] = useState<DeckCard | null>(null);
 
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   useEffect(() => {
@@ -139,6 +186,25 @@ export function DeckPanes({
               ))}
             </select>
           </label>
+          {/* Overrides the topbar default for the deck builder alone — and it
+              is the one page that offers Lined-up. Left visible in list view,
+              where it simply has nothing to act on. */}
+          <label className="toolbar-sort">
+            <span>Size</span>
+            <div className="density-choices">
+              {DENSITIES_FOR.deck.map((option) => (
+                <button
+                  key={option}
+                  className={`density-choice${option === density ? ' on' : ''}`}
+                  aria-pressed={option === density}
+                  title={DENSITY_HINT[option]}
+                  onClick={() => onDensity(option)}
+                >
+                  {DENSITY_LABEL[option]}
+                </button>
+              ))}
+            </div>
+          </label>
         </div>
 
         {BOARDS_TO_SHOW.map((board) => {
@@ -173,7 +239,44 @@ export function DeckPanes({
                 </p>
               )}
 
-              {groups.map((group) => (
+              {view === 'cards' && density === 'lined' ? (
+                /* Lined-up: one column per group, wrapping within the centre
+                   pane. A sort with a single "All cards" bucket falls out to
+                   one column with no special-casing. */
+                <div className="deck-cascade">
+                  {groups.map((group) => (
+                    <div className="cascade-col" key={group.key}>
+                      {group.key !== 'all' && (
+                        <h4>{group.label}<span className="count">{group.count}</span></h4>
+                      )}
+                      {group.cards.map((card, index) => (
+                        <DeckTile
+                          key={card.id}
+                          card={card}
+                          problem={problemFor(card)}
+                          density={density}
+                          cascade={index === 0 ? 'first' : 'stacked'}
+                          onPreview={() => {
+                            if (coarsePointer) { setCascadeCard(card); return; }
+                            if (card.printingId) setPreview({ printingId: card.printingId, name: card.name });
+                          }}
+                          tapOpensPreview={coarsePointer}
+                          onQuantity={(delta) =>
+                            apply(
+                              () => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }),
+                              `${delta > 0 ? 'adding' : 'removing'} a copy of ${card.name}`,
+                            )}
+                          onArt={() => setArtFor(card)}
+                          onRemove={() => apply(
+                            () => removeDeckCard(deck.id, card.id),
+                            `removing ${card.name}`,
+                          )}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : groups.map((group) => (
                 <div key={group.key}>
                   {/* A single "All cards" heading adds nothing over the board
                       heading directly above it. */}
@@ -223,6 +326,7 @@ export function DeckPanes({
                           key={card.id}
                           card={card}
                           problem={problemFor(card)}
+                          density={density}
                           onQuantity={(delta) =>
                             apply(
                               () => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }),
@@ -332,8 +436,41 @@ export function DeckPanes({
           <p className="empty">No matches.</p>
         )}
 
+        {/* The picker's own filters (colour identity, legality, commander mode,
+            owned-only) stay where they are — this sits on top of them rather
+            than embedding Browse in the deck builder. No View style: these
+            rows carry no art for a density to act on. */}
+        <div className="picker-customize">
+          <CustomizeView
+            page="deck"
+            density={density}
+            onDensity={onDensity}
+            densityOverridden={false}
+            onResetDensity={() => undefined}
+            showDensity={false}
+            groupBy={pickerGroupBy}
+            onGroupBy={setPickerGroupBy}
+            groupOptions={PICKER_GROUPS}
+            sort={pickerSort}
+            onSort={setPickerSort}
+            sortOptions={PICKER_SORTS}
+          />
+        </div>
+
         <div className="picker-results">
-          {results.map((card) => (
+          {groupByField(sortPickerResults(results, pickerSort), pickerGroupBy).map((group) => (
+            <div key={group.key}>
+              {group.key !== 'all' && (
+                <h4 className="group-head">
+                  {group.label}
+                  {/* The picker is a capped shortlist, never paginated — so a
+                      count is "of what is shown" whenever more matched. */}
+                  <span className="count">
+                    {resultsTotal > results.length ? `${group.count} shown` : group.count}
+                  </span>
+                </h4>
+              )}
+              {group.cards.map((card) => (
             <div className="picker-row" key={card.oracleId}>
               <button
                 className="picker-name"
@@ -362,6 +499,8 @@ export function DeckPanes({
                 )}
                 title="Add to sideboard"
               >SB</button>
+            </div>
+              ))}
             </div>
           ))}
         </div>
@@ -399,6 +538,22 @@ export function DeckPanes({
           max={640}
           onResize={(width) => onPaneResize?.('stats', width)}
           onCommit={(width) => onPaneCommit?.('stats', width)}
+        />
+      )}
+
+      {cascadeCard && (
+        <CascadePreview
+          card={cascadeCard}
+          onClose={() => setCascadeCard(null)}
+          onArt={() => { setArtFor(cascadeCard); setCascadeCard(null); }}
+          onQuantity={(delta) => apply(
+            () => updateDeckCard(deck.id, cascadeCard.id, { quantity: cascadeCard.quantity + delta }),
+            `${delta > 0 ? 'adding' : 'removing'} a copy of ${cascadeCard.name}`,
+          )}
+          onRemove={() => apply(
+            () => removeDeckCard(deck.id, cascadeCard.id),
+            `removing ${cascadeCard.name}`,
+          )}
         />
       )}
 
