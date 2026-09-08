@@ -378,6 +378,10 @@ input[type='number'] { width: 72px; }
   min-height: 0;
 }
 .detail-pane h2 { margin: 0 0 2px; font-size: 17px; }
+.detail-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.detail-title-row h2 { flex: 1; min-width: 0; }
+.want-btn { flex: none; white-space: nowrap; }
+.want-btn.wanted { color: var(--good); border-color: var(--good); }
 .detail-sub { color: var(--text-3); font-size: 12.5px; margin-bottom: 10px; }
 .detail-img { width: 100%; border-radius: 10px; display: block; margin-bottom: 10px; }
 .faces { display: flex; gap: 8px; }
@@ -1374,21 +1378,31 @@ input[type='number'] { width: 72px; }
 
 /* ---------- Phase 6: trades, wants, trade lists, alerts ---------- */
 
-.wanted-badge {
-  position: absolute; top: 6px; left: 6px;
-  color: var(--accent); font-size: 13px; text-shadow: 0 1px 2px rgba(0,0,0,.5);
-}
-
-.want-add-btn {
-  position: absolute; bottom: 26px; left: 6px; right: 6px;
-  opacity: 0; transition: opacity 0.08s ease;
-  border: none; border-radius: 6px; padding: 4px 0;
-  background: rgba(0,0,0,.65); color: #fff; font-size: 11px; font-weight: 600;
+/* Always visible, never hover-gated — a hover-only reveal doesn't exist on
+   touch, and Safari/Chrome fake one from the first tap on any element that
+   has both a :hover rule and a click handler, which meant the first tap only
+   revealed it and a second tap was needed just to open the card. Same reason
+   a double-tap/double-click gesture was tried and dropped: any interaction
+   whose meaning depends on tap *timing* is unreliable across trackpads, mice
+   and touchscreens with different OS double-click thresholds. A small
+   dedicated tap target with stopPropagation has neither problem. */
+.want-toggle {
+  position: absolute; top: 4px; left: 4px;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border: none; border-radius: 50%;
+  background: rgba(0,0,0,.55); color: rgba(255,255,255,.8);
+  font-size: 17px; line-height: 1;
   cursor: pointer;
+  transition: transform 0.06s ease;
 }
-.card:hover .want-add-btn,
-.want-add-btn:focus-visible { opacity: 1; }
-.want-add-btn:disabled { cursor: default; background: var(--good); color: #06231a; opacity: 1; }
+.want-toggle:active { transform: scale(1.2); }
+.want-toggle.wanted { background: var(--good); color: #06231a; }
+/* Mid-toggle: the click landed, but the request it fired hasn't resolved
+   yet, so the button can't yet tell which way a click should go. Visibly
+   dimmed and inert rather than silently ignoring a click, so a fast second
+   tap doesn't read as broken. */
+.want-toggle:disabled { opacity: 0.5; cursor: default; }
 
 /* Scroll inside its own area (min-height:0 + overflow) so the top bar stays put,
    the same as the browse/collection panes. */

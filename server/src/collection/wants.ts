@@ -197,6 +197,16 @@ export class WantStore {
     this.db.prepare('DELETE FROM want_list_items WHERE id = ?').run(itemId);
   }
 
+  /** Every active entry for a card, across every list — not just the default
+   *  one — so a "remove from want list" control can find and clear an entry
+   *  it didn't add itself. */
+  itemsForOracle(oracleId: string): Array<{ wantListId: number; itemId: number }> {
+    return (this.db.prepare(`
+      SELECT id AS itemId, want_list_id AS wantListId
+      FROM want_list_items
+      WHERE oracle_id = ? AND status = 'active'`).all(oracleId) as any[]);
+  }
+
   reorderItems(listId: number, orderedIds: number[]): void {
     const update = this.db.prepare(
       'UPDATE want_list_items SET sort_order = ? WHERE id = ? AND want_list_id = ?');

@@ -65,6 +65,33 @@ test('editing an item sets target price and priority', () => {
   db.close();
 });
 
+test('itemsForOracle finds a card across every list, not just the default', () => {
+  const { db, wants } = fixture();
+  const def = wants.lists().find((l) => l.is_default)!.id;
+  const grails = wants.createList('Grails');
+
+  const defItem = wants.addItem(def, 'bolt');
+  const grailsItem = wants.addItem(grails, 'bolt');
+  wants.addItem(def, 'goyf'); // a different card — must not show up
+
+  const found = wants.itemsForOracle('bolt');
+  assert.deepEqual(
+    found.map((f) => f.itemId).sort(),
+    [defItem, grailsItem].sort(),
+  );
+  assert.deepEqual(found.map((f) => f.wantListId).sort(), [def, grails].sort());
+  db.close();
+});
+
+test('itemsForOracle excludes a removed or fulfilled entry', () => {
+  const { db, wants } = fixture();
+  const def = wants.lists().find((l) => l.is_default)!.id;
+  const item = wants.addItem(def, 'bolt');
+  wants.updateItem(item, { status: 'fulfilled' });
+  assert.deepEqual(wants.itemsForOracle('bolt'), []);
+  db.close();
+});
+
 test('reconcileWants marks a want fulfilled once the collection covers it', () => {
   const { db, wants, collection, alerts } = fixture();
   const def = wants.lists().find((l) => l.is_default)!.id;

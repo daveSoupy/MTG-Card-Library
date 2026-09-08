@@ -373,7 +373,12 @@ export class CardSearchStore {
              dp.flavor_text, dp.artist, s.name AS set_name,
              COALESCE(owned.qty, 0) AS owned_qty,
              (pref.printing_id IS NOT NULL) AS art_is_pinned,
-             (SELECT count(*) FROM card_printings cp WHERE cp.oracle_id = o.oracle_id) AS printing_count
+             (SELECT count(*) FROM card_printings cp WHERE cp.oracle_id = o.oracle_id) AS printing_count,
+             -- Same "on any active want list" check the search results use, so
+             -- the detail pane's want button reflects a card wanted from
+             -- anywhere, not just this session's browse grid.
+             (SELECT COALESCE(SUM(w.quantity), 0) FROM want_list_items w
+              WHERE w.oracle_id = o.oracle_id AND w.status = 'active') AS wanted_qty
       ${FROM_CLAUSE}
       WHERE o.oracle_id = ?`).get(oracleId) as any;
 
