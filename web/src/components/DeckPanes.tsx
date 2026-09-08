@@ -1,6 +1,6 @@
-import type { RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import {
-  addDeckCard, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
+  addDeckCard, fetchDeckCategories, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard,
 } from '../api.ts';
 import { DeckRow } from './DeckRow.tsx';
@@ -57,6 +57,8 @@ export function DeckPanes({
   setArtFor,
   setError,
   jumpToCard,
+  onFilterShortfall,
+  showTemplates,
 }: {
   deck: Deck;
   apply: (action: () => Promise<Deck>) => void;
@@ -72,6 +74,8 @@ export function DeckPanes({
   setArtFor: (card: DeckCard | null) => void;
   setError: (message: string | null) => void;
   jumpToCard: (oracleId: string) => void;
+  onFilterShortfall: (category: string) => void;
+  showTemplates: boolean;
 }) {
   const {
     query, setQuery, ownedOnly, setOwnedOnly,
@@ -79,6 +83,11 @@ export function DeckPanes({
     results, searching, pickingCommander, setPickingCommander, searchInput,
     preview, setPreview, coverNote, setCoverNote,
   } = picker;
+
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  useEffect(() => {
+    fetchDeckCategories(deck.id).then(setCategoryOptions).catch(() => undefined);
+  }, [deck.id]);
 
   return (
     <div className="deck-panes">
@@ -153,6 +162,9 @@ export function DeckPanes({
                           onPreview={() =>
                             card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
                           onArt={() => setArtFor(card)}
+                          onCategory={(category) =>
+                            apply(() => updateDeckCard(deck.id, card.id, { category }))}
+                          categoryOptions={categoryOptions}
                         />
                       </div>
                     ))
@@ -306,7 +318,10 @@ export function DeckPanes({
         stats={deck.stats}
         validation={deck.validation}
         manaBase={deck.manaBase}
+        templateProgress={deck.templateProgress}
+        showTemplates={showTemplates}
         onJumpToCard={jumpToCard}
+        onFilterShortfall={onFilterShortfall}
       />
     </div>
   );

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { setSetting, getSetting } from '../db/index.ts';
 import { CardImporter } from './importer.ts';
 import { fetchBulkEntry, fetchSets, streamBulkCards, type BulkType } from './scryfall.ts';
+import { syncCardCategories } from './categories.ts';
 import { CollectionStore } from '../collection/store.ts';
 import { checkPriceTargets } from '../pricing/alerts.ts';
 
@@ -151,6 +152,12 @@ export async function runSync(
     takeValueSnapshot(db);
     // Now that prices are current, act on any want-list target prices.
     checkPriceTargets(db);
+
+    // Phase 7 category tags, a separate fetch from a separate (if now
+    // official) bulk file. Never lets a failure here fail a card sync that
+    // otherwise succeeded — templates just degrade to manual categories.
+    report({ phase: 'finalizing', message: 'Resolving card categories…', fraction: 0.99 });
+    await syncCardCategories(db);
     if (pricePoints > 0) {
       report({
         phase: 'finalizing',

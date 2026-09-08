@@ -153,6 +153,8 @@ export interface SearchParams {
   excludeUniversesBeyond?: boolean;
   /** Restrict to cards that could lead a deck in this format. */
   commanderFor?: string;
+  /** Phase 7 shortfall links: cards resolved into this card_categories value. */
+  category?: string;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -193,6 +195,7 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.includeUnplayable) query.set('includeUnplayable', 'true');
   if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
   if (params.commanderFor) query.set('commanderFor', params.commanderFor);
+  if (params.category) query.set('category', params.category);
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
@@ -274,6 +277,8 @@ export interface DeckCard {
   isBasicLand: boolean;
   canBeCommander: boolean;
   category: string | null;
+  /** Phase 7: card_categories membership — the tag-derived categories this card matches. */
+  categories: string[];
   producedMana: string[];
   partnerKind: string | null;
   legality: string | null;
@@ -345,6 +350,41 @@ export interface DeckStats {
   needToBuyCount: number;
 }
 
+export interface TemplateTargetRow {
+  category: string;
+  label: string;
+  ideal: number;
+  minCount: number | null;
+  maxCount: number | null;
+  note: string | null;
+  sortOrder: number;
+}
+
+export interface TemplateProgressRow extends TemplateTargetRow {
+  current: number;
+  isShort: boolean;
+  isOver: boolean;
+}
+
+export interface TemplateProgress {
+  templateId: number;
+  templateName: string;
+  rows: TemplateProgressRow[];
+  uncategorisedCount: number;
+  countedTotal: number;
+}
+
+export interface DeckTemplate {
+  id: number;
+  name: string;
+  formatCode: string | null;
+  archetype: string | null;
+  description: string | null;
+  isBuiltin: boolean;
+  sortOrder: number;
+  targets: TemplateTargetRow[];
+}
+
 export interface Deck {
   id: number;
   name: string;
@@ -354,10 +394,12 @@ export interface Deck {
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
+  templateId: number | null;
   cards: DeckCard[];
   validation: DeckValidation;
   stats: DeckStats;
   manaBase: ManaBase;
+  templateProgress: TemplateProgress | null;
 }
 
 export interface DeckSummary {
@@ -398,7 +440,7 @@ export const fetchDeck = (id: number, signal?: AbortSignal) =>
 export const createDeck = (name: string, formatCode: string | null) =>
   send<{ deck: Deck }>('/api/v1/decks', 'POST', { name, formatCode }).then((r) => r.deck);
 
-export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived'>>) =>
+export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived' | 'templateId'>>) =>
   send<{ deck: Deck }>(`/api/v1/decks/${id}`, 'PATCH', changes).then((r) => r.deck);
 
 export const duplicateDeck = (id: number) =>
@@ -429,10 +471,41 @@ export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
   getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
     .then((r) => r.categories);
 
+// -------------------------------------------------------- deck templates
+
+export const fetchTemplates = (signal?: AbortSignal) =>
+  getJson<{ templates: DeckTemplate[] }>('/api/v1/deck-templates', signal).then((r) => r.templates);
+
+export interface TemplateTargetInput {
+  category: string;
+  ideal: number;
+  minCount?: number | null;
+  maxCount?: number | null;
+  note?: string | null;
+}
+
+export const createTemplate = (input: {
+  name: string; formatCode?: string | null; archetype?: string | null;
+  description?: string | null; targets?: TemplateTargetInput[];
+}) => send<{ template: DeckTemplate }>('/api/v1/deck-templates', 'POST', input).then((r) => r.template);
+
+export const updateTemplate = (id: number, changes: {
+  name?: string; formatCode?: string | null; archetype?: string | null;
+  description?: string | null; targets?: TemplateTargetInput[];
+}) => send<{ template: DeckTemplate }>(`/api/v1/deck-templates/${id}`, 'PATCH', changes).then((r) => r.template);
+
+export const cloneTemplate = (id: number, name?: string) =>
+  send<{ template: DeckTemplate }>(`/api/v1/deck-templates/${id}/clone`, 'POST', { name }).then((r) => r.template);
+
+export const deleteTemplate = (id: number) =>
+  send<void>(`/api/v1/deck-templates/${id}`, 'DELETE');
+
 export type CostMethod = 'unknown' | 'free' | 'market' | 'fixed' | 'box';
 
 export interface AppSettings {
   autoMaintainLands: boolean;
+  /** Global on/off for Phase 7 deck templates, alongside the per-deck picker. */
+  showDeckTemplates: boolean;
   /** Cost basis assumed when adding cards without a typed-in price. */
   defaultCostMethod: Exclude<CostMethod, 'box'>;
   defaultCostFixedUsd: number;

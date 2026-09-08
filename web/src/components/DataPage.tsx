@@ -235,6 +235,23 @@ export function DataPage({ locations, onCollectionChanged }: {
         </p>
 
         {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.showDeckTemplates}
+              onChange={(e) => saveSetting('showDeckTemplates', e.target.checked)}
+            />
+            Show deck templates
+          </label>
+        )}
+        <p className="hint">
+          Adds a “Follow a template” picker to every deck and a Template section to its
+          stats pane, tracking the deck against a shape like “38 lands, 10 ramp, 10 draw” —
+          a starting point, not a rule. Off hides the control entirely rather than
+          resetting each deck’s choice; turn it back on and prior choices come back.
+        </p>
+
+        {settings && (
           <div className="cost-default">
             <label>
               <span className="dim">Default cost basis when adding cards</span>

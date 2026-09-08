@@ -5,7 +5,7 @@ import type { DeckCard } from '../api.ts';
 
 const card: DeckCard = {
   id: 1, oracleId: 'ORACLE-1', name: 'Sol Ring', board: 'main', quantity: 1,
-  quantityFromCollection: 1, commanderRole: null, cmc: 1, typeLine: 'Artifact',
+  quantityFromCollection: 1, commanderRole: null, categories: [], cmc: 1, typeLine: 'Artifact',
   manaCost: '{1}', colorIdentity: '', isBasicLand: false, canBeCommander: false,
   category: null, producedMana: [], partnerKind: null, legality: null,
   ownedQuantity: 1, availableQuantity: 1, printingId: 'PRINT-1', setCode: 'cmr',
@@ -25,6 +25,8 @@ describe('DeckRow', () => {
         onToggleOwned={() => {}}
         onPreview={() => {}}
         onArt={() => {}}
+        onCategory={() => {}}
+        categoryOptions={[]}
       />,
     );
 

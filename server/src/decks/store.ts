@@ -4,6 +4,7 @@ import { deckStats } from './stats.ts';
 import { analyseManaBase } from './manabase.ts';
 import type { ManaBase } from './manabase.ts';
 import { planBasics, type BasicLand } from './lands.ts';
+import { loadTemplate, computeTemplateProgress, type TemplateProgress } from './templates.ts';
 import { getSetting } from '../db/index.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
@@ -132,6 +133,7 @@ export class DeckStore {
     validation: DeckValidation;
     stats: DeckStats;
     manaBase: ManaBase;
+    templateProgress: TemplateProgress | null;
   }) | null {
     const row = this.db.prepare('SELECT * FROM decks WHERE id = ?').get(id) as any;
     if (!row) return null;
@@ -139,6 +141,7 @@ export class DeckStore {
     const deck = toDeck(row);
     const cards = this.cardsFor(id, deck.formatCode);
     const rules = this.formatRules(deck.formatCode);
+    const template = deck.templateId ? loadTemplate(this.db, deck.templateId) : null;
 
     return {
       ...deck,
@@ -146,6 +149,7 @@ export class DeckStore {
       validation: validateDeck(cards, rules),
       stats: deckStats(cards),
       manaBase: analyseManaBase(cards),
+      templateProgress: template ? computeTemplateProgress(cards, template) : null,
     };
   }
 
@@ -197,6 +201,8 @@ export class DeckStore {
                  ELSE 3 END,
                o.cmc, o.name COLLATE NOCASE`).all(formatCode, deckId, deckId) as any[];
 
+    const categories = this.categoriesByOracle(rows.map((r) => r.oracle_id));
+
     return rows.map((row) => ({
       id: row.id,
       oracleId: row.oracle_id,
@@ -206,6 +212,7 @@ export class DeckStore {
       quantityFromCollection: row.quantity_from_collection,
       commanderRole: row.commander_role as CommanderRole | null,
       category: row.category,
+      categories: categories.get(row.oracle_id) ?? [],
       sortOrder: row.sort_order,
       cmc: row.cmc,
       typeLine: row.type_line ?? '',
@@ -229,6 +236,21 @@ export class DeckStore {
       imageSmall: row.image_small,
       priceUsd: row.price_usd,
     }));
+  }
+
+  /** Phase 7: card_categories rows for a set of oracle ids, grouped for attaching to deck cards. */
+  private categoriesByOracle(oracleIds: string[]): Map<string, string[]> {
+    const map = new Map<string, string[]>();
+    if (oracleIds.length === 0) return map;
+    const unique = [...new Set(oracleIds)];
+    const placeholders = unique.map(() => '?').join(',');
+    const rows = this.db.prepare(
+      `SELECT oracle_id, category FROM card_categories WHERE oracle_id IN (${placeholders})`,
+    ).all(...unique) as Array<{ oracle_id: string; category: string }>;
+    for (const row of rows) {
+      map.set(row.oracle_id, [...(map.get(row.oracle_id) ?? []), row.category]);
+    }
+    return map;
   }
 
   /**
@@ -343,7 +365,10 @@ export class DeckStore {
 
   update(
     id: number,
-    changes: { name?: string; formatCode?: string | null; description?: string | null; notes?: string | null; isArchived?: boolean },
+    changes: {
+      name?: string; formatCode?: string | null; description?: string | null; notes?: string | null;
+      isArchived?: boolean; templateId?: number | null;
+    },
   ): void {
     const existing = this.db.prepare('SELECT id FROM decks WHERE id = ?').get(id);
     if (!existing) throw new DeckNotFoundError(id);
@@ -355,6 +380,9 @@ export class DeckStore {
     if (changes.description !== undefined) { sets.push('description = ?'); params.push(changes.description); }
     if (changes.notes !== undefined) { sets.push('notes = ?'); params.push(changes.notes); }
     if (changes.isArchived !== undefined) { sets.push('is_archived = ?'); params.push(changes.isArchived ? 1 : 0); }
+    // decks.template_id is ON DELETE SET NULL, so an explicit null here is
+    // indistinguishable from "template was deleted" — both mean off.
+    if (changes.templateId !== undefined) { sets.push('template_id = ?'); params.push(changes.templateId); }
     if (sets.length === 0) return;
 
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
@@ -368,10 +396,10 @@ export class DeckStore {
 
     return this.db.transaction(() => {
       const created = this.db.prepare(`
-        INSERT INTO decks (name, format_code, home_location_id, description, notes)
-        VALUES (?,?,?,?,?)`)
+        INSERT INTO decks (name, format_code, home_location_id, description, notes, template_id)
+        VALUES (?,?,?,?,?,?)`)
         .run(newName?.trim() || `${source.name} copy`, source.format_code,
-             source.home_location_id, source.description, source.notes);
+             source.home_location_id, source.description, source.notes, source.template_id);
       const newId = Number(created.lastInsertRowid);
 
       this.db.prepare(`
@@ -774,6 +802,7 @@ function toDeck(row: any): Deck {
     isArchived: Boolean(row.is_archived),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    templateId: row.template_id,
   };
 }
 

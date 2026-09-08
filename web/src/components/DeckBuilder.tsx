@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addRecommendedLands, fetchDeck, imageUrl, searchCards, updateDeck,
-  type Deck, type DeckCard, type FormatRecord,
+  addRecommendedLands, fetchDeck, fetchSettings, fetchTemplates, imageUrl, searchCards, updateDeck,
+  type AppSettings, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
 import { DeckPanes } from './DeckPanes.tsx';
@@ -26,8 +26,12 @@ export function DeckBuilder({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [templates, setTemplates] = useState<DeckTemplate[]>([]);
+
   const [query, setQuery] = useState('');
   const [ownedOnly, setOwnedOnly] = useState(false);
+  const [pickerCategory, setPickerCategory] = useState<string | null>(null);
   const [pickerColors, setPickerColors] = useState<string[]>([]);
   const [pickerGold, setPickerGold] = useState(false);
   const [pickerHybrid, setPickerHybrid] = useState(false);
@@ -79,6 +83,14 @@ export function DeckBuilder({
 
   useEffect(load, [load]);
 
+  // Global on/off (settings.showDeckTemplates) alongside the per-deck picker;
+  // the template list is small and rarely changes, so one fetch per visit is
+  // plenty.
+  useEffect(() => {
+    fetchSettings().then(setSettings).catch(() => undefined);
+    fetchTemplates().then(setTemplates).catch(() => undefined);
+  }, []);
+
   /** Every mutation returns the whole deck, so validation never goes stale. */
   const apply = async (action: () => Promise<Deck>) => {
     setBusy(true);
@@ -101,7 +113,7 @@ export function DeckBuilder({
       // Commander mode lists candidates with no query typed, since "show me what
       // can lead this deck" is the whole request; a colour filter alone is also
       // enough of a request to run a search.
-      if (!query && !ownedOnly && !pickingCommander && !colorFilterActive) {
+      if (!query && !ownedOnly && !pickingCommander && !colorFilterActive && !pickerCategory) {
         setResults([]);
         return;
       }
@@ -121,6 +133,8 @@ export function DeckBuilder({
           ),
           gold: pickerGold || undefined,
           hybrid: pickerHybrid || undefined,
+          // Set by clicking a shortfall in the Template stats panel.
+          category: pickerCategory ?? undefined,
           limit: 40,
           sort: 'relevance',
         },
@@ -140,7 +154,7 @@ export function DeckBuilder({
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query, ownedOnly, deck?.formatCode, identity, pickingCommander,
-      pickerColors, pickerGold, pickerHybrid, colorFilterActive]);
+      pickerColors, pickerGold, pickerHybrid, colorFilterActive, pickerCategory]);
 
   if (!deck) {
     return (
@@ -160,6 +174,23 @@ export function DeckBuilder({
     target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     target?.classList.add('flash');
     setTimeout(() => target?.classList.remove('flash'), 1200);
+  };
+
+  // A shortfall row's "N short" in the Template panel: pre-filters the picker
+  // to that category, the deck's colour identity and its format, reusing the
+  // same identity/format narrowing the picker already applies. Lands and
+  // creatures are resolved from type_line, not card_categories, so they go
+  // through the Scryfall-syntax box instead of the category filter.
+  const filterPickerByCategory = (category: string) => {
+    setPickingCommander(false);
+    if (category === 'lands' || category === 'creatures') {
+      setPickerCategory(null);
+      setQuery(category === 'lands' ? 'is:land' : 'is:creature');
+    } else {
+      setQuery('');
+      setPickerCategory(category);
+    }
+    searchInput.current?.focus();
   };
 
   return (
@@ -194,6 +225,21 @@ export function DeckBuilder({
             <option key={f.code} value={f.code}>{f.display_name}</option>
           ))}
         </select>
+
+        {settings?.showDeckTemplates && (
+          <select
+            value={deck.templateId ?? ''}
+            onChange={(e) =>
+              apply(() => updateDeck(deck.id, { templateId: e.target.value ? Number(e.target.value) : null }))}
+            style={{ width: 190 }}
+            title="Track this deck against a template — a starting point, not a rule"
+          >
+            <option value="">No template</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        )}
 
         <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
           {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
@@ -264,6 +310,8 @@ export function DeckBuilder({
         setArtFor={setArtFor}
         setError={setError}
         jumpToCard={jumpToCard}
+        onFilterShortfall={filterPickerByCategory}
+        showTemplates={Boolean(settings?.showDeckTemplates)}
         picker={{
           query, setQuery, ownedOnly, setOwnedOnly,
           pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,

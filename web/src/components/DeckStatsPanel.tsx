@@ -1,4 +1,4 @@
-import type { DeckStats, DeckValidation, ManaBase } from '../api.ts';
+import type { DeckStats, DeckValidation, ManaBase, TemplateProgress } from '../api.ts';
 
 const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
@@ -94,16 +94,72 @@ function ManaBasePanel({ manaBase }: { manaBase: ManaBase }) {
   );
 }
 
+/**
+ * "N short" / "N over" per category, against a template's targets.
+ *
+ * Rows deliberately do not sum to the deck size — a card counts toward every
+ * category it matches, so the panel says so rather than implying a partition.
+ */
+function TemplatePanel({
+  progress,
+  onFilterShortfall,
+}: {
+  progress: TemplateProgress;
+  onFilterShortfall: (category: string) => void;
+}) {
+  return (
+    <>
+      <p className="note">
+        {progress.templateName} — a starting point, not a rule. Categories overlap, so
+        rows do not add up to the {progress.countedTotal}-card total.
+      </p>
+      {progress.rows.map((row) => (
+        <div className={`tmpl-row${row.isShort ? ' short' : ''}`} key={row.category}>
+          <span className="tmpl-name">{row.label}</span>
+          <span className="tmpl-num">
+            {row.isShort ? (
+              <button
+                className="linkish"
+                onClick={() => onFilterShortfall(row.category)}
+                title={`Show ${row.label.toLowerCase()} cards to add`}
+              >
+                {row.current} / {row.ideal}
+                <span className="tag warn">{row.ideal - row.current} short</span>
+              </button>
+            ) : (
+              <>
+                {row.current} / {row.ideal}
+                {row.isOver && <span className="tag warn">over</span>}
+              </>
+            )}
+          </span>
+        </div>
+      ))}
+      <div className="kv">
+        <span>Uncategorised</span>
+        <span>{progress.uncategorisedCount}</span>
+      </div>
+    </>
+  );
+}
+
 export function DeckStatsPanel({
   stats,
   validation,
   manaBase,
+  templateProgress,
+  showTemplates,
   onJumpToCard,
+  onFilterShortfall,
 }: {
   stats: DeckStats;
   validation: DeckValidation;
   manaBase: ManaBase;
+  templateProgress: TemplateProgress | null;
+  /** The showDeckTemplates global setting — off hides the section entirely. */
+  showTemplates: boolean;
   onJumpToCard: (oracleId: string) => void;
+  onFilterShortfall: (category: string) => void;
 }) {
   const errors = validation.issues.filter((i) => i.severity === 'error');
   const warnings = validation.issues.filter((i) => i.severity === 'warning');
@@ -175,6 +231,13 @@ export function DeckStatsPanel({
         <h3>Mana base</h3>
         <ManaBasePanel manaBase={manaBase} />
       </div>
+
+      {showTemplates && templateProgress && (
+        <div className="fgroup">
+          <h3>Template</h3>
+          <TemplatePanel progress={templateProgress} onFilterShortfall={onFilterShortfall} />
+        </div>
+      )}
 
       <div className="fgroup">
         <h3>Colours{stats.colorIdentity ? ` · ${stats.colorIdentity}` : ''}</h3>

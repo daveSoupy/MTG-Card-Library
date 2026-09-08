@@ -43,6 +43,7 @@ function filtersFrom(q: Record<string, unknown>): SearchFilters {
     excludeUniversesBeyond: asBool(q.excludeUniversesBeyond),
     commanderFor: typeof q.commanderFor === 'string' && q.commanderFor
       ? q.commanderFor.toLowerCase() : undefined,
+    category: typeof q.category === 'string' && q.category ? q.category.toLowerCase() : undefined,
   };
 }
 

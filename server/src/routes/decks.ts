@@ -5,7 +5,7 @@ import { BOARDS, type Board, type CommanderRole } from '../decks/types.ts';
 import {
   takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
 } from '../decks/snapshots.ts';
-import { ID, COUNT, NAME, TEXT, TEXT_OR_NULL, FLAG, body, enumOrNull, idParams } from './schema.ts';
+import { ID, ID_OR_NULL, COUNT, NAME, TEXT, TEXT_OR_NULL, FLAG, body, enumOrNull, idParams } from './schema.ts';
 
 const COMMANDER_ROLES: CommanderRole[] = [
   'commander', 'partner', 'background', 'companion', 'signature_spell',
@@ -57,7 +57,7 @@ export function registerDeckRoutes(
     Params: { id: number };
     Body: {
       name?: string; formatCode?: string | null; description?: string | null;
-      notes?: string | null; isArchived?: boolean;
+      notes?: string | null; isArchived?: boolean; templateId?: number | null;
     };
   }>(
     '/api/v1/decks/:id',
@@ -66,13 +66,13 @@ export function registerDeckRoutes(
         params: idParams('id'),
         body: body({
           name: NAME, formatCode: TEXT_OR_NULL, description: TEXT_OR_NULL,
-          notes: TEXT_OR_NULL, isArchived: FLAG,
+          notes: TEXT_OR_NULL, isArchived: FLAG, templateId: ID_OR_NULL,
         }),
       },
     },
     async (request, reply) => guard(reply, () => {
-      const { name, formatCode, description, notes, isArchived } = request.body;
-      decks.update(request.params.id, { name, formatCode, description, notes, isArchived });
+      const { name, formatCode, description, notes, isArchived, templateId } = request.body;
+      decks.update(request.params.id, { name, formatCode, description, notes, isArchived, templateId });
       return { deck: decks.get(request.params.id) };
     }),
   );
