@@ -4,6 +4,9 @@ import { statSync } from 'node:fs';
 import { libraryStatus, setSetting } from '../db/index.ts';
 import { cacheSizeBytes, cacheLimitBytes } from '../images/cache.ts';
 import { CacheLimitError, type DownloadScope, type ImageDownloadManager } from '../images/downloadManager.ts';
+import { body as bodySchema } from './schema.ts';
+
+const SCOPE = { type: 'string', enum: ['referenced', 'all'] } as const;
 
 /**
  * Storage and image-download control for the Data section.
@@ -47,20 +50,26 @@ export function registerStorageRoutes(
     };
   });
 
-  app.put('/api/v1/storage/cache-limit', async (request, reply) => {
-    const bytes = Number((request.body as any)?.bytes);
-    if (!Number.isFinite(bytes) || bytes <= 0) {
-      return reply.status(400).send({ error: 'bytes must be a positive number.' });
-    }
-    setSetting(db, 'image_cache_max_bytes', String(Math.round(bytes)));
-    return { limitBytes: cacheLimitBytes(db) };
-  });
+  app.put<{ Body: { bytes: number } }>(
+    '/api/v1/storage/cache-limit',
+    {
+      schema: {
+        // A cap of zero would mean "cache nothing", which is not a setting the
+        // download manager can honour; exclusiveMinimum keeps it positive.
+        body: bodySchema({ bytes: { type: 'number', exclusiveMinimum: 0 } }, ['bytes']),
+      },
+    },
+    async (request) => {
+      setSetting(db, 'image_cache_max_bytes', String(Math.round(request.body.bytes)));
+      return { limitBytes: cacheLimitBytes(db) };
+    },
+  );
 
-  app.post('/api/v1/images/download', async (request, reply) => {
-    const scope = (request.body as any)?.scope as DownloadScope;
-    if (scope !== 'referenced' && scope !== 'all') {
-      return reply.status(400).send({ error: 'scope must be "referenced" or "all".' });
-    }
+  app.post<{ Body: { scope: DownloadScope } }>(
+    '/api/v1/images/download',
+    { schema: { body: bodySchema({ scope: SCOPE }, ['scope']) } },
+    async (request, reply) => {
+    const { scope } = request.body;
     if (downloads.isRunning) {
       return reply.status(409).send({ error: 'A download is already running.', status: downloads.current });
     }
@@ -76,7 +85,8 @@ export function registerStorageRoutes(
       }
       throw error;
     }
-  });
+  },
+  );
 
   app.get('/api/v1/images/download/status', async () => ({ status: downloads.current }));
 
