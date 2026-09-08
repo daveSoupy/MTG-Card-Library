@@ -1,10 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AlertStore, AlertState } from '../alerts/store.ts';
-
-const asInt = (v: unknown): number | undefined => {
-  const n = Number(v);
-  return Number.isInteger(n) ? n : undefined;
-};
+import { idParams } from './schema.ts';
 
 /** The in-app alert inbox: list, count, acknowledge, resolve. */
 export function registerAlertRoutes(app: FastifyInstance, alerts: AlertStore): void {
@@ -13,17 +9,21 @@ export function registerAlertRoutes(app: FastifyInstance, alerts: AlertStore): v
     return { alerts: alerts.list(state ? { state } : {}), activeCount: alerts.activeCount() };
   });
 
-  app.post('/api/v1/alerts/:id/acknowledge', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid alert id.' });
-    alerts.acknowledge(id);
-    return { activeCount: alerts.activeCount() };
-  });
+  app.post<{ Params: { id: number } }>(
+    '/api/v1/alerts/:id/acknowledge',
+    { schema: { params: idParams('id') } },
+    async (request) => {
+      alerts.acknowledge(request.params.id);
+      return { activeCount: alerts.activeCount() };
+    },
+  );
 
-  app.post('/api/v1/alerts/:id/resolve', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid alert id.' });
-    alerts.resolve(id);
-    return { activeCount: alerts.activeCount() };
-  });
+  app.post<{ Params: { id: number } }>(
+    '/api/v1/alerts/:id/resolve',
+    { schema: { params: idParams('id') } },
+    async (request) => {
+      alerts.resolve(request.params.id);
+      return { activeCount: alerts.activeCount() };
+    },
+  );
 }
