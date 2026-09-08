@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { getSetting, setSetting } from '../db/index.ts';
 import { AUTO_MAINTAIN_LANDS } from '../decks/store.ts';
 import { COST_METHODS } from '../collection/store.ts';
+import { FLAG, MONEY } from './schema.ts';
 
 /**
  * App-level settings.
@@ -41,6 +42,21 @@ const NUMBER_SETTINGS: Record<string, NumberSetting> = {
   draftBoosterPriceUsd: { key: DRAFT_BOOSTER_PRICE_USD, default: 4 },
 };
 
+/**
+ * The PUT body schema, built from the three allowlists above so a new setting
+ * stays one entry in one map. `additionalProperties` is left open on purpose:
+ * an unknown key still reaches the handler, which names it in the error.
+ */
+const SETTINGS_BODY = {
+  type: 'object',
+  properties: {
+    ...Object.fromEntries(Object.keys(BOOLEAN_SETTINGS).map((name) => [name, FLAG])),
+    ...Object.fromEntries(Object.entries(ENUM_SETTINGS).map(
+      ([name, setting]) => [name, { type: 'string', enum: [...setting.allowed] }])),
+    ...Object.fromEntries(Object.keys(NUMBER_SETTINGS).map((name) => [name, MONEY])),
+  },
+};
+
 type SettingsShape = Record<string, boolean | string | number>;
 
 function readSettings(db: Database.Database): SettingsShape {
@@ -64,32 +80,26 @@ function readSettings(db: Database.Database): SettingsShape {
 export function registerSettingsRoutes(app: FastifyInstance, db: Database.Database): void {
   app.get('/api/v1/settings', async () => ({ settings: readSettings(db) }));
 
-  app.put('/api/v1/settings', async (request, reply) => {
-    const body = (request.body ?? {}) as Record<string, unknown>;
-
-    for (const [name, value] of Object.entries(body)) {
-      if (BOOLEAN_SETTINGS[name]) {
-        if (typeof value !== 'boolean') {
-          return reply.status(400).send({ error: `Setting "${name}" must be a boolean.` });
+  // The schema has already checked every known key's type; what is left for the
+  // handler is the one thing a schema built this way cannot say — that a key it
+  // does not know about is a mistake worth naming.
+  app.put<{ Body: Record<string, boolean | string | number> }>(
+    '/api/v1/settings',
+    { schema: { body: SETTINGS_BODY } },
+    async (request, reply) => {
+      for (const [name, value] of Object.entries(request.body ?? {})) {
+        if (BOOLEAN_SETTINGS[name]) {
+          setSetting(db, BOOLEAN_SETTINGS[name].key, value ? '1' : '0');
+        } else if (ENUM_SETTINGS[name]) {
+          setSetting(db, ENUM_SETTINGS[name].key, String(value));
+        } else if (NUMBER_SETTINGS[name]) {
+          setSetting(db, NUMBER_SETTINGS[name].key, String(value));
+        } else {
+          return reply.status(400).send({ error: `Unknown setting "${name}".` });
         }
-        setSetting(db, BOOLEAN_SETTINGS[name].key, value ? '1' : '0');
-      } else if (ENUM_SETTINGS[name]) {
-        const setting = ENUM_SETTINGS[name];
-        if (typeof value !== 'string' || !setting.allowed.includes(value)) {
-          return reply.status(400).send({ error: `Setting "${name}" must be one of: ${setting.allowed.join(', ')}.` });
-        }
-        setSetting(db, setting.key, value);
-      } else if (NUMBER_SETTINGS[name]) {
-        const parsed = Number(value);
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          return reply.status(400).send({ error: `Setting "${name}" must be a number ≥ 0.` });
-        }
-        setSetting(db, NUMBER_SETTINGS[name].key, String(parsed));
-      } else {
-        return reply.status(400).send({ error: `Unknown setting "${name}".` });
       }
-    }
 
-    return { settings: readSettings(db) };
-  });
+      return { settings: readSettings(db) };
+    },
+  );
 }
