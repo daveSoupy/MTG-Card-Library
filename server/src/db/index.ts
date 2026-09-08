@@ -60,7 +60,12 @@ export function openLibrary({ dataDir, createImageDir = true }: OpenOptions): Li
     dataDir,
     databasePath,
     imageDir,
-    close: () => db.close(),
+    close: () => {
+      // Refreshes the query planner's statistics from what this session
+      // touched, cheaply — the full ANALYZE after a sync covers the rest.
+      db.pragma('optimize');
+      db.close();
+    },
   };
 }
 

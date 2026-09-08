@@ -174,6 +174,11 @@ export async function runSync(
        WHERE id = ?`)
       .run(bytesDownloaded, importer.printingCount, importer.oracleCount, logId);
 
+    // The import writes tens of thousands of rows across many transactions;
+    // fold them back into the main database file now rather than leaving a
+    // large WAL behind for concurrent readers to carry.
+    db.pragma('wal_checkpoint(TRUNCATE)');
+
     const result: SyncResult = {
       status: 'done',
       cardsImported: importer.oracleCount,
