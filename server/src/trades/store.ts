@@ -36,6 +36,28 @@ export interface TradeItemInput {
   notes?: string | null;
 }
 
+/** The mutable fields of a draft trade. Anything omitted is left alone. */
+export interface TradeUpdate {
+  counterpartyName?: string;
+  counterpartyContact?: string | null;
+  tradeDate?: string | null;
+  locationNote?: string | null;
+  notes?: string | null;
+}
+
+/** The mutable fields of one card in a draft trade. */
+export interface TradeItemUpdate {
+  quantity?: number;
+  printingId?: string;
+  finish?: Finish;
+  condition?: Condition;
+  language?: string;
+  sourceCollectionItemId?: number | null;
+  destinationLocationId?: number | null;
+  unitValueUsd?: number | null;
+  notes?: string | null;
+}
+
 export interface Conflict {
   oracleId: string;
   name: string;
@@ -147,18 +169,19 @@ export class TradeStore {
     return trade;
   }
 
-  update(id: number, changes: Record<string, unknown>): void {
+  update(id: number, changes: TradeUpdate): void {
     this.requireDraft(id);
     const columns: Record<string, string> = {
       counterpartyName: 'counterparty_name', counterpartyContact: 'counterparty_contact',
       tradeDate: 'trade_date', locationNote: 'location_note', notes: 'notes',
     };
+    const values = changes as Record<string, unknown>;
     const sets: string[] = [];
     const params: unknown[] = [];
     for (const [key, column] of Object.entries(columns)) {
-      if (changes[key] === undefined) continue;
+      if (values[key] === undefined) continue;
       sets.push(`${column} = ?`);
-      params.push(changes[key]);
+      params.push(values[key]);
     }
     if (sets.length === 0) return;
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
@@ -225,11 +248,12 @@ export class TradeStore {
     return Number(result.lastInsertRowid);
   }
 
-  updateItem(tradeId: number, itemId: number, changes: Record<string, unknown>): void {
+  updateItem(tradeId: number, itemId: number, changes: TradeItemUpdate): void {
     this.requireDraft(tradeId);
 
-    if (changes.quantity !== undefined) {
-      changes = { ...changes, quantity: Math.max(1, Math.trunc(Number(changes.quantity))) };
+    const values: Record<string, unknown> = { ...changes };
+    if (values.quantity !== undefined) {
+      values.quantity = Math.max(1, Math.trunc(Number(values.quantity)));
     }
 
     const columns: Record<string, string> = {
@@ -241,9 +265,9 @@ export class TradeStore {
     const sets: string[] = [];
     const params: unknown[] = [];
     for (const [key, column] of Object.entries(columns)) {
-      if (changes[key] === undefined) continue;
+      if (values[key] === undefined) continue;
       sets.push(`${column} = ?`);
-      params.push(changes[key]);
+      params.push(values[key]);
     }
     if (sets.length === 0) return;
     this.db.prepare(`UPDATE trade_items SET ${sets.join(', ')} WHERE id = ? AND trade_id = ?`)
