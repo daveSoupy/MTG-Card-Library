@@ -27,10 +27,25 @@ export function CardDetailPane({
   oracleId,
   floating,
   onClose,
+  canToggleWantList = false,
+  wantOverride,
+  wantPending = false,
+  onToggleWantList,
 }: {
   oracleId: string | null;
   floating: boolean;
   onClose: () => void;
+  /** Whether at least one want list exists to toggle into. */
+  canToggleWantList?: boolean;
+  /** Overrides the card's own fetched wantedQuantity — same map the browse
+   *  grid uses, keyed by oracle id, value is the default list's item id when
+   *  wanted or null once removed this session. */
+  wantOverride?: Map<string, number | null>;
+  /** The card on screen has a toggle in flight — disables the button so a
+   *  second click before the first resolves can't repeat the same action
+   *  (add-then-add) instead of reversing it. */
+  wantPending?: boolean;
+  onToggleWantList?: (oracleId: string, currentlyWanted: boolean) => void;
 }) {
   const [card, setCard] = useState<CardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +93,25 @@ export function CardDetailPane({
 
       {card && (
         <>
-          <h2>{card.name}</h2>
+          <div className="detail-title-row">
+            <h2>{card.name}</h2>
+            {canToggleWantList && (() => {
+              const wanted = wantOverride?.has(card.oracleId)
+                ? wantOverride.get(card.oracleId) !== null
+                : (card.wantedQuantity ?? 0) > 0;
+              return (
+                <button
+                  type="button"
+                  className={`btn secondary small want-btn${wanted ? ' wanted' : ''}`}
+                  disabled={wantPending}
+                  title={wanted ? 'Remove from want list' : 'Add to want list'}
+                  onClick={() => onToggleWantList?.(card.oracleId, wanted)}
+                >
+                  {wanted ? '✓ Wanted' : '+ Want'}
+                </button>
+              );
+            })()}
+          </div>
           <div className="detail-sub">
             {card.typeLine}
             {card.manaCost ? ` · ${card.manaCost}` : ''}

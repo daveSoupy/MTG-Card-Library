@@ -1151,6 +1151,11 @@ export const removeWantItem = (listId: number, itemId: number) =>
   send<WantList>(`/api/v1/want-lists/${listId}/items/${itemId}`, 'DELETE');
 export const reorderWantItems = (listId: number, orderedIds: number[]) =>
   send<WantList>(`/api/v1/want-lists/${listId}/reorder`, 'POST', { orderedIds });
+/** Every active want for a card across every list, not just the default one. */
+export const fetchWantItemsForOracle = (oracleId: string) =>
+  getJson<{ items: Array<{ wantListId: number; itemId: number }> }>(
+    `/api/v1/want-lists/items/by-oracle/${oracleId}`,
+  ).then((r) => r.items);
 
 export interface TradeListItem {
   id: number; collectionItemId: number; oracleId: string; name: string;

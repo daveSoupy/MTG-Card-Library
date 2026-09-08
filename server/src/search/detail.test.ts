@@ -40,7 +40,7 @@ function makeStore() {
     INSERT INTO card_rulings (oracle_id, source, published_at, comment)
     VALUES (?, 'scryfall', '2023-06-15', 'Newer ruling.')`).run(oracleId);
 
-  return { store: new CardSearchStore(db), oracleId, close: () => db.close() };
+  return { store: new CardSearchStore(db), db, oracleId, close: () => db.close() };
 }
 
 test('a promo printing carries isPromo and promoTypes through detail()', () => {
@@ -59,6 +59,30 @@ test('rulings come back newest first', () => {
   const { store, oracleId, close } = makeStore();
   const detail = store.detail(oracleId)!;
   assert.deepEqual(detail.rulings.map((r: any) => r.comment), ['Newer ruling.', 'Older ruling.']);
+  close();
+});
+
+test('a card already on an active want list carries that through detail()', () => {
+  const { store, db, oracleId, close } = makeStore();
+  const listId = db.prepare(`SELECT id FROM want_lists WHERE is_default = 1`).pluck().get();
+  db.prepare(`
+    INSERT INTO want_list_items (want_list_id, oracle_id, quantity, status)
+    VALUES (?, ?, 2, 'active')`).run(listId, oracleId);
+
+  const detail = store.detail(oracleId)!;
+  assert.equal(detail.wantedQuantity, 2);
+  close();
+});
+
+test('a fulfilled want does not count toward wantedQuantity', () => {
+  const { store, db, oracleId, close } = makeStore();
+  const listId = db.prepare(`SELECT id FROM want_lists WHERE is_default = 1`).pluck().get();
+  db.prepare(`
+    INSERT INTO want_list_items (want_list_id, oracle_id, quantity, status)
+    VALUES (?, ?, 1, 'fulfilled')`).run(listId, oracleId);
+
+  const detail = store.detail(oracleId)!;
+  assert.equal(detail.wantedQuantity, 0);
   close();
 });
 

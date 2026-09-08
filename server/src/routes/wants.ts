@@ -33,6 +33,14 @@ export function registerWantRoutes(app: FastifyInstance, wants: WantStore): void
 
   app.get('/api/v1/want-lists', async () => ({ lists: wants.lists() }));
 
+  // Every active want across every list for one card — lets a "remove from
+  // want list" control clear an entry it didn't add itself (e.g. one added
+  // through a non-default list), without guessing which list it's in.
+  app.get('/api/v1/want-lists/items/by-oracle/:oracleId', async (request) => {
+    const { oracleId } = request.params as { oracleId: string };
+    return { items: wants.itemsForOracle(oracleId) };
+  });
+
   app.get<{ Params: { id: number } }>(
     '/api/v1/want-lists/:id',
     { schema: { params: idParams('id') } },

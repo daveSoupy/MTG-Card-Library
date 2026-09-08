@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchStatus, fetchWantLists,
-  imageUrl, searchCards,
+  addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchStatus, fetchWantItemsForOracle,
+  fetchWantList, fetchWantLists, imageUrl, removeWantItem, searchCards,
   type CardSummary, type FormatRecord, type NamedList, type SetRecord, type StatusResponse,
   type StorageLocation,
 } from './api.ts';
@@ -102,9 +102,14 @@ export default function App() {
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const [wantLists, setWantLists] = useState<NamedList[]>([]);
-  // Oracle ids added to a want list this session, before the next search
-  // refetch would otherwise reflect it.
-  const [justWanted, setJustWanted] = useState<Set<string>>(new Set());
+  // Overrides the "wanted" state a search result or card detail carries from
+  // its own fetch, so an add/remove reflects immediately without waiting on
+  // a refetch. Value is the item's id in the default want list once added
+  // through here, or null once explicitly removed this session (removal
+  // itself always sweeps every list a card is wanted on, default or not —
+  // this id is only ever used to seed the default list's own adds/removes).
+  // Oracle ids with no entry defer to the fetched quantity.
+  const [wantOverride, setWantOverride] = useState<Map<string, number | null>>(new Map());
 
   // 'system' removes the attribute rather than setting one, so the stylesheet's
   // prefers-color-scheme rule takes over again.
@@ -144,13 +149,71 @@ export default function App() {
     fetchWantLists().then(setWantLists).catch(() => undefined);
   }, [status?.library.hasCardData]);
 
-  const addToWantList = useCallback((oracleId: string) => {
-    const listId = wantLists.find((l) => l.is_default)?.id ?? wantLists[0]?.id;
-    if (listId == null) return;
-    addWantItem(listId, oracleId)
-      .then(() => setJustWanted((current) => new Set(current).add(oracleId)))
-      .catch((e) => setError(e.message));
-  }, [wantLists]);
+  const defaultWantListId = wantLists.find((l) => l.is_default)?.id ?? wantLists[0]?.id;
+
+  // Seeds wantOverride with the default list's current item ids, so removing
+  // a card that was already wanted before this page load — not just one
+  // added this session — has an id to delete right away. Only fills in
+  // oracle ids not already overridden, so it never clobbers a toggle the
+  // user just made while this was in flight.
+  useEffect(() => {
+    if (defaultWantListId == null) return;
+    fetchWantList(defaultWantListId).then((list) => {
+      setWantOverride((current) => {
+        const next = new Map(current);
+        for (const item of list.items) {
+          if (item.status !== 'active' || next.has(item.oracleId)) continue;
+          next.set(item.oracleId, item.id);
+        }
+        return next;
+      });
+    }).catch(() => undefined);
+  }, [defaultWantListId]);
+
+  const isWanted = useCallback((oracleId: string, wantedQuantity: number | undefined) =>
+    wantOverride.has(oracleId) ? wantOverride.get(oracleId) !== null : (wantedQuantity ?? 0) > 0,
+  [wantOverride]);
+
+  // A card mid-toggle — its request hasn't resolved, so wantOverride/the
+  // "wanted" flag it renders from is still stale. Without this, a second
+  // click before the first finishes reads that same stale value and repeats
+  // the same action (add-then-add, never the add-then-remove it looks like)
+  // instead of reversing it. `pendingWant` (state) drives the disabled/dimmed
+  // look; `pendingWantRef` is the actual guard — two clicks in the same tick
+  // both run before React re-renders with the new state, so a state-only
+  // check would let both through regardless of how fast setState "already"
+  // happened. A ref updates synchronously, so the guard can't lose that race.
+  const pendingWantRef = useRef<Set<string>>(new Set());
+  const [pendingWant, setPendingWant] = useState<Set<string>>(new Set());
+
+  const toggleWantList = useCallback((oracleId: string, currentlyWanted: boolean) => {
+    if (defaultWantListId == null || pendingWantRef.current.has(oracleId)) return;
+    pendingWantRef.current.add(oracleId);
+    setPendingWant(new Set(pendingWantRef.current));
+    const settle = () => {
+      pendingWantRef.current.delete(oracleId);
+      setPendingWant(new Set(pendingWantRef.current));
+    };
+    if (currentlyWanted) {
+      // Look up every active entry across every list rather than trusting
+      // wantOverride's default-list id alone — a card added through some
+      // other list (the Wants page, say) never gets one, and "remove" should
+      // still mean gone, not "gone from whichever list happened to add it."
+      fetchWantItemsForOracle(oracleId)
+        .then((items) => Promise.all(items.map((i) => removeWantItem(i.wantListId, i.itemId))))
+        .then(() => setWantOverride((current) => new Map(current).set(oracleId, null)))
+        .catch((e) => setError(e.message))
+        .finally(settle);
+    } else {
+      addWantItem(defaultWantListId, oracleId)
+        .then((list) => {
+          const item = list.items.find((i) => i.oracleId === oracleId);
+          setWantOverride((current) => new Map(current).set(oracleId, item?.id ?? null));
+        })
+        .catch((e) => setError(e.message))
+        .finally(settle);
+    }
+  }, [defaultWantListId]);
 
   // Debounced search. Every keystroke aborts the previous request so results
   // cannot arrive out of order.
@@ -335,7 +398,7 @@ export default function App() {
 
           <div className="grid">
             {cards.map((card) => {
-              const wanted = (card.wantedQuantity ?? 0) > 0 || justWanted.has(card.oracleId);
+              const wanted = isWanted(card.oracleId, card.wantedQuantity);
               return (
                 <div
                   key={card.oracleId}
@@ -353,16 +416,15 @@ export default function App() {
                     <div className="placeholder">{card.name}</div>
                   )}
                   {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
-                  {wanted && <span className="wanted-badge" title="On your want list">★</span>}
                   {wantLists.length > 0 && (
                     <button
                       type="button"
-                      className="want-add-btn"
-                      disabled={wanted}
-                      title={wanted ? 'Already on your want list' : 'Add to want list'}
-                      onClick={(e) => { e.stopPropagation(); addToWantList(card.oracleId); }}
+                      className={`want-toggle${wanted ? ' wanted' : ''}`}
+                      disabled={pendingWant.has(card.oracleId)}
+                      title={wanted ? 'Remove from want list' : 'Add to want list'}
+                      onClick={(e) => { e.stopPropagation(); toggleWantList(card.oracleId, wanted); }}
                     >
-                      {wanted ? '✓' : '+ Want'}
+                      ★
                     </button>
                   )}
                   <div className="cname">{card.name}</div>
@@ -410,6 +472,10 @@ export default function App() {
           oracleId={selected}
           floating={!wide && selected !== null}
           onClose={() => setSelected(null)}
+          canToggleWantList={wantLists.length > 0}
+          wantOverride={wantOverride}
+          wantPending={selected != null && pendingWant.has(selected)}
+          onToggleWantList={toggleWantList}
         />
       </div>
       )}
