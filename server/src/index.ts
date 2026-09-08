@@ -101,7 +101,20 @@ function warmCache(): void {
 }
 
 const close = async () => {
-  await sync.stop();
+  // A running sync worker should terminate quickly, but never let a stuck
+  // one hang shutdown indefinitely — Tailscale/systemd expect the process to
+  // actually exit.
+  let timer: NodeJS.Timeout;
+  const timedOut = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(true), 10_000);
+  });
+  const stopped = sync.stop().then(() => false);
+  const didTimeOut = await Promise.race([stopped, timedOut]);
+  clearTimeout(timer!);
+  if (didTimeOut) {
+    app.log.error('Sync did not stop within 10s during shutdown; exiting immediately.');
+    process.exit(1);
+  }
   await app.close();
   library.close();
   process.exit(0);
