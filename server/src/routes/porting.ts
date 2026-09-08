@@ -4,7 +4,7 @@ import { createReadStream, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { DeckStore } from '../decks/store.ts';
-import type { CollectionStore } from '../collection/store.ts';
+import { CONDITIONS, FINISHES, type CollectionStore } from '../collection/store.ts';
 import { formatDecklist, tcgplayerMassEntryUrl, CARD_KINGDOM_DECKBUILDER,
          type ExportCard, type ExportFormat, type ParsedBoard } from '../porting/decklist.ts';
 import { previewDecklist, commitDecklist, previewCollectionCsv, commitCollectionCsv,
@@ -12,13 +12,57 @@ import { previewDecklist, commitDecklist, previewCollectionCsv, commitCollection
 import { backupToTemp, restoreFrom, InvalidBackupError, USER_TABLES } from '../porting/backup.ts';
 import type { ColumnRole } from '../porting/csv.ts';
 import type { BackupSchedule } from '../porting/schedule.ts';
+import {
+  ID, COUNT, NAME, TEXT, TEXT_OR_NULL, MONEY_OR_NULL,
+  body as bodySchema, idParams,
+} from './schema.ts';
 
 const EXPORT_FORMATS: ExportFormat[] = ['simple', 'withSet', 'arena', 'mtgo'];
 
-const asInt = (value: unknown): number | undefined => {
-  const parsed = Number(value);
-  return Number.isInteger(parsed) ? parsed : undefined;
-};
+const FINISH = { type: 'string', enum: FINISHES } as const;
+const CONDITION = { type: 'string', enum: CONDITIONS } as const;
+
+/** The boards a parsed decklist line can land on. */
+const PARSED_BOARD = { type: 'string', enum: ['main', 'side', 'command', 'maybe'] } as const;
+
+/**
+ * One line of a parsed decklist, as the preview endpoint hands it back and the
+ * user has confirmed it. Quantity is allowed to be zero here and filtered out
+ * below rather than rejected: a pasted list with a stray "0 Island" should
+ * import the rest, not fail whole.
+ */
+const DECK_ENTRIES = {
+  type: 'array', minItems: 1,
+  items: bodySchema(
+    { oracleId: NAME, quantity: COUNT, board: PARSED_BOARD },
+    ['oracleId', 'quantity'],
+  ),
+} as const;
+
+/** One row of a parsed collection CSV, already normalised by the preview. */
+const CSV_ROWS = {
+  type: 'array', minItems: 1,
+  items: bodySchema(
+    {
+      printingId: NAME, quantity: COUNT, finish: FINISH,
+      condition: CONDITION, language: TEXT, acquiredUnitCost: MONEY_OR_NULL,
+    },
+    ['printingId', 'quantity'],
+  ),
+} as const;
+
+const COLUMN_ROLE = {
+  type: 'string',
+  enum: ['name', 'setCode', 'setName', 'collectorNumber', 'quantity',
+         'finish', 'condition', 'language', 'price', 'ignore'],
+} as const;
+
+interface DeckEntry { oracleId: string; quantity: number; board?: ParsedBoard }
+interface CsvRow {
+  printingId: string; quantity: number;
+  finish?: 'nonfoil' | 'foil' | 'etched'; condition?: string;
+  language?: string; acquiredUnitCost?: number | null;
+}
 
 export function registerPortingRoutes(
   app: FastifyInstance,
@@ -60,10 +104,11 @@ export function registerPortingRoutes(
     }));
   };
 
-  app.get('/api/v1/decks/:id/export', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
-
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/decks/:id/export',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+    const { id } = request.params;
     const requested = (request.query as any)?.format;
     const format: ExportFormat = EXPORT_FORMATS.includes(requested) ? requested : 'simple';
 
@@ -80,12 +125,15 @@ export function registerPortingRoutes(
       tcgplayerTooLong: tcgplayer.tooLong,
       cardKingdomUrl: CARD_KINGDOM_DECKBUILDER,
     };
-  });
+  },
+  );
 
   /** The same list as a file, for people who would rather download it. */
-  app.get('/api/v1/decks/:id/export.txt', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/decks/:id/export.txt',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+    const { id } = request.params;
     const deck = decks.get(id);
     const cards = exportCards(id);
     if (!deck || !cards) return reply.status(404).send({ error: 'No such deck.' });
@@ -98,99 +146,108 @@ export function registerPortingRoutes(
       .header('content-type', 'text/plain; charset=utf-8')
       .header('content-disposition', `attachment; filename="${safeName}.txt"`)
       .send(formatDecklist(cards, format));
-  });
+  },
+  );
 
   // -- deck import ------------------------------------------------------------
 
-  app.post('/api/v1/decks/import/preview', async (request, reply) => {
-    const text = (request.body as any)?.text;
-    if (typeof text !== 'string') return reply.status(400).send({ error: 'Paste a decklist first.' });
-    return previewDecklist(db, text);
-  });
+  /** Drops the zero-quantity lines the schema deliberately lets through. */
+  const usable = (entries: DeckEntry[]) => entries
+    .filter((entry) => entry.quantity > 0)
+    .map((entry) => ({
+      oracleId: entry.oracleId,
+      quantity: Math.trunc(entry.quantity),
+      board: (entry.board ?? 'main') as ParsedBoard,
+    }));
 
-  app.post('/api/v1/decks/:id/import', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Bad deck id.' });
-    if (!decks.get(id)) return reply.status(404).send({ error: 'No such deck.' });
+  app.post<{ Body: { text: string } }>(
+    '/api/v1/decks/import/preview',
+    { schema: { body: bodySchema({ text: TEXT }, ['text']) } },
+    async (request) => previewDecklist(db, request.body.text),
+  );
 
-    const entries = (request.body as any)?.entries;
-    if (!Array.isArray(entries) || entries.length === 0) {
-      return reply.status(400).send({ error: 'Nothing to import.' });
-    }
+  app.post<{ Params: { id: number }; Body: { entries: DeckEntry[] } }>(
+    '/api/v1/decks/:id/import',
+    { schema: { params: idParams('id'), body: bodySchema({ entries: DECK_ENTRIES }, ['entries']) } },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!decks.get(id)) return reply.status(404).send({ error: 'No such deck.' });
 
-    const clean = entries
-      .filter((entry: any) => typeof entry?.oracleId === 'string' && Number(entry.quantity) > 0)
-      .map((entry: any) => ({
-        oracleId: entry.oracleId as string,
-        quantity: Math.trunc(Number(entry.quantity)),
-        board: (['main', 'side', 'command', 'maybe'].includes(entry.board)
-          ? entry.board : 'main') as ParsedBoard,
-      }));
-    if (clean.length === 0) return reply.status(400).send({ error: 'No usable entries.' });
+      const clean = usable(request.body.entries);
+      if (clean.length === 0) return reply.status(400).send({ error: 'No usable entries.' });
 
-    const result = commitDecklist(db, decks, id, clean);
-    return { ...result, deck: decks.get(id) };
-  });
+      const result = commitDecklist(db, decks, id, clean);
+      return { ...result, deck: decks.get(id) };
+    },
+  );
 
   /** Import into a brand-new deck, which is how a pasted list usually arrives. */
-  app.post('/api/v1/decks/import', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Imported deck';
-    const entries = Array.isArray(body.entries) ? body.entries : [];
-    if (entries.length === 0) return reply.status(400).send({ error: 'Nothing to import.' });
-
-    const deckId = decks.create({
-      name,
-      formatCode: typeof body.formatCode === 'string' ? body.formatCode : null,
-    });
-    const clean = entries
-      .filter((entry: any) => typeof entry?.oracleId === 'string' && Number(entry.quantity) > 0)
-      .map((entry: any) => ({
-        oracleId: entry.oracleId as string,
-        quantity: Math.trunc(Number(entry.quantity)),
-        board: (['main', 'side', 'command', 'maybe'].includes(entry.board)
-          ? entry.board : 'main') as ParsedBoard,
-      }));
-    commitDecklist(db, decks, deckId, clean);
-    return reply.status(201).send({ deck: decks.get(deckId) });
-  });
+  app.post<{ Body: { name?: string; formatCode?: string | null; entries: DeckEntry[] } }>(
+    '/api/v1/decks/import',
+    {
+      schema: {
+        body: bodySchema(
+          { name: TEXT, formatCode: TEXT_OR_NULL, entries: DECK_ENTRIES },
+          ['entries'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { name, formatCode, entries } = request.body;
+      const deckId = decks.create({
+        name: name?.trim() || 'Imported deck',
+        formatCode: formatCode ?? null,
+      });
+      commitDecklist(db, decks, deckId, usable(entries));
+      return reply.status(201).send({ deck: decks.get(deckId) });
+    },
+  );
 
   // -- collection CSV ---------------------------------------------------------
 
-  app.post('/api/v1/collection/import/preview', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    if (typeof body.text !== 'string') return reply.status(400).send({ error: 'Upload a CSV first.' });
-    const mapping = Array.isArray(body.mapping) ? (body.mapping as ColumnRole[]) : undefined;
-    return previewCollectionCsv(db, body.text, mapping);
-  });
+  app.post<{ Body: { text: string; mapping?: ColumnRole[] } }>(
+    '/api/v1/collection/import/preview',
+    {
+      schema: {
+        body: bodySchema({ text: TEXT, mapping: { type: 'array', items: COLUMN_ROLE } }, ['text']),
+      },
+    },
+    async (request) => previewCollectionCsv(db, request.body.text, request.body.mapping),
+  );
 
-  app.post('/api/v1/collection/import', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    const locationId = asInt(body.locationId);
-    if (locationId === undefined) {
-      return reply.status(400).send({ error: 'Choose where these cards live.' });
-    }
-    const rows = Array.isArray(body.rows) ? body.rows : [];
-    if (rows.length === 0) return reply.status(400).send({ error: 'Nothing to import.' });
+  app.post<{
+    Body: { locationId: number; rows: CsvRow[]; fileName?: string | null; unmatched?: number };
+  }>(
+    '/api/v1/collection/import',
+    {
+      schema: {
+        body: bodySchema(
+          { locationId: ID, rows: CSV_ROWS, fileName: TEXT_OR_NULL, unmatched: COUNT },
+          ['locationId', 'rows'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { locationId, rows, fileName, unmatched } = request.body;
+      const clean = rows
+        .filter((row) => row.quantity > 0)
+        .map((row) => ({
+          printingId: row.printingId,
+          quantity: Math.trunc(row.quantity),
+          finish: row.finish, condition: row.condition, language: row.language,
+          acquiredUnitCost: row.acquiredUnitCost ?? null,
+        }));
+      if (clean.length === 0) return reply.status(400).send({ error: 'No usable rows.' });
 
-    const clean = rows
-      .filter((row: any) => typeof row?.printingId === 'string' && Number(row.quantity) > 0)
-      .map((row: any) => ({
-        printingId: row.printingId as string,
-        quantity: Math.trunc(Number(row.quantity)),
-        finish: row.finish, condition: row.condition, language: row.language,
-        acquiredUnitCost: row.acquiredUnitCost ?? null,
-      }));
-    if (clean.length === 0) return reply.status(400).send({ error: 'No usable rows.' });
-
-    const result = commitCollectionCsv(db, collection, {
-      locationId,
-      rows: clean,
-      fileName: typeof body.fileName === 'string' ? body.fileName : null,
-      unmatched: asInt(body.unmatched) ?? 0,
-    });
-    return { ...result, value: collection.value() };
-  });
+      const result = commitCollectionCsv(db, collection, {
+        locationId,
+        rows: clean,
+        fileName: fileName ?? null,
+        unmatched: unmatched ?? 0,
+      });
+      return { ...result, value: collection.value() };
+    },
+  );
 
   /**
    * The collection as CSV — one row per lot, not per card, because the lots are
@@ -231,12 +288,14 @@ export function registerPortingRoutes(
 
   app.get('/api/v1/imports', async () => ({ batches: importBatches(db) }));
 
-  app.post('/api/v1/imports/:id/undo', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Bad import id.' });
-    const result = undoImport(db, id);
-    return { ...result, batches: importBatches(db), value: collection.value() };
-  });
+  app.post<{ Params: { id: number } }>(
+    '/api/v1/imports/:id/undo',
+    { schema: { params: idParams('id') } },
+    async (request) => {
+      const result = undoImport(db, request.params.id);
+      return { ...result, batches: importBatches(db), value: collection.value() };
+    },
+  );
 
   // -- backup -----------------------------------------------------------------
 
