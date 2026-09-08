@@ -55,6 +55,8 @@ export interface CardPrinting {
   scryfallUri: string | null;
   tcgplayerId: number | null;
   isDigital: boolean;
+  isPromo: boolean;
+  promoTypes: string[];
   ownedQuantity: number;
 }
 
@@ -63,6 +65,12 @@ export interface CardLegality {
   displayName: string;
   status: string;
   playable: boolean;
+}
+
+export interface CardRuling {
+  source: 'wotc' | 'scryfall';
+  publishedAt: string;
+  comment: string;
 }
 
 export interface CardDetail extends CardSummary {
@@ -81,6 +89,7 @@ export interface CardDetail extends CardSummary {
   faces: CardFace[];
   printings: CardPrinting[];
   legalities: CardLegality[];
+  rulings: CardRuling[];
 }
 
 export interface SearchResponse {

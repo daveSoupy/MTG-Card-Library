@@ -392,7 +392,7 @@ export class CardSearchStore {
     const printings = this.db.prepare(`
       SELECT p.id, p.set_code, p.collector_number, p.rarity, p.released_at,
              p.price_usd, p.price_usd_foil, p.image_normal, p.scryfall_uri,
-             p.tcgplayer_id, p.is_digital,
+             p.tcgplayer_id, p.is_digital, p.is_promo, p.promo_types,
              COALESCE(s.name, p.set_code) AS set_name,
              COALESCE((SELECT SUM(ci.quantity) FROM collection_items ci
                        WHERE ci.printing_id = p.id), 0) AS owned_qty
@@ -458,6 +458,8 @@ export class CardSearchStore {
         scryfallUri: p.scryfall_uri,
         tcgplayerId: p.tcgplayer_id,
         isDigital: Boolean(p.is_digital),
+        isPromo: Boolean(p.is_promo),
+        promoTypes: parseJsonArray(p.promo_types),
         ownedQuantity: p.owned_qty,
       })),
       legalities: legalities.map((l) => ({
@@ -466,6 +468,14 @@ export class CardSearchStore {
         status: l.legality,
         playable: l.legality === 'legal' || l.legality === 'restricted',
       })),
+      rulings: (this.db.prepare(`
+        SELECT source, published_at, comment FROM card_rulings
+        WHERE oracle_id = ? ORDER BY published_at DESC, id DESC`)
+        .all(oracleId) as any[]).map((r) => ({
+          source: r.source,
+          publishedAt: r.published_at,
+          comment: r.comment,
+        })),
     };
   }
 

@@ -3,6 +3,7 @@ import { setSetting, getSetting } from '../db/index.ts';
 import { CardImporter } from './importer.ts';
 import { fetchBulkEntry, fetchSets, streamBulkCards, type BulkType } from './scryfall.ts';
 import { syncCardCategories } from './categories.ts';
+import { syncCardRulings } from './rulings.ts';
 import { CollectionStore } from '../collection/store.ts';
 import { checkPriceTargets } from '../pricing/alerts.ts';
 
@@ -158,6 +159,11 @@ export async function runSync(
     // otherwise succeeded — templates just degrade to manual categories.
     report({ phase: 'finalizing', message: 'Resolving card categories…', fraction: 0.99 });
     await syncCardCategories(db);
+
+    // Phase 8 rulings, another independent bulk fetch. Same rule: a card sync
+    // that otherwise succeeded must not be reported as failed over this.
+    report({ phase: 'finalizing', message: 'Fetching rulings…', fraction: 0.99 });
+    await syncCardRulings(db);
     if (pricePoints > 0) {
       report({
         phase: 'finalizing',

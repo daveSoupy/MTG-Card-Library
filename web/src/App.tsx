@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchStatus, imageUrl, searchCards,
-  type CardSummary, type FormatRecord, type SetRecord, type StatusResponse,
+  addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchStatus, fetchWantLists,
+  imageUrl, searchCards,
+  type CardSummary, type FormatRecord, type NamedList, type SetRecord, type StatusResponse,
   type StorageLocation,
 } from './api.ts';
 import { EMPTY_FILTERS, FilterPanel, filtersAreActive, type Filters } from './components/FilterPanel.tsx';
@@ -99,6 +100,10 @@ export default function App() {
   const [formats, setFormats] = useState<FormatRecord[]>([]);
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
   const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [wantLists, setWantLists] = useState<NamedList[]>([]);
+  // Oracle ids added to a want list this session, before the next search
+  // refetch would otherwise reflect it.
+  const [justWanted, setJustWanted] = useState<Set<string>>(new Set());
 
   // 'system' removes the attribute rather than setting one, so the stylesheet's
   // prefers-color-scheme rule takes over again.
@@ -135,7 +140,16 @@ export default function App() {
     fetchSets().then(setSets).catch(() => undefined);
     fetchFormats().then(setFormats).catch(() => undefined);
     fetchLocations().then(setLocations).catch(() => undefined);
+    fetchWantLists().then(setWantLists).catch(() => undefined);
   }, [status?.library.hasCardData]);
+
+  const addToWantList = useCallback((oracleId: string) => {
+    const listId = wantLists.find((l) => l.is_default)?.id ?? wantLists[0]?.id;
+    if (listId == null) return;
+    addWantItem(listId, oracleId)
+      .then(() => setJustWanted((current) => new Set(current).add(oracleId)))
+      .catch((e) => setError(e.message));
+  }, [wantLists]);
 
   // Debounced search. Every keystroke aborts the previous request so results
   // cannot arrive out of order.
@@ -319,24 +333,41 @@ export default function App() {
           )}
 
           <div className="grid">
-            {cards.map((card) => (
-              <button
-                key={card.oracleId}
-                className="card"
-                aria-selected={card.oracleId === selected}
-                onClick={() => setSelected(card.oracleId)}
-                title={`${card.name} — ${card.typeLine}`}
-              >
-                {card.printingId && card.imageSmall ? (
-                  <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
-                ) : (
-                  <div className="placeholder">{card.name}</div>
-                )}
-                {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
-                {(card.wantedQuantity ?? 0) > 0 && <span className="wanted-badge" title="On your want list">★</span>}
-                <div className="cname">{card.name}</div>
-              </button>
-            ))}
+            {cards.map((card) => {
+              const wanted = (card.wantedQuantity ?? 0) > 0 || justWanted.has(card.oracleId);
+              return (
+                <div
+                  key={card.oracleId}
+                  role="button"
+                  tabIndex={0}
+                  className="card"
+                  aria-selected={card.oracleId === selected}
+                  onClick={() => setSelected(card.oracleId)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(card.oracleId); } }}
+                  title={`${card.name} — ${card.typeLine}`}
+                >
+                  {card.printingId && card.imageSmall ? (
+                    <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
+                  ) : (
+                    <div className="placeholder">{card.name}</div>
+                  )}
+                  {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
+                  {wanted && <span className="wanted-badge" title="On your want list">★</span>}
+                  {wantLists.length > 0 && (
+                    <button
+                      type="button"
+                      className="want-add-btn"
+                      disabled={wanted}
+                      title={wanted ? 'Already on your want list' : 'Add to want list'}
+                      onClick={(e) => { e.stopPropagation(); addToWantList(card.oracleId); }}
+                    >
+                      {wanted ? '✓' : '+ Want'}
+                    </button>
+                  )}
+                  <div className="cname">{card.name}</div>
+                </div>
+              );
+            })}
           </div>
 
           {cards.length < total && (

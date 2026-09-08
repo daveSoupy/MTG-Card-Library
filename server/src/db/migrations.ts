@@ -356,4 +356,18 @@ export const MIGRATIONS: Migration[] = [
           (6, 'creatures',    15, 1);
     `,
   },
+  {
+    version: 14,
+    description: 'Card rulings (Phase 8)',
+    sql: `
+      CREATE TABLE IF NOT EXISTS card_rulings (
+          id            INTEGER PRIMARY KEY,
+          oracle_id     TEXT NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+          source        TEXT NOT NULL CHECK (source IN ('wotc','scryfall')),
+          published_at  TEXT NOT NULL,
+          comment       TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_card_rulings_oracle ON card_rulings(oracle_id);
+    `,
+  },
 ];

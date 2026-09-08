@@ -111,6 +111,7 @@ const CARDS: Fixture[] = [
   { id: 'shock', name: 'Blood Crypt', type: 'Land', produced: ['B', 'R'] },
   { id: 'goblin', name: 'Goblin Guide', type: 'Creature — Goblin', cost: '{R}' },
   { id: 'bolt', name: 'Lightning Bolt', type: 'Instant', cost: '{R}' },
+  { id: 'knight', name: 'Knight', type: 'Creature — Knight', cost: '{W}' },
 ];
 
 function fixture() {
@@ -185,6 +186,45 @@ test('auto-maintain leaves a near-empty deck alone', () => {
   decks.addCard(id, 'goblin', { board: 'main', quantity: 3 });
   decks.autoMaintainLands(id, 'goblin');
   assert.equal(quantityOf(decks, id, 'mountain'), 0);
+  db.close();
+});
+
+test('a Snow-Covered basic that sorts ahead of the regular one is not chosen as canonical', () => {
+  // Deliberately does not reuse fixture(): the row-order bug this guards
+  // against only shows up when Snow-Covered Plains is inserted (and so gets
+  // a lower rowid) *before* Plains — fixture() always inserts Plains first.
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO sets (code,name) VALUES ('tst','Test')`).run();
+
+  const insertCard = (c: Fixture, printingId: string, number: string) => {
+    db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,
+                  oracle_text_all,layout,mana_cost,produced_mana,is_basic_land)
+                VALUES (?,?,?,1,?,'x','normal',?,?,?)`)
+      .run(c.id, c.name, c.name.toLowerCase(), c.type, c.cost ?? null,
+           c.produced ? JSON.stringify(c.produced) : null, c.basic ? 1 : 0);
+    db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,rarity)
+                VALUES (?,?,'tst',?,'common')`).run(printingId, c.id, number);
+    db.prepare('UPDATE oracle_cards SET default_printing_id=? WHERE oracle_id=?').run(printingId, c.id);
+  };
+
+  // Inserted first, so it has the lower rowid — and an oracle_id that also
+  // sorts alphabetically ahead of 'plains', so the fix's ORDER BY oracle_id
+  // does not accidentally save the test either.
+  insertCard(
+    { id: 'a-snowplains', name: 'Snow-Covered Plains', type: 'Basic Snow Land — Plains', produced: ['W'], basic: true },
+    'p-snow', '99',
+  );
+  insertCard({ id: 'plains', name: 'Plains', type: 'Basic Land — Plains', produced: ['W'], basic: true }, 'p-plains', '1');
+  insertCard({ id: 'knight', name: 'Knight', type: 'Creature — Knight', cost: '{W}' }, 'p-knight', '2');
+
+  const decks = new DeckStore(db);
+  const id = decks.create({ name: 'Mono-White', formatCode: 'modern' });
+  decks.addCard(id, 'knight', { board: 'main', quantity: 20 });
+  decks.applyRecommendedLands(id);
+
+  assert.equal(quantityOf(decks, id, 'plains'), 24);
+  assert.equal(quantityOf(decks, id, 'a-snowplains'), 0);
   db.close();
 });
 

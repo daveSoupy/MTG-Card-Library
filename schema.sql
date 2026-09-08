@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 13;
+PRAGMA user_version = 14;
 
 
 -- =====================================================================
@@ -388,6 +388,17 @@ CREATE TABLE card_categories (
     PRIMARY KEY (oracle_id, category)
 ) WITHOUT ROWID;
 CREATE INDEX idx_cardcat_category ON card_categories(category);
+
+-- Phase 8: Scryfall's Rulings bulk file, replaced wholesale on each sync
+-- rather than diffed. A failed rulings fetch must not fail the card sync.
+CREATE TABLE card_rulings (
+    id            INTEGER PRIMARY KEY,
+    oracle_id     TEXT NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+    source        TEXT NOT NULL CHECK (source IN ('wotc','scryfall')),
+    published_at  TEXT NOT NULL,
+    comment       TEXT NOT NULL
+);
+CREATE INDEX idx_card_rulings_oracle ON card_rulings(oracle_id);
 
 -- On-disk image cache. Rows are disposable; deleting one just means
 -- re-fetching. Kept in the DB so a size cap / LRU eviction is a query.
