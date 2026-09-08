@@ -1,5 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
+import { COUNT, NAME, TEXT_OR_NULL, body as bodySchema, idParams } from './schema.ts';
+
+/** The saved search itself: an opaque JSON object nothing ever queries inside. */
+const FILTERS = { type: 'object' } as const;
 
 export interface FilterPreset {
   id: number;
@@ -38,17 +42,21 @@ export function registerPresetRoutes(app: FastifyInstance, db: Database.Database
 
   app.get('/api/v1/filter-presets', async () => ({ presets: list() }));
 
-  app.post('/api/v1/filter-presets', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    const name = typeof body.name === 'string' ? body.name.trim() : '';
+  app.post<{
+    Body: { name: string; filters?: Record<string, unknown>; queryText?: string | null };
+  }>(
+    '/api/v1/filter-presets',
+    {
+      schema: {
+        body: bodySchema({ name: NAME, filters: FILTERS, queryText: TEXT_OR_NULL }, ['name']),
+      },
+    },
+    async (request, reply) => {
+    const name = request.body.name.trim();
     if (!name) return reply.status(400).send({ error: 'A preset needs a name.' });
-    if (body.filters !== undefined && (typeof body.filters !== 'object' || body.filters === null)) {
-      return reply.status(400).send({ error: 'filters must be an object.' });
-    }
 
-    const filters = JSON.stringify(body.filters ?? {});
-    const queryText = typeof body.queryText === 'string' && body.queryText.trim()
-      ? body.queryText.trim() : null;
+    const filters = JSON.stringify(request.body.filters ?? {});
+    const queryText = request.body.queryText?.trim() || null;
 
     try {
       // Saving over an existing name updates it, which is what "save" means
@@ -67,26 +75,41 @@ export function registerPresetRoutes(app: FastifyInstance, db: Database.Database
     }
 
     return reply.status(201).send({ presets: list() });
-  });
+  },
+  );
 
-  app.patch('/api/v1/filter-presets/:id', async (request, reply) => {
-    const id = Number((request.params as any).id);
-    if (!Number.isInteger(id)) return reply.status(400).send({ error: 'Invalid preset id.' });
-    const body = (request.body ?? {}) as any;
+  app.patch<{
+    Params: { id: number };
+    Body: {
+      name?: string; filters?: Record<string, unknown>;
+      queryText?: string | null; sortOrder?: number;
+    };
+  }>(
+    '/api/v1/filter-presets/:id',
+    {
+      schema: {
+        params: idParams('id'),
+        body: bodySchema({
+          name: NAME, filters: FILTERS, queryText: TEXT_OR_NULL, sortOrder: COUNT,
+        }),
+      },
+    },
+    async (request, reply) => {
+    const { id } = request.params;
+    const body = request.body;
 
     const sets: string[] = [];
     const params: unknown[] = [];
-    if (typeof body.name === 'string' && body.name.trim()) {
+    if (body.name?.trim()) {
       sets.push('name = ?'); params.push(body.name.trim());
     }
     if (body.filters !== undefined) {
-      sets.push('filters = ?'); params.push(JSON.stringify(body.filters ?? {}));
+      sets.push('filters = ?'); params.push(JSON.stringify(body.filters));
     }
     if (body.queryText !== undefined) {
-      sets.push('query_text = ?');
-      params.push(typeof body.queryText === 'string' && body.queryText.trim() ? body.queryText.trim() : null);
+      sets.push('query_text = ?'); params.push(body.queryText?.trim() || null);
     }
-    if (Number.isInteger(body.sortOrder)) {
+    if (body.sortOrder !== undefined) {
       sets.push('sort_order = ?'); params.push(body.sortOrder);
     }
     if (sets.length === 0) return { presets: list() };
@@ -96,13 +119,16 @@ export function registerPresetRoutes(app: FastifyInstance, db: Database.Database
       .run(...params, id);
     if (result.changes === 0) return reply.status(404).send({ error: 'No preset with that id.' });
     return { presets: list() };
-  });
+  },
+  );
 
-  app.delete('/api/v1/filter-presets/:id', async (request, reply) => {
-    const id = Number((request.params as any).id);
-    if (!Number.isInteger(id)) return reply.status(400).send({ error: 'Invalid preset id.' });
-    const result = db.prepare('DELETE FROM filter_presets WHERE id = ?').run(id);
-    if (result.changes === 0) return reply.status(404).send({ error: 'No preset with that id.' });
-    return reply.status(200).send({ presets: list() });
-  });
+  app.delete<{ Params: { id: number } }>(
+    '/api/v1/filter-presets/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const result = db.prepare('DELETE FROM filter_presets WHERE id = ?').run(request.params.id);
+      if (result.changes === 0) return reply.status(404).send({ error: 'No preset with that id.' });
+      return reply.status(200).send({ presets: list() });
+    },
+  );
 }
