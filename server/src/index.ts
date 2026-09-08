@@ -23,6 +23,7 @@ import { registerTradeRoutes } from './routes/trades.ts';
 import { registerWantRoutes } from './routes/wants.ts';
 import { registerTradeListRoutes } from './routes/tradeLists.ts';
 import { registerAlertRoutes } from './routes/alerts.ts';
+import { errorHandler } from './routes/errorHandler.ts';
 import { ImageDownloadManager } from './images/downloadManager.ts';
 import { AlertStore } from './alerts/store.ts';
 import { TradeStore } from './trades/store.ts';
@@ -49,6 +50,10 @@ const backups = startBackupSchedule(library.db, dataDir);
 const app = Fastify({
   logger: { level: process.env.MTG_LOG_LEVEL ?? 'info' },
 });
+
+// Known error classes become their 4xx; anything else is a bare 500 with the
+// stack in the log and nothing in the response.
+app.setErrorHandler(errorHandler);
 
 registerCardRoutes(app, store);
 registerSyncRoutes(app, library.db, sync);
