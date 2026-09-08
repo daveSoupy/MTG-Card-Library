@@ -9,6 +9,13 @@ import { ListNameTakenError } from '../collection/wants.ts';
  * deck-allocation conflict from v_trade_list_status, and exports as plaintext in
  * the deck-export convention for pasting into a trade thread.
  */
+/** The editable fields of a listed copy. Anything omitted is left alone. */
+export interface TradeListItemUpdate {
+  quantity?: number;
+  askingPriceUsd?: number | null;
+  notes?: string | null;
+}
+
 export class TradeListStore {
   private readonly db: Database.Database;
   constructor(db: Database.Database) { this.db = db; }
@@ -124,16 +131,17 @@ export class TradeListStore {
     return Number(result.lastInsertRowid);
   }
 
-  updateItem(itemId: number, changes: Record<string, unknown>): void {
+  updateItem(itemId: number, changes: TradeListItemUpdate): void {
     const columns: Record<string, string> = {
       quantity: 'quantity', askingPriceUsd: 'asking_price_usd', notes: 'notes',
     };
+    const values = changes as Record<string, unknown>;
     const sets: string[] = [];
     const params: unknown[] = [];
     for (const [key, column] of Object.entries(columns)) {
-      if (changes[key] === undefined) continue;
+      if (values[key] === undefined) continue;
       sets.push(`${column} = ?`);
-      params.push(changes[key]);
+      params.push(values[key]);
     }
     if (sets.length === 0) return;
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);

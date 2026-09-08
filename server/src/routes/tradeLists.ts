@@ -1,11 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import { TradeListStore } from '../tradelists/store.ts';
+import { TradeListStore, type TradeListItemUpdate } from '../tradelists/store.ts';
 import { ListNameTakenError } from '../collection/wants.ts';
+import {
+  ID, MONEY_OR_NULL, NAME, TEXT_OR_NULL, body as bodySchema, idParams,
+} from './schema.ts';
 
-const asInt = (v: unknown): number | undefined => {
-  const n = Number(v);
-  return Number.isInteger(n) ? n : undefined;
-};
+/** A drag-reorder payload: the ids of the rows, in their new order. */
+const REORDER = bodySchema({ orderedIds: { type: 'array', items: ID } }, ['orderedIds']);
+
+/** Quantity has a CHECK (quantity > 0) behind it, so zero is not an option. */
+const POSITIVE = { type: 'integer', minimum: 1 } as const;
 
 /** Trade lists: owned copies flagged for trade, with plaintext export. */
 export function registerTradeListRoutes(app: FastifyInstance, lists: TradeListStore): void {
@@ -19,89 +23,125 @@ export function registerTradeListRoutes(app: FastifyInstance, lists: TradeListSt
 
   app.get('/api/v1/trade-lists', async () => ({ lists: lists.lists() }));
 
-  app.get('/api/v1/trade-lists/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const list = lists.get(id);
-    if (!list) return reply.status(404).send({ error: 'No trade list with that id.' });
-    return list;
-  });
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/trade-lists/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const list = lists.get(request.params.id);
+      if (!list) return reply.status(404).send({ error: 'No trade list with that id.' });
+      return list;
+    },
+  );
 
-  app.post('/api/v1/trade-lists', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    if (typeof body.name !== 'string' || !body.name.trim()) {
-      return reply.status(400).send({ error: 'name is required.' });
-    }
-    return nameGuard(reply, () => {
-      const id = lists.createList(body.name, body.description ?? null);
-      return { id, lists: lists.lists() };
-    });
-  });
+  app.post<{ Body: { name: string; description?: string | null } }>(
+    '/api/v1/trade-lists',
+    { schema: { body: bodySchema({ name: NAME, description: TEXT_OR_NULL }, ['name']) } },
+    async (request, reply) => {
+      const { name, description } = request.body;
+      if (!name.trim()) return reply.status(400).send({ error: 'name is required.' });
+      return nameGuard(reply, () => {
+        const id = lists.createList(name, description ?? null);
+        return { id, lists: lists.lists() };
+      });
+    },
+  );
 
-  app.patch('/api/v1/trade-lists/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid list id.' });
-    const body = (request.body ?? {}) as any;
-    return nameGuard(reply, () => {
-      if (typeof body.name === 'string') lists.renameList(id, body.name);
+  app.patch<{ Params: { id: number }; Body: { name?: string } }>(
+    '/api/v1/trade-lists/:id',
+    { schema: { params: idParams('id'), body: bodySchema({ name: NAME }) } },
+    async (request, reply) => nameGuard(reply, () => {
+      const { name } = request.body;
+      if (name !== undefined) lists.renameList(request.params.id, name);
       return { lists: lists.lists() };
-    });
-  });
+    }),
+  );
 
-  app.delete('/api/v1/trade-lists/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid list id.' });
-    try { lists.deleteList(id); return { lists: lists.lists() }; }
-    catch (error) { return reply.status(409).send({ error: (error as Error).message }); }
-  });
+  app.delete<{ Params: { id: number } }>(
+    '/api/v1/trade-lists/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      try { lists.deleteList(request.params.id); return { lists: lists.lists() }; }
+      catch (error) { return reply.status(409).send({ error: (error as Error).message }); }
+    },
+  );
 
-  app.post('/api/v1/trade-lists/reorder', async (request) => {
-    const ids = ((request.body as any)?.orderedIds ?? []).map(asInt).filter((n: unknown) => n !== undefined);
-    lists.reorderLists(ids);
-    return { lists: lists.lists() };
-  });
+  app.post<{ Body: { orderedIds: number[] } }>(
+    '/api/v1/trade-lists/reorder',
+    { schema: { body: REORDER } },
+    async (request) => {
+      lists.reorderLists(request.body.orderedIds);
+      return { lists: lists.lists() };
+    },
+  );
 
-  app.post('/api/v1/trade-lists/:id/items', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid list id.' });
-    const body = (request.body ?? {}) as any;
-    const collectionItemId = asInt(body.collectionItemId);
-    if (collectionItemId === undefined) return reply.status(400).send({ error: 'collectionItemId is required.' });
-    lists.addItem(id, collectionItemId, {
-      quantity: asInt(body.quantity),
-      askingPriceUsd: typeof body.askingPriceUsd === 'number' ? body.askingPriceUsd : null,
-      notes: body.notes ?? null,
-    });
-    return lists.get(id);
-  });
+  app.post<{
+    Params: { id: number };
+    Body: TradeListItemUpdate & { collectionItemId: number };
+  }>(
+    '/api/v1/trade-lists/:id/items',
+    {
+      schema: {
+        params: idParams('id'),
+        body: bodySchema(
+          {
+            collectionItemId: ID, quantity: POSITIVE,
+            askingPriceUsd: MONEY_OR_NULL, notes: TEXT_OR_NULL,
+          },
+          ['collectionItemId'],
+        ),
+      },
+    },
+    async (request) => {
+      const { collectionItemId, quantity, askingPriceUsd, notes } = request.body;
+      lists.addItem(request.params.id, collectionItemId, {
+        quantity,
+        askingPriceUsd: askingPriceUsd ?? null,
+        notes: notes ?? null,
+      });
+      return lists.get(request.params.id);
+    },
+  );
 
-  app.patch('/api/v1/trade-lists/:id/items/:itemId', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const itemId = asInt((request.params as any).itemId);
-    if (id === undefined || itemId === undefined) return reply.status(400).send({ error: 'Invalid id.' });
-    lists.updateItem(itemId, (request.body ?? {}) as any);
-    return lists.get(id);
-  });
+  app.patch<{ Params: { id: number; itemId: number }; Body: TradeListItemUpdate }>(
+    '/api/v1/trade-lists/:id/items/:itemId',
+    {
+      schema: {
+        params: idParams('id', 'itemId'),
+        body: bodySchema({
+          quantity: POSITIVE, askingPriceUsd: MONEY_OR_NULL, notes: TEXT_OR_NULL,
+        }),
+      },
+    },
+    async (request) => {
+      lists.updateItem(request.params.itemId, request.body);
+      return lists.get(request.params.id);
+    },
+  );
 
-  app.delete('/api/v1/trade-lists/:id/items/:itemId', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const itemId = asInt((request.params as any).itemId);
-    if (id === undefined || itemId === undefined) return reply.status(400).send({ error: 'Invalid id.' });
-    lists.removeItem(itemId);
-    return lists.get(id);
-  });
+  app.delete<{ Params: { id: number; itemId: number } }>(
+    '/api/v1/trade-lists/:id/items/:itemId',
+    { schema: { params: idParams('id', 'itemId') } },
+    async (request) => {
+      lists.removeItem(request.params.itemId);
+      return lists.get(request.params.id);
+    },
+  );
 
-  app.post('/api/v1/trade-lists/:id/reorder', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid list id.' });
-    const ids = ((request.body as any)?.orderedIds ?? []).map(asInt).filter((n: unknown) => n !== undefined);
-    lists.reorderItems(id, ids);
-    return lists.get(id);
-  });
+  app.post<{ Params: { id: number }; Body: { orderedIds: number[] } }>(
+    '/api/v1/trade-lists/:id/reorder',
+    { schema: { params: idParams('id'), body: REORDER } },
+    async (request) => {
+      lists.reorderItems(request.params.id, request.body.orderedIds);
+      return lists.get(request.params.id);
+    },
+  );
 
-  app.get('/api/v1/trade-lists/:id/export', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid list id.' });
-    reply.type('text/plain; charset=utf-8');
-    return lists.exportText(id);
-  });
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/trade-lists/:id/export',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      reply.type('text/plain; charset=utf-8');
+      return lists.exportText(request.params.id);
+    },
+  );
 }
