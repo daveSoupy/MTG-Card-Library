@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  addCollectionLot, addTradeListItem, closeCostPool, createLocation, decrementCollectionCopy,
-  deleteLocation, fetchCollection, fetchCollectionCard, fetchCollectionValue, fetchLocations,
-  fetchOpenCostPool, fetchSetChecklist, fetchSetCompletion, fetchSets, fetchSettings,
-  fetchTradeLists, imageUrl, openCostPool, removeCollectionLot, setCostPoolSet,
-  undoImportBatch, updateCollectionLot, updateCostPoolTotal,
-  type CollectionCard, type CollectionCardDetail, type CollectionValue, type CostMethod,
-  type CostPool, type SetRecord, type StorageLocation,
+  addTradeListItem, createLocation, deleteLocation, fetchCollection, fetchCollectionCard,
+  fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets, fetchTradeLists,
+  removeCollectionLot, updateCollectionLot,
+  type CollectionCard, type CollectionCardDetail, type CollectionValue, type SetRecord,
+  type StorageLocation,
 } from '../api.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
-import { Combobox } from './Combobox.tsx';
 import { WantListsPage } from './WantListsPage.tsx';
 import { TradeListsPage } from './TradeListsPage.tsx';
+import { CollectionValuePanel } from './CollectionValuePanel.tsx';
+import { AddBySetTab } from './AddBySetTab.tsx';
+import { OwnedGrid, type OwnedGridSelection } from './OwnedGrid.tsx';
 
 type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
 
@@ -22,58 +22,6 @@ const TAB_LABEL: Record<Tab, string> = {
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
-
-const KINDS = [
-  ['binder', 'Binder'], ['box', 'Box'], ['deck_box', 'Deck box'],
-  ['shoebox', 'Shoebox'], ['shelf', 'Shelf'], ['other', 'Other'],
-] as const;
-
-// ---------------------------------------------------------------- value
-
-/** Value over time, as a plain SVG line — no chart library for one sparkline. */
-function ValueChart({ history }: { history: CollectionValue['history'] }) {
-  if (history.length < 2) {
-    return (
-      <p className="note">
-        One data point so far. A snapshot is taken after each price sync, so the trend
-        fills in over the coming days.
-      </p>
-    );
-  }
-
-  const width = 640;
-  const height = 160;
-  const pad = 4;
-  const values = history.map((h) => h.total_value_usd);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-
-  const point = (index: number, value: number) => {
-    const x = pad + (index / (history.length - 1)) * (width - pad * 2);
-    const y = height - pad - ((value - min) / span) * (height - pad * 2);
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  };
-
-  const line = history.map((h, i) => point(i, h.total_value_usd)).join(' ');
-  const area = `${pad},${height - pad} ${line} ${width - pad},${height - pad}`;
-
-  return (
-    <>
-      <svg className="value-chart" viewBox={`0 0 ${width} ${height}`} role="img"
-           aria-label={`Collection value from ${money(min)} to ${money(max)} over ${history.length} days`}>
-        <polygon points={area} fill="var(--accent)" opacity="0.14" />
-        <polyline points={line} fill="none" stroke="var(--accent)" strokeWidth="2"
-                  strokeLinejoin="round" strokeLinecap="round" />
-      </svg>
-      <div className="chart-axis">
-        <span>{history[0].captured_on}</span>
-        <span>{money(min)} – {money(max)}</span>
-        <span>{history.at(-1)!.captured_on}</span>
-      </div>
-    </>
-  );
-}
 
 // ---------------------------------------------------------- card detail
 
@@ -222,366 +170,6 @@ function CardLots({
   );
 }
 
-// ------------------------------------------------------------- set entry
-
-/**
- * Set-scoped entry.
- *
- * Pick a set once, then work through it in collector-number order, which is the
- * order the cards sit in a binder. The set stays chosen after each add, so
- * filling a page is one click per card rather than a fresh search each time.
- */
-function SetEntry({
-  sets,
-  locations,
-  onChanged,
-}: {
-  sets: SetRecord[];
-  locations: StorageLocation[];
-  onChanged: () => void;
-}) {
-  const [setCode, setSetCode] = useState('');
-  const [cards, setCards] = useState<Awaited<ReturnType<typeof fetchSetChecklist>>>([]);
-  const [loading, setLoading] = useState(false);
-  const [locationId, setLocationId] = useState(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? 0);
-  const [finish, setFinish] = useState('nonfoil');
-  const [condition, setCondition] = useState('NM');
-  const [hideOwned, setHideOwned] = useState(false);
-  // "Hide ones I have" hides a snapshot of what you owned when it was switched on
-  // (re-taken on each set load), not a live filter — so a card you add during
-  // the session stays put and you can keep adding copies of it.
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-  const hideOwnedRef = useRef(false);
-  hideOwnedRef.current = hideOwned;
-  const snapshotHidden = (list: { printing_id: string; owned_qty: number }[]) =>
-    setHiddenIds(new Set(list.filter((c) => c.owned_qty > 0).map((c) => c.printing_id)));
-  const [justAdded, setJustAdded] = useState<string | null>(null);
-  const [toastRemoving, setToastRemoving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Cost basis for this add session. Starts from the app default, but is
-  // switchable inline so a booster box, a draft, or single cards at FNM can each
-  // assume cost differently without leaving the screen. 'draft' pools like 'box'
-  // but its total defaults to 3× the booster pack price.
-  const [costMethod, setCostMethod] = useState<CostMethod | 'draft'>('unknown');
-  const [fixedAmount, setFixedAmount] = useState('');
-  const [boosterPrice, setBoosterPrice] = useState(4);
-  // The open cost pool (box/draft) lives on the server, so it survives leaving
-  // this screen, a reload, or a break, and only ends when you finish it.
-  const [pool, setPool] = useState<CostPool | null>(null);
-  const [poolTotalStr, setPoolTotalStr] = useState('');
-  const pooled = costMethod === 'box' || costMethod === 'draft';
-
-  // Seed from the saved defaults, then resume any pool the server still has open.
-  useEffect(() => {
-    (async () => {
-      let settings: Awaited<ReturnType<typeof fetchSettings>> | null = null;
-      try { settings = await fetchSettings(); } catch { /* keep safe defaults */ }
-      if (settings) {
-        setBoosterPrice(settings.draftBoosterPriceUsd);
-        setFixedAmount(settings.defaultCostFixedUsd ? String(settings.defaultCostFixedUsd) : '');
-      }
-      let open: CostPool | null = null;
-      try { open = await fetchOpenCostPool(); } catch { /* ignore */ }
-      if (open) {
-        setPool(open);
-        setCostMethod(open.label === 'Draft' ? 'draft' : 'box');
-        setPoolTotalStr(String(open.totalCostUsd));
-        if (open.setCode) setSetCode(open.setCode); // reopen the set it was working through
-      } else if (settings) {
-        setCostMethod(settings.defaultCostMethod);
-      }
-    })();
-  }, []);
-
-  // While a pool is open, remember the last set the session actually opened, so
-  // resuming reopens it. Clearing the field is not "forget" — the pool keeps the
-  // set so the banner can offer to reopen it.
-  useEffect(() => {
-    if (!pool || !setCode || setCode === pool.setCode) return;
-    setCostPoolSet(pool.id, setCode).then((p) => { if (p) setPool(p); }).catch(() => {});
-  }, [setCode, pool]);
-
-  // Switching the pooled method (with nothing open yet) pre-fills a sensible
-  // starting total: 3× a booster for a draft, blank for a box.
-  const pickMethod = (m: CostMethod | 'draft') => {
-    setCostMethod(m);
-    if (!pool) setPoolTotalStr(m === 'draft' ? (boosterPrice * 3).toFixed(2) : m === 'box' ? '' : poolTotalStr);
-  };
-
-  // Editing the total of an open pool re-splits it; with none open it's just the
-  // amount the next pool will start with.
-  const commitTotal = async () => {
-    if (!pool) return;
-    try { setPool(await updateCostPoolTotal(pool.id, Number(poolTotalStr) || 0)); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  };
-
-  const finishPool = async () => {
-    try { await closeCostPool(); } catch { /* ignore */ }
-    setPool(null);
-    setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
-  };
-
-  // Cancel abandons the session and removes every card it added — the opposite
-  // of Finish, which keeps them.
-  const cancelPool = async () => {
-    if (!pool) return;
-    const n = pool.cardCount;
-    if (n > 0 && !confirm(`Discard this ${pool.label.toLowerCase()} and remove the ${n} card${n === 1 ? '' : 's'} it added?`)) return;
-    setError(null);
-    try {
-      if (n > 0) await undoImportBatch(pool.id);
-      await closeCostPool();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return;
-    }
-    setPool(null);
-    setPoolTotalStr(costMethod === 'draft' ? (boosterPrice * 3).toFixed(2) : '');
-    load();
-    onChanged();
-  };
-
-  const setName = (code: string) => sets.find((s) => s.code === code)?.name ?? code.toUpperCase();
-
-  const load = useCallback(() => {
-    if (!setCode) { setCards([]); return; }
-    setLoading(true);
-    fetchSetChecklist(setCode)
-      .then((list) => { setCards(list); if (hideOwnedRef.current) snapshotHidden(list); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [setCode]);
-  useEffect(load, [load]);
-
-  /** Shows a floating confirmation for ~1.4s — red when it's a removal. */
-  const flash = (message: string, removing = false) => {
-    setToastRemoving(removing);
-    setJustAdded(message);
-    setTimeout(() => setJustAdded((current) => (current === message ? null : current)), 1400);
-  };
-
-  const add = async (printingId: string, name: string) => {
-    setError(null);
-    try {
-      // Box split and Draft both pool. Open the server-side pool on the first
-      // add (so it survives a break), reuse it after, and refresh its running
-      // count/per-card afterward.
-      let current = pool;
-      if (pooled && !current) {
-        current = await openCostPool(Math.max(0, Number(poolTotalStr) || 0), costMethod === 'draft' ? 'Draft' : 'Box split', setCode || undefined);
-        setPool(current);
-      }
-      await addCollectionLot({
-        printingId, locationId, quantity: 1, finish, condition,
-        costMethod: pooled ? 'box' : costMethod,
-        fixedAmount: costMethod === 'fixed' ? Number(fixedAmount) || 0 : undefined,
-        batchId: pooled && current ? current.id : undefined,
-      });
-      if (pooled) { try { setPool(await fetchOpenCostPool()); } catch { /* keep prior */ } }
-      flash(`Added ${name}`);
-      // Bump just this card's owned count in place — no full reload, so the grid
-      // doesn't flash or jump to the top, and you can click the same card again
-      // to add another copy.
-      setCards((prev) => prev.map((c) =>
-        c.printing_id === printingId ? { ...c, owned_qty: c.owned_qty + 1 } : c));
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  /** Undo — remove one copy of a card you just added (long-press a tile). */
-  const removeOne = async (printingId: string, name: string) => {
-    setError(null);
-    try {
-      const result = await decrementCollectionCopy({ printingId, locationId, finish, condition });
-      if (!result.removed) return; // nothing plainly-added here to take back
-      flash(`Removed ${name}`, true);
-      setCards((prev) => prev.map((c) =>
-        c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty - 1) } : c));
-      onChanged();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  // Tap adds a copy; press-and-hold removes one. One press at a time, so a
-  // single timer and flag are enough for the whole grid.
-  const pressTimer = useRef<number | null>(null);
-  const longFired = useRef(false);
-  const startPress = (printingId: string, name: string) => {
-    longFired.current = false;
-    pressTimer.current = window.setTimeout(() => { longFired.current = true; removeOne(printingId, name); }, 500);
-  };
-  const endPress = () => { if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; } };
-  const tapTile = (printingId: string, name: string) => {
-    if (longFired.current) { longFired.current = false; return; } // the hold already handled it
-    add(printingId, name);
-  };
-
-  const shown = hideOwned ? cards.filter((c) => !hiddenIds.has(c.printing_id)) : cards;
-  const ownedCount = cards.filter((c) => c.owned_qty > 0).length;
-
-  return (
-    <div className="set-entry">
-      {/* The settings stay put while you work through a stack, so each card is
-          one click rather than a re-pick of every attribute. */}
-      <div className="entry-bar">
-        <label>
-          <span>Set</span>
-          <Combobox
-            options={sets.map((s) => ({ value: s.code, label: `${s.name} (${s.code.toUpperCase()})` }))}
-            value={setCode}
-            onChange={setSetCode}
-            placeholder="Search sets…"
-          />
-        </label>
-        <label>
-          <span>Into</span>
-          <select value={locationId} onChange={(e) => setLocationId(Number(e.target.value))}>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </label>
-        <label>
-          <span>Finish</span>
-          <select value={finish} onChange={(e) => setFinish(e.target.value)}>
-            <option value="nonfoil">Non-foil</option>
-            <option value="foil">Foil</option>
-            <option value="etched">Etched</option>
-          </select>
-        </label>
-        <label>
-          <span>Condition</span>
-          <select value={condition} onChange={(e) => setCondition(e.target.value)}>
-            {['NM', 'M', 'LP', 'MP', 'HP', 'DMG'].map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
-        <label>
-          <span>Cost</span>
-          <select value={costMethod} onChange={(e) => pickMethod(e.target.value as CostMethod | 'draft')}>
-            <option value="unknown">Unknown</option>
-            <option value="free">Free ($0)</option>
-            <option value="market">Market price</option>
-            <option value="fixed">Fixed each</option>
-            <option value="draft">Draft</option>
-            <option value="box">Box split</option>
-          </select>
-        </label>
-        {costMethod === 'fixed' && (
-          <label style={{ width: 96 }}>
-            <span>$ each</span>
-            <input
-              type="number" min="0" step="0.01" placeholder="0.00"
-              value={fixedAmount} onChange={(e) => setFixedAmount(e.target.value)}
-            />
-          </label>
-        )}
-        {pooled && (
-          <label style={{ width: 120 }}>
-            <span>{costMethod === 'draft' ? 'Draft cost $' : 'Box total $'}</span>
-            <input
-              type="number" min="0" step="0.01" placeholder={costMethod === 'draft' ? 'e.g. 12' : 'e.g. 120'}
-              value={poolTotalStr}
-              onChange={(e) => setPoolTotalStr(e.target.value)}
-              onBlur={commitTotal}
-            />
-          </label>
-        )}
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={hideOwned}
-            onChange={(e) => {
-              const on = e.target.checked;
-              setHideOwned(on);
-              if (on) snapshotHidden(cards); else setHiddenIds(new Set());
-            }}
-          />
-          Hide ones I have
-        </label>
-      </div>
-
-      {pool ? (
-        <div className="pool-banner">
-          <span>
-            <strong>{pool.label} open</strong> · {money(pool.totalCostUsd)} · {pool.cardCount}{' '}
-            {pool.cardCount === 1 ? 'card' : 'cards'} · {money(pool.perCopy)} each
-            {pool.setCode && (
-              <>
-                {' · '}
-                <button
-                  className="linkish"
-                  onClick={() => setSetCode(pool.setCode!)}
-                  title="Reopen this set"
-                >
-                  {setName(pool.setCode)}{pool.setCode === setCode ? '' : ' ↩'}
-                </button>
-              </>
-            )}
-          </span>
-          <span className="pool-actions">
-            <button className="btn secondary small" onClick={finishPool} title="Keep these cards and close the pool">Finish</button>
-            <button className="btn secondary small cancel" onClick={cancelPool} title="Remove every card this pool added and close it">Cancel</button>
-          </span>
-        </div>
-      ) : pooled && (
-        <p className="hint">
-          The first card you add opens a pool — the {costMethod === 'draft' ? 'draft cost' : 'box total'} is
-          split evenly across everything you add and keeps re-dividing as you go. It stays open
-          (even if you leave and come back) until you tap <strong>Finish</strong>.
-          {costMethod === 'draft' && ' The total defaults to 3× the booster pack price from Data → Settings.'}
-        </p>
-      )}
-
-      {error && <div className="error">{error}</div>}
-      {/* Floats over the grid rather than sitting in the flow, so a rapid string
-          of adds doesn't shove the card list up and down. */}
-      {justAdded && <div className={`add-toast${toastRemoving ? ' removed' : ''}`} role="status">{justAdded}</div>}
-
-      {!setCode && (
-        <p className="empty">
-          Pick a set to work through it in collector-number order — the order the cards
-          sit in a binder.
-        </p>
-      )}
-      {loading && <p className="loading">Loading set…</p>}
-
-      {setCode && !loading && (
-        <>
-          <div className="results-head">
-            <span className="count">
-              {ownedCount} of {cards.length} owned · showing {shown.length}
-            </span>
-            <span className="hint">Tap to add · press and hold to remove one</span>
-          </div>
-          <div className="entry-grid">
-            {shown.map((card) => (
-              <button
-                className={`entry-tile${card.owned_qty > 0 ? ' owned' : ''}`}
-                key={card.printing_id}
-                onClick={() => tapTile(card.printing_id, card.name)}
-                onPointerDown={() => startPress(card.printing_id, card.name)}
-                onPointerUp={endPress}
-                onPointerLeave={endPress}
-                onContextMenu={(e) => e.preventDefault()}
-                title={`Tap to add ${card.name} · hold to remove one`}
-              >
-                {card.image_small
-                  ? <img src={imageUrl(card.printing_id, 'small')} alt={card.name} loading="lazy" decoding="async" draggable={false} />
-                  : <div className="placeholder">{card.name}</div>}
-                <span className="entry-number">#{card.collector_number}</span>
-                {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------ page
 
 export function CollectionPage() {
@@ -596,7 +184,7 @@ export function CollectionPage() {
   const [locationFilter, setLocationFilter] = useState<number | undefined>();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
-  const [selected, setSelected] = useState<{ oracleId: string; printingId: string | null; finish: string } | null>(null);
+  const [selected, setSelected] = useState<OwnedGridSelection | null>(null);
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
   const [newLocation, setNewLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -663,7 +251,6 @@ export function CollectionPage() {
   };
 
   const totalValue = value?.value.total_value_usd ?? 0;
-  const totalCost = value?.value.total_cost_basis_usd ?? null;
   const gain = value?.value.unrealized_gain_usd ?? null;
 
   return (
@@ -776,36 +363,11 @@ export function CollectionPage() {
               </p>
             )}
 
-            <div className="grid">
-              {cards.map((card) => (
-                <button
-                  className={`card${card.finish !== 'nonfoil' ? ' is-foil' : ''}`}
-                  key={`${card.printingId ?? card.oracleId}:${card.finish}`}
-                  aria-selected={selected?.printingId === card.printingId && selected?.finish === card.finish}
-                  onClick={() => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
-                  title={`${card.name} — ${card.setName ?? card.setCode?.toUpperCase()} #${card.collectorNumber}`}
-                >
-                  <span className="card-art">
-                    {card.printingId && card.imageSmall
-                      ? <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
-                      : <div className="placeholder">{card.name}</div>}
-                    {card.finish !== 'nonfoil' && <span className="foil-overlay" aria-hidden="true" />}
-                  </span>
-                  <span className="owned-badge">{card.ownedQuantity}</span>
-                  {card.finish !== 'nonfoil' && (
-                    <span className="foil-badge" title={card.finish}>{card.finish === 'etched' ? 'etched' : 'foil'}</span>
-                  )}
-                  {card.locationCount > 1 && (
-                    <span className="split-badge" title={`Split across ${card.locationCount} locations`}>
-                      {card.locationCount} places
-                    </span>
-                  )}
-                  <div className="cname">{card.name}</div>
-                  <div className="cset">{(card.setCode?.toUpperCase() ?? '')} · #{card.collectorNumber}</div>
-                  <div className="cvalue">{money(card.valueUsd)}</div>
-                </button>
-              ))}
-            </div>
+            <OwnedGrid
+              cards={cards}
+              selected={selected}
+              onSelect={(card) => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
+            />
           </main>
 
           <aside className="detail-pane">
@@ -828,7 +390,7 @@ export function CollectionPage() {
 
       {tab === 'add' && (
         <div className="results">
-          <SetEntry sets={sets} locations={locations} onChanged={refreshAll} />
+          <AddBySetTab sets={sets} locations={locations} onChanged={refreshAll} />
         </div>
       )}
 
@@ -848,25 +410,7 @@ export function CollectionPage() {
         </div>
       )}
 
-      {tab === 'value' && (
-        <div className="results">
-          <div className="value-summary">
-            <div className="stat"><b>{money(totalValue)}</b><span>market value</span></div>
-            <div className="stat"><b>{money(totalCost)}</b><span>what you paid</span></div>
-            <div className="stat">
-              <b className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>{money(gain)}</b>
-              <span>unrealised</span>
-            </div>
-            <div className="stat"><b>{value?.value.total_cards ?? 0}</b><span>cards</span></div>
-          </div>
-          {value && <ValueChart history={value.history} />}
-          <p className="note">
-            Cost covers only the {value?.value.cost_known_cards ?? 0} copies with a known
-            purchase price; the rest are recorded as unknown rather than free, so the
-            unrealised figure is not inflated.
-          </p>
-        </div>
-      )}
+      {tab === 'value' && <CollectionValuePanel value={value} />}
 
       {tab === 'wants' && <WantListsPage />}
       {tab === 'tradelists' && <TradeListsPage />}
