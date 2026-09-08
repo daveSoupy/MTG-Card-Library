@@ -9,6 +9,7 @@ import {
 } from '../api.ts';
 import { formatBytes, percent } from '../format.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
+import { BackToTop } from './BackToTop.tsx';
 
 const formatWhen = (iso: string) => new Date(iso).toLocaleString();
 
@@ -440,6 +441,8 @@ export function DataPage({ locations, onCollectionChanged }: {
           onImported={() => { setImporting(false); reload(); onCollectionChanged(); }}
         />
       )}
+
+      <BackToTop />
     </div>
   );
 }

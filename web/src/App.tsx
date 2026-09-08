@@ -15,6 +15,7 @@ import { CollectionPage } from './components/CollectionPage.tsx';
 import { DataPage } from './components/DataPage.tsx';
 import { TradesPage } from './components/TradesPage.tsx';
 import { AlertsBell } from './components/AlertsBell.tsx';
+import { BackToTop } from './components/BackToTop.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -369,6 +370,8 @@ export default function App() {
               );
             })}
           </div>
+
+          <BackToTop label="Back to the top of the results" />
 
           {cards.length < total && (
             <div className="load-more">

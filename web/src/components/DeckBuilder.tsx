@@ -11,7 +11,14 @@ import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
-import { loadViewPreference, saveViewPreference, type DeckSort, type DeckViewMode } from '../deckView.ts';
+import { UndoRedo } from './UndoRedo.tsx';
+import {
+  loadPaneWidths, loadViewPreference, savePaneWidth, saveViewPreference,
+  type DeckSort, type DeckViewMode, type PaneWidths,
+} from '../deckView.ts';
+import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
+import { useUndoStack } from '../undo.ts';
+import { useNarrow } from '../viewport.ts';
 
 export function DeckBuilder({
   deckId,
@@ -47,6 +54,17 @@ export function DeckBuilder({
   const [history, setHistory] = useState(false);
   const [coverNote, setCoverNote] = useState<string | null>(null);
 
+  // Mirrors the two deck-builder breakpoints in styles.css: below 860px the
+  // picker is an overlay rather than a column, below 1200px so is the stats
+  // pane. The overlays are opened from buttons in the header.
+  const pickerFloating = useNarrow(860);
+  const statsFloating = useNarrow(1200);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [paneWidths, setPaneWidths] = useState<PaneWidths>(loadPaneWidths);
+
+  const undoStack = useUndoStack();
+
   const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
   const setView = (next: DeckViewMode) => {
     setViewPref({ view: next, sort: cardSort });
@@ -77,6 +95,21 @@ export function DeckBuilder({
   const [pickingCommander, setPickingCommander] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setPickerOpen(false);
+      setStatsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // The stack is per open deck: switching decks reuses this component, and a
+  // step recorded against one deck's slots must never be replayed into
+  // another's.
+  useEffect(() => { undoStack.clear(); }, [deckId, undoStack.clear]);
+
   const load = useCallback(() => {
     fetchDeck(deckId).then(setDeck).catch((e) => setError(e.message));
   }, [deckId]);
@@ -91,18 +124,56 @@ export function DeckBuilder({
     fetchTemplates().then(setTemplates).catch(() => undefined);
   }, []);
 
-  /** Every mutation returns the whole deck, so validation never goes stale. */
-  const apply = async (action: () => Promise<Deck>) => {
+  /** Puts the deck back to a recorded set of slots, as API calls. */
+  const replay = async (target: ReturnType<typeof snapshotDeck>) => {
     setBusy(true);
     setError(null);
     try {
-      setDeck(await action());
+      // Fetched rather than taken from state: the stack outlives any single
+      // render, and the deck may have moved on since the step was recorded.
+      const live = await fetchDeck(deckId);
+      setDeck(await restoreSnapshot(deckId, target, live));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Every mutation returns the whole deck, so validation never goes stale.
+   *
+   * A `label` also makes the mutation undoable. What is stacked is the deck's
+   * slots either side of the call rather than one inverse call, because a
+   * single edit is not always a single change: with auto-maintain-lands on,
+   * adding a nonbasic rebalances the basics in the same request, and undoing
+   * the add has to put those back too.
+   */
+  const apply = async (action: () => Promise<Deck>, label?: string) => {
+    const before = deck ? snapshotDeck(deck) : null;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await action();
+      setDeck(next);
+      if (before && label) {
+        const after = snapshotDeck(next);
+        undoStack.record({
+          label,
+          undo: () => replay(before),
+          redo: () => replay(after),
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   };
+
+  const resizePane = (pane: keyof PaneWidths, width: number) =>
+    setPaneWidths((current) => ({ ...current, [pane]: width }));
 
   // Card picker. Scoped to the deck's format so a Modern deck does not offer
   // cards that would immediately be flagged illegal.
@@ -183,6 +254,8 @@ export function DeckBuilder({
   // through the Scryfall-syntax box instead of the category filter.
   const filterPickerByCategory = (category: string) => {
     setPickingCommander(false);
+    setStatsOpen(false);
+    if (pickerFloating) setPickerOpen(true);
     if (category === 'lands' || category === 'creatures') {
       setPickerCategory(null);
       setQuery(category === 'lands' ? 'is:land' : 'is:creature');
@@ -246,7 +319,7 @@ export function DeckBuilder({
         </span>
         <button
           className="btn secondary"
-          onClick={() => apply(() => addRecommendedLands(deck.id))}
+          onClick={() => apply(() => addRecommendedLands(deck.id), 'add lands')}
           title="Fill the deck to a recommended land count with basics, split by colour"
         >
           Add lands
@@ -261,6 +334,26 @@ export function DeckBuilder({
         <button className="btn secondary" onClick={() => setHistory(true)}>History</button>
         <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
         <button className="btn secondary" onClick={() => setImporting(true)}>Import</button>
+
+        {pickerFloating && (
+          <button className="btn" onClick={() => { setPickerOpen(true); searchInput.current?.focus(); }}>
+            Add cards
+          </button>
+        )}
+        {statsFloating && (
+          <button className="btn secondary" onClick={() => setStatsOpen(true)}>Stats</button>
+        )}
+
+        <UndoRedo
+          canUndo={undoStack.canUndo}
+          canRedo={undoStack.canRedo}
+          undoLabel={undoStack.undoLabel}
+          redoLabel={undoStack.redoLabel}
+          busy={undoStack.busy || busy}
+          // A failed replay has already put its reason in the error banner.
+          onUndo={() => { undoStack.undo().catch(() => undefined); }}
+          onRedo={() => { undoStack.redo().catch(() => undefined); }}
+        />
         {busy && <span className="count">saving…</span>}
       </div>
 
@@ -312,6 +405,14 @@ export function DeckBuilder({
         jumpToCard={jumpToCard}
         onFilterShortfall={filterPickerByCategory}
         showTemplates={Boolean(settings?.showDeckTemplates)}
+        pickerFloating={pickerFloating && pickerOpen}
+        statsFloating={statsFloating && statsOpen}
+        onRequestPicker={() => pickerFloating && setPickerOpen(true)}
+        onClosePicker={() => setPickerOpen(false)}
+        onCloseStats={() => setStatsOpen(false)}
+        paneWidths={paneWidths}
+        onPaneResize={resizePane}
+        onPaneCommit={(pane, width) => { resizePane(pane, width); savePaneWidth(pane, width); }}
         picker={{
           query, setQuery, ownedOnly, setOwnedOnly,
           pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,

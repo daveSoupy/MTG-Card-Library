@@ -230,3 +230,46 @@ export function saveViewPreference(view: DeckViewMode, sort: DeckSort): void {
     // Not being able to remember the preference is not worth surfacing.
   }
 }
+
+// -------------------------------------------------------- pane widths
+
+/**
+ * Widths of the deck builder's two right-hand panes, in pixels.
+ *
+ * Per device rather than per deck — this is a property of the screen you are
+ * sitting at, so it lives in localStorage next to the view preference and
+ * never goes to the server. Mobile has no equivalent: below 860px the picker
+ * is an overlay, not a column.
+ */
+export const PANE_MIN = 220;
+export const PANE_MAX = 640;
+export const DEFAULT_PANE_WIDTHS = { picker: 300, stats: 300 };
+
+const PANE_KEY: Record<keyof typeof DEFAULT_PANE_WIDTHS, string> = {
+  picker: 'mtg.deck.pickerWidth',
+  stats: 'mtg.deck.statsWidth',
+};
+
+export type PaneWidths = typeof DEFAULT_PANE_WIDTHS;
+
+function readWidth(pane: keyof PaneWidths): number {
+  const stored = Number(localStorage.getItem(PANE_KEY[pane]));
+  if (!Number.isFinite(stored) || stored <= 0) return DEFAULT_PANE_WIDTHS[pane];
+  return Math.min(PANE_MAX, Math.max(PANE_MIN, Math.round(stored)));
+}
+
+export function loadPaneWidths(): PaneWidths {
+  try {
+    return { picker: readWidth('picker'), stats: readWidth('stats') };
+  } catch {
+    return { ...DEFAULT_PANE_WIDTHS };
+  }
+}
+
+export function savePaneWidth(pane: keyof PaneWidths, width: number): void {
+  try {
+    localStorage.setItem(PANE_KEY[pane], String(Math.round(width)));
+  } catch {
+    // Same as the view preference: not worth surfacing.
+  }
+}

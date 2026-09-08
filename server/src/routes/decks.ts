@@ -99,23 +99,32 @@ export function registerDeckRoutes(
 
   app.post<{
     Params: { id: number };
-    Body: { oracleId: string; board?: Board; quantity?: number; fromCollection?: number };
+    Body: {
+      oracleId: string; board?: Board; quantity?: number; fromCollection?: number;
+      commanderRole?: CommanderRole | null;
+    };
   }>(
     '/api/v1/decks/:id/cards',
     {
       schema: {
         params: idParams('id'),
         body: body(
-          { oracleId: NAME, board: BOARD, quantity: COUNT, fromCollection: COUNT },
+          {
+            oracleId: NAME, board: BOARD, quantity: COUNT, fromCollection: COUNT,
+            // Only meaningful alongside board 'command'; the store ignores it
+            // otherwise. Undo sends it so restoring a signature spell does not
+            // come back as a plain commander.
+            commanderRole: enumOrNull(COMMANDER_ROLES),
+          },
           ['oracleId'],
         ),
       },
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { oracleId, board, quantity, fromCollection } = request.body;
+      const { oracleId, board, quantity, fromCollection, commanderRole } = request.body;
       return guard(reply, () => {
-        decks.addCard(id, oracleId, { board, quantity: quantity ?? 1, fromCollection });
+        decks.addCard(id, oracleId, { board, quantity: quantity ?? 1, fromCollection, commanderRole });
         // Keep basics in step when the user enabled it — never for a basic-land
         // add, which would fight a deliberate manual change.
         decks.autoMaintainLands(id, oracleId);

@@ -460,7 +460,12 @@ export const deleteDeck = (id: number) => send<void>(`/api/v1/decks/${id}`, 'DEL
 export const addDeckCard = (
   deckId: number,
   oracleId: string,
-  options: { board?: Board; quantity?: number } = {},
+  // fromCollection and commanderRole are what undo needs to put a removed slot
+  // back exactly as it was, allocation and command-zone role included.
+  options: {
+    board?: Board; quantity?: number; fromCollection?: number;
+    commanderRole?: string | null;
+  } = {},
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards`, 'POST', { oracleId, ...options }).then((r) => r.deck);
 
 export const updateDeckCard = (

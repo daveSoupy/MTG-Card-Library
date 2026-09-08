@@ -73,4 +73,82 @@ describe('DeckPanes', () => {
     fireEvent.click(screen.getByLabelText('One more Sol Ring'));
     expect(apply).toHaveBeenCalled();
   });
+
+  it('renders the picker as a floating overlay instead of hiding it', () => {
+    const onClosePicker = vi.fn();
+    const { container } = render(
+      <DeckPanes
+        deck={deck}
+        apply={vi.fn()}
+        problemFor={() => null}
+        requiresCommander={false}
+        identity={null}
+        view="list"
+        cardSort="type"
+        setView={vi.fn()}
+        setCardSort={vi.fn()}
+        listRef={createRef()}
+        picker={fakePicker()}
+        setArtFor={vi.fn()}
+        setError={vi.fn()}
+        jumpToCard={vi.fn()}
+        onFilterShortfall={vi.fn()}
+        showTemplates={false}
+        pickerFloating
+        onClosePicker={onClosePicker}
+      />,
+    );
+
+    // The same class CardDetailPane uses for its narrow-width overlay, so the
+    // picker is reachable below 860px rather than being display:none.
+    const picker = container.querySelector('.picker');
+    expect(picker?.className).toContain('floating');
+    expect(screen.getByLabelText('Search cards to add')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Done'));
+    expect(onClosePicker).toHaveBeenCalled();
+
+    // No divider to drag while the picker is an overlay.
+    expect(container.querySelector('.pane-divider')).toBeNull();
+  });
+
+  it('offers dividers for both panes when they are docked columns', () => {
+    const onPaneCommit = vi.fn();
+    const { container } = render(
+      <DeckPanes
+        deck={deck}
+        apply={vi.fn()}
+        problemFor={() => null}
+        requiresCommander={false}
+        identity={null}
+        view="list"
+        cardSort="type"
+        setView={vi.fn()}
+        setCardSort={vi.fn()}
+        listRef={createRef()}
+        picker={fakePicker()}
+        setArtFor={vi.fn()}
+        setError={vi.fn()}
+        jumpToCard={vi.fn()}
+        onFilterShortfall={vi.fn()}
+        showTemplates={false}
+        paneWidths={{ picker: 320, stats: 280 }}
+        onPaneResize={vi.fn()}
+        onPaneCommit={onPaneCommit}
+      />,
+    );
+
+    expect(container.querySelectorAll('.pane-divider')).toHaveLength(2);
+    const panes = container.querySelector('.deck-panes') as HTMLElement;
+    expect(panes.style.getPropertyValue('--picker-w')).toBe('320px');
+    expect(panes.style.getPropertyValue('--stats-w')).toBe('280px');
+
+    const divider = screen.getByRole('separator', { name: 'Stats pane width' });
+    divider.setPointerCapture = () => {};
+    divider.releasePointerCapture = () => {};
+    fireEvent.pointerDown(divider, { clientX: 700, pointerId: 1 });
+    fireEvent.pointerMove(divider, { clientX: 660, pointerId: 1 });
+    fireEvent.pointerUp(divider, { clientX: 660, pointerId: 1 });
+    expect(onPaneCommit).toHaveBeenCalledWith('stats', 320);
+  });
 });

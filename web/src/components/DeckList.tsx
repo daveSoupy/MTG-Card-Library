@@ -5,6 +5,7 @@ import {
   createDeck, deleteDeck, duplicateDeck, fetchDecks,
   type DeckSummary, type FormatRecord,
 } from '../api.ts';
+import { BackToTop } from './BackToTop.tsx';
 
 const COLOR_PIP: Record<string, string> = { W: 'W', U: 'U', B: 'B', R: 'R', G: 'G' };
 
@@ -230,6 +231,8 @@ export function DeckList({
           Deleting a deck immediately frees any collection copies it had claimed.
         </p>
       )}
+
+      <BackToTop label="Back to the top of the deck list" />
     </main>
   );
 }
