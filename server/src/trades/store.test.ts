@@ -200,3 +200,87 @@ test('completion clamps a trade list that now claims more than is owned', () => 
   assert.ok(alerts.list({ state: 'active' }).some((a) => a.kind === 'trade_list_clamped'));
   db.close();
 });
+
+test("conflictMode 'alert' completes without touching the deck, and alerts instead", () => {
+  const { db, collection, alerts, trades } = fixture();
+  collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
+
+  // A deck claims the single owned Goyf.
+  db.prepare(`INSERT INTO decks (name, format_code) VALUES ('Jund','modern')`).run();
+  db.prepare(`INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
+              VALUES (1,'goyf','main',1,1)`).run();
+
+  const id = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 1, condition: 'NM' });
+
+  const result = trades.complete(id, { conflictMode: 'alert' });
+  assert.equal(result.completed, true, 'never blocks');
+  assert.equal(result.needsConfirmation, undefined);
+  assert.equal(owned(db, 'goyf'), 0, 'the copy left');
+
+  const claim = db.prepare(`SELECT quantity_from_collection AS q FROM deck_cards WHERE oracle_id='goyf'`)
+    .get() as { q: number };
+  assert.equal(claim.q, 1, 'the deck is left exactly as it was');
+
+  const raised = alerts.list({ state: 'active' }).filter((a) => a.kind === 'allocation_conflict');
+  assert.equal(raised.length, 1, 'one alert per affected card');
+  assert.equal(result.allocationAlerts?.[0].short, 1);
+  const key = db.prepare(`SELECT dedupe_key AS k FROM alerts WHERE kind='allocation_conflict'`)
+    .get() as { k: string };
+  assert.equal(key.k, 'allocation_conflict:goyf');
+  db.close();
+});
+
+test('an allocation alert resolves itself once availability catches up', () => {
+  const { db, collection, alerts, trades } = fixture();
+  collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
+  db.prepare(`INSERT INTO decks (name, format_code) VALUES ('Jund','modern')`).run();
+  db.prepare(`INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
+              VALUES (1,'goyf','main',1,1)`).run();
+
+  const away = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(away, { direction: 'out', printingId: 'p-goyf', quantity: 1, condition: 'NM' });
+  trades.complete(away, { conflictMode: 'alert' });
+  assert.equal(alerts.list({ state: 'active' }).filter((a) => a.kind === 'allocation_conflict').length, 1);
+
+  // A later trade brings a replacement in; the shortfall is gone.
+  const back = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(back, { direction: 'in', printingId: 'p-goyf', quantity: 1, condition: 'NM' });
+  trades.complete(back, { conflictMode: 'alert' });
+
+  assert.equal(
+    alerts.list({ state: 'active' }).filter((a) => a.kind === 'allocation_conflict').length, 0,
+    'resolved without anyone acknowledging it',
+  );
+  db.close();
+});
+
+test('disposeFromLot draws lots oldest-first and logs one disposal per lot', () => {
+  const { db, collection, trades } = fixture();
+  const old = collection.addLot({
+    printingId: 'p-goyf', locationId: binderId(db), quantity: 2,
+    condition: 'NM', acquiredAt: '2020-01-01', acquiredUnitCost: 10,
+  });
+  const recent = collection.addLot({
+    printingId: 'p-goyf', locationId: binderId(db), quantity: 2,
+    condition: 'NM', acquiredAt: '2024-06-01', acquiredUnitCost: 40,
+  });
+
+  const result = trades.disposeFromLot(
+    [{ printingId: 'p-goyf', quantity: 3, condition: 'NM', unitProceedsUsd: 25 }],
+    { kind: 'sale', disposedOn: '2026-09-08', counterparty: 'Card shop' },
+  );
+
+  assert.deepEqual(result.consumed.map((c) => [c.lotId, c.quantity]), [[old, 2], [recent, 1]]);
+  const rows = db.prepare(`SELECT quantity, disposal_kind, unit_cost_usd, unit_proceeds_usd,
+                                  counterparty, trade_id
+                           FROM collection_disposals ORDER BY id`).all() as any[];
+  assert.equal(rows.length, 2, 'one disposal row per lot consumed');
+  assert.deepEqual(rows.map((r) => r.unit_cost_usd), [10, 40], 'cost basis copied off each lot');
+  assert.equal(rows[0].disposal_kind, 'sale');
+  assert.equal(rows[0].unit_proceeds_usd, 25);
+  assert.equal(rows[0].counterparty, 'Card shop');
+  assert.equal(rows[0].trade_id, null, 'a sale has no trade behind it');
+  assert.equal(owned(db, 'goyf'), 1);
+  db.close();
+});
