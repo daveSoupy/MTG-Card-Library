@@ -87,6 +87,17 @@ export class ListNameTakenError extends Error {
  * "needed for" and owned counts). This adds the writes the spec needs: any
  * number of named lists, manual add/edit, and independent drag-order per list.
  */
+/** The editable fields of a wanted card. Anything omitted is left alone. */
+export interface WantItemUpdate {
+  quantity?: number;
+  targetPriceUsd?: number | null;
+  priority?: number;
+  notes?: string | null;
+  preferredPrintingId?: string | null;
+  preferredFinish?: string | null;
+  status?: 'active' | 'fulfilled' | 'archived';
+}
+
 export class WantStore {
   private readonly db: Database.Database;
   constructor(db: Database.Database) { this.db = db; }
@@ -163,18 +174,19 @@ export class WantStore {
       .get(listId, oracleId) as { id: number }).id;
   }
 
-  updateItem(itemId: number, changes: Record<string, unknown>): void {
+  updateItem(itemId: number, changes: WantItemUpdate): void {
     const columns: Record<string, string> = {
       quantity: 'quantity', targetPriceUsd: 'target_price_usd', priority: 'priority',
       notes: 'notes', preferredPrintingId: 'preferred_printing_id',
       preferredFinish: 'preferred_finish', status: 'status',
     };
+    const values = changes as Record<string, unknown>;
     const sets: string[] = [];
     const params: unknown[] = [];
     for (const [key, column] of Object.entries(columns)) {
-      if (changes[key] === undefined) continue;
+      if (values[key] === undefined) continue;
       sets.push(`${column} = ?`);
-      params.push(changes[key]);
+      params.push(values[key]);
     }
     if (sets.length === 0) return;
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
