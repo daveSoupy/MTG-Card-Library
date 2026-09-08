@@ -665,7 +665,9 @@ export class DeckStore {
   /** The basic lands in the catalogue, one per colour, with the colour each makes. */
   private resolveBasics(): BasicLand[] {
     const rows = this.db.prepare(
-      `SELECT oracle_id, produced_mana FROM oracle_cards WHERE is_basic_land = 1`,
+      `SELECT oracle_id, produced_mana FROM oracle_cards
+       WHERE is_basic_land = 1 AND type_line NOT LIKE '%Snow%'
+       ORDER BY oracle_id`,
     ).all() as Array<{ oracle_id: string; produced_mana: string | null }>;
 
     const basics: BasicLand[] = [];

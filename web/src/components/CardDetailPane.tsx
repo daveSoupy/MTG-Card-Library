@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { fetchCard, setCardArt, imageUrl, type CardDetail } from '../api.ts';
 
+const RULING_SOURCE_LABEL: Record<string, string> = { wotc: 'WotC', scryfall: 'Scryfall' };
+
 /** Card Kingdom has no per-card id in Scryfall's data, so link to their search. */
 function cardKingdomUrl(name: string): string {
   return `https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${encodeURIComponent(name)}`;
@@ -34,11 +36,13 @@ export function CardDetailPane({
   const [error, setError] = useState<string | null>(null);
   const [selectedPrinting, setSelectedPrinting] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
+  const [rulingsOpen, setRulingsOpen] = useState(false);
 
   useEffect(() => {
     if (!oracleId) { setCard(null); return; }
     const controller = new AbortController();
     setError(null);
+    setRulingsOpen(false);
     fetchCard(oracleId, controller.signal)
       .then((detail) => {
         setCard(detail);
@@ -159,6 +163,31 @@ export function CardDetailPane({
               ))}
             </div>
           </div>
+
+          {card.rulings.length > 0 && (
+            <div className="fgroup">
+              <button
+                className="linkish rulings-toggle"
+                onClick={() => setRulingsOpen((v) => !v)}
+                aria-expanded={rulingsOpen}
+              >
+                {rulingsOpen ? '▾' : '▸'} Rulings ({card.rulings.length})
+              </button>
+              {rulingsOpen && (
+                <div className="rulings">
+                  {card.rulings.map((r, i) => (
+                    <div className="ruling" key={i}>
+                      <div className="ruling-meta">
+                        <span>{RULING_SOURCE_LABEL[r.source] ?? r.source}</span>
+                        <span>{r.publishedAt}</span>
+                      </div>
+                      <div className="ruling-comment">{r.comment}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="fgroup">
             <h3>Printings ({card.printings.length})</h3>

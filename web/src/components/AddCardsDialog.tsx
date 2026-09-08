@@ -69,6 +69,7 @@ export function AddCardsDialog({
   const [kind, setKind] = useState('purchase');
   const [override, setOverride] = useState('');
   const [showDetail, setShowDetail] = useState(true);
+  const [promoOnly, setPromoOnly] = useState(false);
 
   // The app's default cost method pre-fills "paid each"; once you edit the cost
   // yourself we stop overwriting it.
@@ -96,6 +97,19 @@ export function AddCardsDialog({
       .then((s) => { setCostMethod(s.defaultCostMethod); setDefaultFixed(s.defaultCostFixedUsd); })
       .catch(() => { /* leave the safe 'unknown' default */ });
   }, []);
+
+  const filteredPrintings = promoOnly ? (card?.printings.filter((p) => p.isPromo) ?? []) : (card?.printings ?? []);
+
+  // If the toggle hides the printing currently selected, fall back to the
+  // first one still shown rather than submitting a printing the picker
+  // no longer displays.
+  useEffect(() => {
+    if (!card) return;
+    if (!filteredPrintings.some((p) => p.id === selectedPrinting)) {
+      setSelectedPrinting(filteredPrintings[0]?.id ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promoOnly, card]);
 
   const printing: CardPrinting | undefined =
     card?.printings.find((p) => p.id === selectedPrinting) ?? card?.printings[0];
@@ -158,15 +172,27 @@ export function AddCardsDialog({
                   value={selectedPrinting ?? ''}
                   onChange={(e) => setSelectedPrinting(e.target.value)}
                 >
-                  {card.printings.map((p) => (
+                  {filteredPrintings.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.setName} #{p.collectorNumber}
+                      {p.isPromo ? ' (promo)' : ''}
                       {p.priceUsd != null ? ` — $${p.priceUsd.toFixed(2)}` : ''}
                       {p.ownedQuantity > 0 ? ` (own ${p.ownedQuantity})` : ''}
                     </option>
                   ))}
                 </select>
               </label>
+
+              {card.printings.some((p) => p.isPromo) && (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={promoOnly}
+                    onChange={(e) => setPromoOnly(e.target.checked)}
+                  />
+                  Promo/prerelease printings only
+                </label>
+              )}
 
               <div className="row">
                 <label style={{ flex: 1 }}>
