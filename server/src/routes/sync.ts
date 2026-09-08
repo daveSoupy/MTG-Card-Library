@@ -4,6 +4,7 @@ import { libraryStatus } from '../db/index.ts';
 import type { SyncManager } from '../sync/syncManager.ts';
 import type { SyncProgress } from '../sync/runSync.ts';
 import { BULK_TYPES, type BulkType } from '../sync/scryfall.ts';
+import { FLAG, body as bodySchema } from './schema.ts';
 
 export function registerSyncRoutes(
   app: FastifyInstance,
@@ -16,17 +17,21 @@ export function registerSyncRoutes(
     bulkTypes: BULK_TYPES,
   }));
 
-  app.post('/api/v1/sync', async (request, reply) => {
-    if (sync.isRunning) {
-      return reply.status(409).send({ error: 'A sync is already running.', sync: sync.current });
-    }
-    const body = (request.body ?? {}) as { bulkType?: string; force?: boolean };
-    const bulkType =
-      body.bulkType === 'oracle_cards' || body.bulkType === 'default_cards'
-        ? (body.bulkType as BulkType)
-        : undefined;
-    return { sync: sync.start({ bulkType, force: body.force === true }) };
-  });
+  app.post<{ Body: { bulkType?: BulkType; force?: boolean } }>(
+    '/api/v1/sync',
+    {
+      schema: {
+        body: bodySchema({ bulkType: { type: 'string', enum: Object.keys(BULK_TYPES) }, force: FLAG }),
+      },
+    },
+    async (request, reply) => {
+      if (sync.isRunning) {
+        return reply.status(409).send({ error: 'A sync is already running.', sync: sync.current });
+      }
+      const { bulkType, force } = request.body ?? {};
+      return { sync: sync.start({ bulkType, force: force === true }) };
+    },
+  );
 
   /**
    * Progress as Server-Sent Events.
