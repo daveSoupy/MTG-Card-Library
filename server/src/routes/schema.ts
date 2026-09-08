@@ -17,6 +17,9 @@
 /** A database id: positive, integral, never zero. */
 export const ID = { type: 'integer', minimum: 1 } as const;
 
+/** An id that may also be cleared: a destination not yet chosen, say. */
+export const ID_OR_NULL = { type: ['integer', 'null'], minimum: 1 } as const;
+
 /** A quantity of cards. Zero is meaningful — it usually means "remove". */
 export const COUNT = { type: 'integer', minimum: 0 } as const;
 

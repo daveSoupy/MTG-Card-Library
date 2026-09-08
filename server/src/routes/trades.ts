@@ -1,13 +1,39 @@
 import type { FastifyInstance } from 'fastify';
-import { TradeStore, TradeNotFoundError, TradeNotDraftError, type Direction } from '../trades/store.ts';
+import {
+  TradeStore, TradeNotFoundError, TradeNotDraftError,
+  type Direction, type TradeItemUpdate, type TradeUpdate,
+} from '../trades/store.ts';
+import { CONDITIONS, FINISHES } from '../collection/store.ts';
+import {
+  ID, ID_OR_NULL, MONEY_OR_NULL, NAME, TEXT, TEXT_OR_NULL, FLAG, DATE_OR_NULL,
+  body as bodySchema, idParams,
+} from './schema.ts';
 
-const asInt = (v: unknown): number | undefined => {
-  const n = Number(v);
-  return Number.isInteger(n) ? n : undefined;
+const DIRECTION = { type: 'string', enum: ['out', 'in'] } as const;
+const FINISH = { type: 'string', enum: FINISHES } as const;
+const CONDITION = { type: 'string', enum: CONDITIONS } as const;
+
+/** Everything a trade item carries beyond which card it is. */
+const ITEM_FIELDS = {
+  quantity: { type: 'integer', minimum: 1 },
+  finish: FINISH,
+  condition: CONDITION,
+  language: TEXT,
+  // Nullable: clearing the chosen lot or destination is a real edit.
+  sourceCollectionItemId: ID_OR_NULL,
+  destinationLocationId: ID_OR_NULL,
+  unitValueUsd: MONEY_OR_NULL,
+  notes: TEXT_OR_NULL,
 };
 
-const asDirection = (v: unknown): Direction | undefined =>
-  v === 'out' || v === 'in' ? v : undefined;
+/** The mutable fields of the trade itself. */
+const TRADE_FIELDS = {
+  counterpartyName: NAME,
+  counterpartyContact: TEXT_OR_NULL,
+  tradeDate: DATE_OR_NULL,
+  locationNote: TEXT_OR_NULL,
+  notes: TEXT_OR_NULL,
+};
 
 /**
  * Trades: draft build/edit, then completion applies the deltas to the
@@ -29,88 +55,124 @@ export function registerTradeRoutes(app: FastifyInstance, trades: TradeStore): v
     return { trades: trades.list(status ? { status } : {}) };
   });
 
-  app.post('/api/v1/trades', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    if (typeof body.counterpartyName !== 'string' || !body.counterpartyName.trim()) {
-      return reply.status(400).send({ error: 'counterpartyName is required.' });
-    }
-    const id = trades.create({
-      counterpartyName: body.counterpartyName,
-      counterpartyContact: body.counterpartyContact ?? null,
-      tradeDate: body.tradeDate ?? null,
-      locationNote: body.locationNote ?? null,
-      notes: body.notes ?? null,
-    });
-    return { trade: trades.get(id) };
-  });
-
-  app.get('/api/v1/trades/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid trade id.' });
-    return guard(reply, () => ({ trade: trades.get(id) }));
-  });
-
-  app.patch('/api/v1/trades/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid trade id.' });
-    return guard(reply, () => { trades.update(id, (request.body ?? {}) as any); return { trade: trades.get(id) }; });
-  });
-
-  app.delete('/api/v1/trades/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid trade id.' });
-    return guard(reply, () => { trades.delete(id); return reply.status(204).send(); });
-  });
-
-  app.post('/api/v1/trades/:id/cancel', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid trade id.' });
-    return guard(reply, () => { trades.cancel(id); return { trade: trades.get(id) }; });
-  });
-
-  app.post('/api/v1/trades/:id/items', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid trade id.' });
-    const body = (request.body ?? {}) as any;
-    const direction = asDirection(body.direction);
-    if (!direction) return reply.status(400).send({ error: 'direction must be "out" or "in".' });
-    if (typeof body.printingId !== 'string') return reply.status(400).send({ error: 'printingId is required.' });
-    return guard(reply, () => {
-      trades.addItem(id, {
-        direction,
-        printingId: body.printingId,
-        quantity: asInt(body.quantity) ?? 1,
-        finish: body.finish, condition: body.condition, language: body.language,
-        sourceCollectionItemId: asInt(body.sourceCollectionItemId),
-        destinationLocationId: asInt(body.destinationLocationId),
-        unitValueUsd: typeof body.unitValueUsd === 'number' ? body.unitValueUsd : null,
+  app.post<{ Body: TradeUpdate & { counterpartyName: string } }>(
+    '/api/v1/trades',
+    { schema: { body: bodySchema(TRADE_FIELDS, ['counterpartyName']) } },
+    async (request, reply) => {
+      const body = request.body;
+      if (!body.counterpartyName.trim()) {
+        return reply.status(400).send({ error: 'counterpartyName is required.' });
+      }
+      const id = trades.create({
+        counterpartyName: body.counterpartyName,
+        counterpartyContact: body.counterpartyContact ?? null,
+        tradeDate: body.tradeDate ?? null,
+        locationNote: body.locationNote ?? null,
         notes: body.notes ?? null,
       });
       return { trade: trades.get(id) };
-    });
-  });
+    },
+  );
 
-  app.patch('/api/v1/trades/:id/items/:itemId', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const itemId = asInt((request.params as any).itemId);
-    if (id === undefined || itemId === undefined) return reply.status(400).send({ error: 'Invalid id.' });
-    return guard(reply, () => { trades.updateItem(id, itemId, (request.body ?? {}) as any); return { trade: trades.get(id) }; });
-  });
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/trades/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => guard(reply, () => ({ trade: trades.get(request.params.id) })),
+  );
 
-  app.delete('/api/v1/trades/:id/items/:itemId', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const itemId = asInt((request.params as any).itemId);
-    if (id === undefined || itemId === undefined) return reply.status(400).send({ error: 'Invalid id.' });
-    return guard(reply, () => { trades.removeItem(id, itemId); return { trade: trades.get(id) }; });
-  });
+  app.patch<{ Params: { id: number }; Body: TradeUpdate }>(
+    '/api/v1/trades/:id',
+    { schema: { params: idParams('id'), body: bodySchema(TRADE_FIELDS) } },
+    async (request, reply) => guard(reply, () => {
+      trades.update(request.params.id, request.body);
+      return { trade: trades.get(request.params.id) };
+    }),
+  );
 
-  app.post('/api/v1/trades/:id/complete', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid trade id.' });
-    const force = (request.body as any)?.force === true;
-    return guard(reply, () => {
-      const result = trades.complete(id, { force });
-      return { result, trade: trades.get(id) };
-    });
-  });
+  app.delete<{ Params: { id: number } }>(
+    '/api/v1/trades/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => guard(reply, () => {
+      trades.delete(request.params.id);
+      return reply.status(204).send();
+    }),
+  );
+
+  app.post<{ Params: { id: number } }>(
+    '/api/v1/trades/:id/cancel',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => guard(reply, () => {
+      trades.cancel(request.params.id);
+      return { trade: trades.get(request.params.id) };
+    }),
+  );
+
+  app.post<{ Params: { id: number }; Body: TradeItemUpdate & { direction: Direction; printingId: string } }>(
+    '/api/v1/trades/:id/items',
+    {
+      schema: {
+        params: idParams('id'),
+        body: bodySchema(
+          { direction: DIRECTION, printingId: NAME, ...ITEM_FIELDS },
+          ['direction', 'printingId'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const body = request.body;
+      return guard(reply, () => {
+        trades.addItem(id, { ...body, quantity: body.quantity ?? 1 });
+        return { trade: trades.get(id) };
+      });
+    },
+  );
+
+  app.patch<{
+    Params: { id: number; itemId: number };
+    Body: TradeItemUpdate;
+  }>(
+    '/api/v1/trades/:id/items/:itemId',
+    {
+      schema: {
+        params: idParams('id', 'itemId'),
+        body: bodySchema({ printingId: NAME, ...ITEM_FIELDS }),
+      },
+    },
+    async (request, reply) => {
+      const { id, itemId } = request.params;
+      return guard(reply, () => {
+        trades.updateItem(id, itemId, request.body);
+        return { trade: trades.get(id) };
+      });
+    },
+  );
+
+  app.delete<{ Params: { id: number; itemId: number } }>(
+    '/api/v1/trades/:id/items/:itemId',
+    { schema: { params: idParams('id', 'itemId') } },
+    async (request, reply) => {
+      const { id, itemId } = request.params;
+      return guard(reply, () => {
+        trades.removeItem(id, itemId);
+        return { trade: trades.get(id) };
+      });
+    },
+  );
+
+  // The web UI always takes the 'prompt' path: it can show the conflict and ask.
+  // The non-interactive 'alert' mode is for Phase 13 and Phase 20, which call
+  // the store directly.
+  app.post<{ Params: { id: number }; Body: { force?: boolean } }>(
+    '/api/v1/trades/:id/complete',
+    { schema: { params: idParams('id'), body: bodySchema({ force: FLAG }) } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const force = request.body?.force === true;
+      return guard(reply, () => {
+        const result = trades.complete(id, { force });
+        return { result, trade: trades.get(id) };
+      });
+    },
+  );
 }
