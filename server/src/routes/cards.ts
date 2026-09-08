@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { CardSearchStore, SearchFilters, SortOrder } from '../search/store.ts';
+import { NAME, TEXT_OR_NULL, body as bodySchema } from './schema.ts';
 
 const SORT_ORDERS = new Set<SortOrder>([
   'relevance', 'name', 'manaValue', 'newest', 'price', 'edhrec',
@@ -84,19 +85,28 @@ export function registerCardRoutes(app: FastifyInstance, store: CardSearchStore)
     return store.detail(oracleId);
   });
 
-  app.put('/api/v1/cards/:oracleId/art', async (request, reply) => {
-    const { oracleId } = request.params as { oracleId: string };
-    const printingId = (request.body as any)?.printingId ?? null;
-    if (printingId !== null && typeof printingId !== 'string') {
-      return reply.status(400).send({ error: 'printingId must be a string or null.' });
-    }
-    try {
-      store.setArtPreference(oracleId, printingId);
-    } catch (error) {
-      return reply.status(400).send({ error: (error as Error).message });
-    }
-    return store.detail(oracleId);
-  });
+  app.put<{ Params: { oracleId: string }; Body: { printingId?: string | null } }>(
+    '/api/v1/cards/:oracleId/art',
+    {
+      schema: {
+        params: {
+          type: 'object', required: ['oracleId'],
+          properties: { oracleId: NAME }, additionalProperties: false,
+        },
+        // Null is the meaningful value here: it clears the preferred art.
+        body: bodySchema({ printingId: TEXT_OR_NULL }),
+      },
+    },
+    async (request, reply) => {
+      const { oracleId } = request.params;
+      try {
+        store.setArtPreference(oracleId, request.body?.printingId ?? null);
+      } catch (error) {
+        return reply.status(400).send({ error: (error as Error).message });
+      }
+      return store.detail(oracleId);
+    },
+  );
 
   app.get('/api/v1/sets', async () => ({ sets: store.sets() }));
   app.get('/api/v1/formats', async () => ({ formats: store.formats() }));
