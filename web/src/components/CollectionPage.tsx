@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  addTradeListItem, createLocation, deleteLocation, fetchCollection, fetchCollectionCard,
-  fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets, fetchTradeLists,
-  removeCollectionLot, updateCollectionLot,
-  type CollectionCard, type CollectionCardDetail, type CollectionValue, type SetRecord,
-  type StorageLocation,
+  addCollectionLot, addTradeListItem, createLocation, deleteLocation, fetchCollection,
+  fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets,
+  fetchTradeLists, removeCollectionLot, updateCollectionLot,
+  type CollectionCard, type CollectionCardDetail, type CollectionLot, type CollectionValue,
+  type SetRecord, type StorageLocation,
 } from '../api.ts';
+import { useUndoStack, type UndoEntry } from '../undo.ts';
+import { UndoRedo } from './UndoRedo.tsx';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
 import { WantListsPage } from './WantListsPage.tsx';
 import { TradeListsPage } from './TradeListsPage.tsx';
 import { CollectionValuePanel } from './CollectionValuePanel.tsx';
 import { AddBySetTab } from './AddBySetTab.tsx';
 import { OwnedGrid, type OwnedGridSelection } from './OwnedGrid.tsx';
+import { BackToTop } from './BackToTop.tsx';
 
 type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
 
@@ -25,14 +28,34 @@ const money = (value: number | null | undefined) =>
 
 // ---------------------------------------------------------- card detail
 
+/** Everything needed to put a deleted lot back exactly as it was. */
+const lotFields = (lot: CollectionLot) => ({
+  printingId: lot.printing_id,
+  locationId: lot.location_id,
+  quantity: lot.quantity,
+  finish: lot.finish,
+  condition: lot.condition,
+  priceOverride: lot.price_override,
+  acquiredAt: lot.acquired_at,
+  acquiredUnitCost: lot.acquired_unit_cost,
+  acquisitionKind: lot.acquisition_kind,
+  acquiredFrom: lot.acquired_from,
+  notes: lot.notes,
+});
+
 function CardLots({
   oracleId,
+  cardName,
   locations,
   onChanged,
+  record,
 }: {
   oracleId: string;
+  cardName: string;
   locations: StorageLocation[];
   onChanged: () => void;
+  /** Adds this edit to the collection session's undo stack. */
+  record: (entry: UndoEntry) => void;
 }) {
   const [detail, setDetail] = useState<CollectionCardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,10 +87,48 @@ function CardLots({
     }
   };
 
-  const apply = async (action: () => Promise<unknown>) => {
+  const apply = async (action: () => Promise<unknown>, undoable?: () => void) => {
     setError(null);
-    try { await action(); load(); onChanged(); }
+    try { await action(); undoable?.(); load(); onChanged(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+
+  const refresh = () => { load(); onChanged(); };
+
+  /**
+   * Remembers how to reverse one lot edit.
+   *
+   * A quantity that reaches zero deletes the lot outright server-side, so the
+   * inverse of those is a fresh add rather than a quantity — and the new lot's
+   * id is what a later redo has to remove.
+   *
+   * Each entry follows its own lot's id from there on. Entries recorded before
+   * a lot was deleted keep the id it had then, so undoing past a deletion of
+   * the same lot does nothing rather than risk editing whatever row inherited
+   * that id — SQLite reuses rowids.
+   */
+  const recordEdit = (
+    lot: CollectionLot,
+    label: string,
+    changes: Record<string, unknown> | null,
+    revert: Record<string, unknown>,
+  ) => {
+    const gone = changes === null
+      || (changes.quantity !== undefined && Number(changes.quantity) <= 0);
+    let id = lot.id;
+    record({
+      label,
+      undo: async () => {
+        if (gone) id = (await addCollectionLot(lotFields(lot))).id;
+        else await updateCollectionLot(id, revert);
+        refresh();
+      },
+      redo: async () => {
+        if (gone) await removeCollectionLot(id);
+        else await updateCollectionLot(id, changes);
+        refresh();
+      },
+    });
   };
 
   if (error) return <div className="error">{error}</div>;
@@ -112,7 +173,14 @@ function CardLots({
             <div className="lot-meta">
               <select
                 value={lot.condition}
-                onChange={(e) => apply(() => updateCollectionLot(lot.id, { condition: e.target.value }))}
+                onChange={(e) => {
+                  const condition = e.target.value;
+                  apply(
+                    () => updateCollectionLot(lot.id, { condition }),
+                    () => recordEdit(lot, `the condition of ${cardName}`,
+                      { condition }, { condition: lot.condition }),
+                  );
+                }}
                 aria-label="Change condition"
               >
                 {['NM', 'M', 'LP', 'MP', 'HP', 'DMG', 'unknown'].map((c) => (
@@ -122,7 +190,14 @@ function CardLots({
               <span>·</span>
               <select
                 value={lot.location_id}
-                onChange={(e) => apply(() => updateCollectionLot(lot.id, { locationId: Number(e.target.value) }))}
+                onChange={(e) => {
+                  const locationId = Number(e.target.value);
+                  apply(
+                    () => updateCollectionLot(lot.id, { locationId }),
+                    () => recordEdit(lot, `moving ${cardName}`,
+                      { locationId }, { locationId: lot.location_id }),
+                  );
+                }}
                 aria-label="Move to another location"
               >
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
@@ -139,7 +214,12 @@ function CardLots({
                     const raw = e.target.value.trim();
                     const next = raw === '' ? null : Number(raw);
                     if (next === (lot.acquired_unit_cost ?? null)) return;
-                    apply(() => updateCollectionLot(lot.id, { acquiredUnitCost: next }));
+                    apply(
+                      () => updateCollectionLot(lot.id, { acquiredUnitCost: next }),
+                      () => recordEdit(lot, `what you paid for ${cardName}`,
+                        { acquiredUnitCost: next },
+                        { acquiredUnitCost: lot.acquired_unit_cost }),
+                    );
                   }}
                 />
                 each
@@ -148,18 +228,30 @@ function CardLots({
             </div>
             <div className="lot-actions">
               <button className="linkish"
-                      onClick={() => apply(() => updateCollectionLot(lot.id, { quantity: lot.quantity + 1 }))}>
+                      onClick={() => apply(
+                        () => updateCollectionLot(lot.id, { quantity: lot.quantity + 1 }),
+                        () => recordEdit(lot, `adding a copy of ${cardName}`,
+                          { quantity: lot.quantity + 1 }, { quantity: lot.quantity }),
+                      )}>
                 +1
               </button>
               <button className="linkish"
-                      onClick={() => apply(() => updateCollectionLot(lot.id, { quantity: lot.quantity - 1 }))}>
+                      onClick={() => apply(
+                        () => updateCollectionLot(lot.id, { quantity: lot.quantity - 1 }),
+                        () => recordEdit(lot, `removing a copy of ${cardName}`,
+                          { quantity: lot.quantity - 1 }, { quantity: lot.quantity }),
+                      )}>
                 −1
               </button>
               <button className="linkish" disabled={tradeListId == null}
                       onClick={() => listForTrade(lot.id, lot.quantity)}>
                 {listed === lot.id ? 'Listed ✓' : 'For trade'}
               </button>
-              <button className="linkish danger" onClick={() => apply(() => removeCollectionLot(lot.id))}>
+              <button className="linkish danger"
+                      onClick={() => apply(
+                        () => removeCollectionLot(lot.id),
+                        () => recordEdit(lot, `removing ${cardName} from ${lot.location_name}`, null, {}),
+                      )}>
                 Remove
               </button>
             </div>
@@ -189,6 +281,10 @@ export function CollectionPage() {
   const [newLocation, setNewLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // One stack per collection session, alongside the deck builder's. The
+  // long-press undo on the add-by-set tiles stays as it is; this covers lot
+  // edits, which had no undo at all.
+  const undoStack = useUndoStack();
 
   const reloadLocations = useCallback(() => {
     fetchLocations().then(setLocations).catch((e) => setError(e.message));
@@ -265,6 +361,15 @@ export function CollectionPage() {
           ))}
         </nav>
         <div style={{ flex: 1 }} />
+        <UndoRedo
+          canUndo={undoStack.canUndo}
+          canRedo={undoStack.canRedo}
+          undoLabel={undoStack.undoLabel}
+          redoLabel={undoStack.redoLabel}
+          busy={undoStack.busy}
+          onUndo={() => { undoStack.undo().catch((e) => setError(e.message)); }}
+          onRedo={() => { undoStack.redo().catch((e) => setError(e.message)); }}
+        />
         {tab !== 'wants' && tab !== 'tradelists' && (
           <span className="count">
             {value?.value.total_cards ?? 0} cards · {money(totalValue)}
@@ -368,6 +473,7 @@ export function CollectionPage() {
               selected={selected}
               onSelect={(card) => setSelected({ oracleId: card.oracleId, printingId: card.printingId, finish: card.finish })}
             />
+            <BackToTop label="Back to the top of the collection" />
           </main>
 
           <aside className="detail-pane">
@@ -379,7 +485,13 @@ export function CollectionPage() {
                   </button>
                   <button className="btn secondary" onClick={() => setSelected(null)}>Close</button>
                 </div>
-                <CardLots oracleId={selected.oracleId} locations={locations} onChanged={refreshAll} />
+                <CardLots
+                  oracleId={selected.oracleId}
+                  cardName={cards.find((c) => c.oracleId === selected.oracleId)?.name ?? 'this card'}
+                  locations={locations}
+                  onChanged={refreshAll}
+                  record={undoStack.record}
+                />
               </>
             ) : (
               <p className="empty">Select a card to see where its copies live.</p>
@@ -391,6 +503,7 @@ export function CollectionPage() {
       {tab === 'add' && (
         <div className="results">
           <AddBySetTab sets={sets} locations={locations} onChanged={refreshAll} />
+          <BackToTop />
         </div>
       )}
 

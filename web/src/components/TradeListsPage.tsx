@@ -5,6 +5,7 @@ import {
   type CollectionLot, type NamedList, type TradeList,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
+import { BackToTop } from './BackToTop.tsx';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 
@@ -152,6 +153,8 @@ export function TradeListsPage() {
           </div>
         </div>
       )}
+
+      <BackToTop label="Back to the top of the list" />
     </div>
   );
 }

@@ -1,11 +1,13 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import {
   addDeckCard, fetchDeckCategories, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard,
 } from '../api.ts';
+import { BackToTop } from './BackToTop.tsx';
 import { DeckRow } from './DeckRow.tsx';
 import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
+import { PaneDivider } from './PaneDivider.tsx';
 import {
   DECK_SORTS, groupCards, type DeckSort, type DeckViewMode,
 } from '../deckView.ts';
@@ -59,9 +61,18 @@ export function DeckPanes({
   jumpToCard,
   onFilterShortfall,
   showTemplates,
+  pickerFloating = false,
+  statsFloating = false,
+  onRequestPicker,
+  onClosePicker,
+  onCloseStats,
+  paneWidths,
+  onPaneResize,
+  onPaneCommit,
 }: {
   deck: Deck;
-  apply: (action: () => Promise<Deck>) => void;
+  /** A label makes the mutation undoable; unlabelled calls are not recorded. */
+  apply: (action: () => Promise<Deck>, label?: string) => void;
   problemFor: (card: DeckCard) => 'error' | 'warning' | null;
   requiresCommander: boolean;
   identity: string | null;
@@ -76,6 +87,16 @@ export function DeckPanes({
   jumpToCard: (oracleId: string) => void;
   onFilterShortfall: (category: string) => void;
   showTemplates: boolean;
+  /** Narrow widths render the picker and the stats pane as overlays instead of
+   *  columns — the same treatment CardDetailPane already gets. */
+  pickerFloating?: boolean;
+  statsFloating?: boolean;
+  onRequestPicker?: () => void;
+  onClosePicker?: () => void;
+  onCloseStats?: () => void;
+  paneWidths?: { picker: number; stats: number };
+  onPaneResize?: (pane: 'picker' | 'stats', width: number) => void;
+  onPaneCommit?: (pane: 'picker' | 'stats', width: number) => void;
 }) {
   const {
     query, setQuery, ownedOnly, setOwnedOnly,
@@ -89,8 +110,17 @@ export function DeckPanes({
     fetchDeckCategories(deck.id).then(setCategoryOptions).catch(() => undefined);
   }, [deck.id]);
 
+  // Dividers belong to the docked layout only: an overlay picker has no
+  // column edge to drag, and the stats pane is not a column at that width.
+  const resizable = paneWidths !== undefined && !pickerFloating && !statsFloating;
+
   return (
-    <div className="deck-panes">
+    <div
+      className="deck-panes"
+      style={paneWidths
+        ? ({ '--picker-w': `${paneWidths.picker}px`, '--stats-w': `${paneWidths.stats}px` } as CSSProperties)
+        : undefined}
+    >
       <div className="decklist" ref={listRef}>
         <div className="deck-toolbar">
           <div className="tabs small">
@@ -127,14 +157,20 @@ export function DeckPanes({
               {cards.length === 0 && board === 'command' && (
                 <button
                   className="command-empty"
-                  onClick={() => { setPickingCommander(true); searchInput.current?.focus(); }}
+                  onClick={() => {
+                    setPickingCommander(true);
+                    onRequestPicker?.();
+                    searchInput.current?.focus();
+                  }}
                 >
                   <strong>No commander yet</strong>
                   <span>Click to pick one, or add any eligible card first</span>
                 </button>
               )}
               {cards.length === 0 && board !== 'command' && (
-                <p className="note">Search on the right to add cards.</p>
+                <p className="note">
+                  {pickerFloating ? 'Use “Add cards” to search.' : 'Search on the right to add cards.'}
+                </p>
               )}
 
               {groups.map((group) => (
@@ -152,18 +188,30 @@ export function DeckPanes({
                           card={card}
                           problem={problemFor(card)}
                           onQuantity={(delta) =>
-                            apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }))}
-                          onBoard={(next) => apply(() => updateDeckCard(deck.id, card.id, { board: next }))}
-                          onRemove={() => apply(() => removeDeckCard(deck.id, card.id))}
+                            apply(
+                              () => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }),
+                              `${delta > 0 ? 'adding' : 'removing'} a copy of ${card.name}`,
+                            )}
+                          onBoard={(next) => apply(
+                            () => updateDeckCard(deck.id, card.id, { board: next }),
+                            `moving ${card.name} to ${BOARD_LABEL[next].toLowerCase()}`,
+                          )}
+                          onRemove={() => apply(
+                            () => removeDeckCard(deck.id, card.id),
+                            `removing ${card.name}`,
+                          )}
                           onToggleOwned={() =>
                             apply(() => updateDeckCard(deck.id, card.id, {
                               fromCollection: card.quantityFromCollection > 0 ? 0 : card.quantity,
-                            }))}
+                            }), `changing what ${card.name} draws from`)}
                           onPreview={() =>
                             card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
                           onArt={() => setArtFor(card)}
                           onCategory={(category) =>
-                            apply(() => updateDeckCard(deck.id, card.id, { category }))}
+                            apply(
+                              () => updateDeckCard(deck.id, card.id, { category }),
+                              `categorising ${card.name}`,
+                            )}
                           categoryOptions={categoryOptions}
                         />
                       </div>
@@ -176,9 +224,15 @@ export function DeckPanes({
                           card={card}
                           problem={problemFor(card)}
                           onQuantity={(delta) =>
-                            apply(() => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }))}
+                            apply(
+                              () => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }),
+                              `${delta > 0 ? 'adding' : 'removing'} a copy of ${card.name}`,
+                            )}
                           onArt={() => setArtFor(card)}
-                          onRemove={() => apply(() => removeDeckCard(deck.id, card.id))}
+                          onRemove={() => apply(
+                            () => removeDeckCard(deck.id, card.id),
+                            `removing ${card.name}`,
+                          )}
                         />
                       ))}
                     </div>
@@ -188,9 +242,28 @@ export function DeckPanes({
             </section>
           );
         })}
+        <BackToTop label="Back to the top of the deck" />
       </div>
 
-      <div className="picker">
+      {resizable && (
+        <PaneDivider
+          label="Card picker width"
+          className="picker-divider"
+          width={paneWidths.picker}
+          min={220}
+          max={640}
+          onResize={(width) => onPaneResize?.('picker', width)}
+          onCommit={(width) => onPaneCommit?.('picker', width)}
+        />
+      )}
+
+      <div className={`picker${pickerFloating ? ' floating' : ''}`}>
+        {pickerFloating && (
+          <div className="floating-head">
+            <strong>Add cards</strong>
+            <button className="btn secondary small" onClick={() => onClosePicker?.()}>Done</button>
+          </div>
+        )}
         <div className="searchbox">
           <input
             ref={searchInput}
@@ -271,7 +344,7 @@ export function DeckPanes({
                   // makes the first card into an empty deck lead it.
                   const options = pickingCommander ? { board: 'command' as const } : {};
                   setPickingCommander(false);
-                  apply(() => addDeckCard(deck.id, card.oracleId, options));
+                  apply(() => addDeckCard(deck.id, card.oracleId, options), `adding ${card.name}`);
                 }}
                 title={pickingCommander
                   ? `Make ${card.name} the commander`
@@ -283,7 +356,10 @@ export function DeckPanes({
               {card.ownedQuantity > 0 && <span className="tag ok">{card.ownedQuantity}</span>}
               <button
                 className="picker-add"
-                onClick={() => apply(() => addDeckCard(deck.id, card.oracleId, { board: 'side' }))}
+                onClick={() => apply(
+                  () => addDeckCard(deck.id, card.oracleId, { board: 'side' }),
+                  `adding ${card.name} to the sideboard`,
+                )}
                 title="Add to sideboard"
               >SB</button>
             </div>
@@ -314,6 +390,18 @@ export function DeckPanes({
         )}
       </div>
 
+      {resizable && (
+        <PaneDivider
+          label="Stats pane width"
+          className="stats-divider"
+          width={paneWidths.stats}
+          min={220}
+          max={640}
+          onResize={(width) => onPaneResize?.('stats', width)}
+          onCommit={(width) => onPaneCommit?.('stats', width)}
+        />
+      )}
+
       <DeckStatsPanel
         stats={deck.stats}
         validation={deck.validation}
@@ -322,6 +410,8 @@ export function DeckPanes({
         showTemplates={showTemplates}
         onJumpToCard={jumpToCard}
         onFilterShortfall={onFilterShortfall}
+        floating={statsFloating}
+        onClose={onCloseStats}
       />
     </div>
   );

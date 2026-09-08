@@ -151,6 +151,8 @@ export function DeckStatsPanel({
   showTemplates,
   onJumpToCard,
   onFilterShortfall,
+  floating = false,
+  onClose,
 }: {
   stats: DeckStats;
   validation: DeckValidation;
@@ -160,13 +162,23 @@ export function DeckStatsPanel({
   showTemplates: boolean;
   onJumpToCard: (oracleId: string) => void;
   onFilterShortfall: (category: string) => void;
+  /** Below 1200px the pane is not a column; it opens as an overlay instead of
+   *  disappearing, the same way the card detail pane does. */
+  floating?: boolean;
+  onClose?: () => void;
 }) {
   const errors = validation.issues.filter((i) => i.severity === 'error');
   const warnings = validation.issues.filter((i) => i.severity === 'warning');
   const maxColor = Math.max(1, ...stats.colorDistribution.map((c) => c.count));
 
   return (
-    <aside className="stats-pane">
+    <aside className={`stats-pane${floating ? ' floating' : ''}`}>
+      {floating && (
+        <div className="floating-head">
+          <strong>Deck stats</strong>
+          <button className="btn secondary small" onClick={onClose}>Done</button>
+        </div>
+      )}
       <div className="fgroup">
         <h3>{validation.formatName ?? 'No format'}</h3>
         <SizeReadout validation={validation} />

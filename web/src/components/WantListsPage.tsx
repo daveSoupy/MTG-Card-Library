@@ -5,6 +5,7 @@ import {
   type NamedList, type WantList, type WantListItem,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
+import { BackToTop } from './BackToTop.tsx';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const PRIORITY = ['—', 'Low', 'Medium', 'High'];
@@ -170,6 +171,8 @@ export function WantListsPage() {
           )}
         </div>
       )}
+
+      <BackToTop label="Back to the top of the list" />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
 import { TradeItemDialog } from './TradeItemDialog.tsx';
+import { BackToTop } from './BackToTop.tsx';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const sumValue = (items: Trade['items'], dir: 'out' | 'in') =>
@@ -66,6 +67,8 @@ export function TradesPage({ onAlertsChanged }: { onAlertsChanged?: () => void }
         </button>
       ))}
       {trades.length === 0 && <p className="empty">No trades yet. Start one when you're at the table.</p>}
+
+      <BackToTop label="Back to the top of the trades" />
     </div>
   );
 }
@@ -258,6 +261,8 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           onSaved={(next) => setTrade(next)}
         />
       )}
+
+      <BackToTop label="Back to the top of the trade" />
     </div>
   );
 }
