@@ -1,4 +1,5 @@
 import type { Board, DeckCard } from '../api.ts';
+import { identityKey } from '../deckView.ts';
 
 export function DeckRow({
   card,
@@ -28,7 +29,14 @@ export function DeckRow({
   const shortfall = claimed > card.availableQuantity;
 
   return (
-    <div className={`deck-row${problem ? ` ${problem}` : ''}`} onMouseEnter={onPreview}>
+    // The colour bar down the left edge reads a decklist the way a pile of
+    // cards does. Keyed off the same identity buckets deckView.ts groups by, so
+    // a colour-grouped list and its tints can never disagree.
+    <div
+      className={`deck-row${problem ? ` ${problem}` : ''}`}
+      data-identity={identityKey(card.colorIdentity)}
+      onMouseEnter={onPreview}
+    >
       <div className="qty">
         <button onClick={() => onQuantity(-1)} aria-label={`One fewer ${card.name}`}>−</button>
         <span>{card.quantity}</span>
