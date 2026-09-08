@@ -2,28 +2,61 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import {
   ACQUISITION_KINDS, CONDITIONS, COST_METHODS, FINISHES, LocationInUseError,
-  type CollectionSort, type CollectionStore,
+  type AcquisitionKind, type CollectionSort, type CollectionStore, type Condition,
+  type CostMethod, type Finish,
 } from '../collection/store.ts';
 import { pushToWantList, shoppingList, wantList } from '../collection/shopping.ts';
 import { reconcileWants } from '../collection/wants.ts';
 import { AlertStore } from '../alerts/store.ts';
+import {
+  ID, COUNT, MONEY, MONEY_OR_NULL, NAME, TEXT, TEXT_OR_NULL, FLAG, DATE_OR_NULL,
+  body as bodySchema, idParams,
+} from './schema.ts';
 
 const SORTS: CollectionSort[] = ['name', 'value', 'quantity', 'recent', 'setNumber'];
 
+/** The CHECK lists behind these fields, as schema enums. */
+const FINISH = { type: 'string', enum: FINISHES } as const;
+const CONDITION = { type: 'string', enum: CONDITIONS } as const;
+const ACQUISITION_KIND = { type: 'string', enum: ACQUISITION_KINDS } as const;
+const COST_METHOD = { type: 'string', enum: COST_METHODS } as const;
+const LOCATION_KIND = {
+  type: 'string', enum: ['binder', 'box', 'deck_box', 'shoebox', 'shelf', 'other'],
+} as const;
+
+/** Query strings stay hand-parsed; only bodies and path params get schemas. */
 function asInt(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : undefined;
 }
 
-function asMoney(value: unknown): number | null | undefined {
-  if (value === null) return null;
-  if (value === undefined || value === '') return undefined;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
 const oneOf = <T extends string>(allowed: T[], value: unknown): T | undefined =>
   allowed.includes(value as T) ? (value as T) : undefined;
+
+/** What every lot-shaped body carries, whether adding or editing. */
+const LOT_FIELDS = {
+  finish: FINISH,
+  condition: CONDITION,
+  language: TEXT,
+  priceOverride: MONEY_OR_NULL,
+  acquiredAt: DATE_OR_NULL,
+  acquiredUnitCost: MONEY_OR_NULL,
+  acquisitionKind: ACQUISITION_KIND,
+  acquiredFrom: TEXT_OR_NULL,
+  notes: TEXT_OR_NULL,
+};
+
+interface LotBody {
+  finish?: Finish;
+  condition?: Condition;
+  language?: string;
+  priceOverride?: number | null;
+  acquiredAt?: string | null;
+  acquiredUnitCost?: number | null;
+  acquisitionKind?: AcquisitionKind;
+  acquiredFrom?: string | null;
+  notes?: string | null;
+}
 
 export function registerCollectionRoutes(
   app: FastifyInstance,
@@ -34,56 +67,65 @@ export function registerCollectionRoutes(
 
   app.get('/api/v1/locations', async () => ({ locations: collection.locations() }));
 
-  app.post('/api/v1/locations', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    if (typeof body.name !== 'string' || !body.name.trim()) {
-      return reply.status(400).send({ error: 'A location needs a name.' });
-    }
-    try {
-      collection.createLocation({ name: body.name, kind: body.kind, notes: body.notes ?? null });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      // The unique index on name is the likely cause, and the user can fix it.
-      return reply.status(400).send({ error: 'Could not create that location.', detail: message });
-    }
-    return reply.status(201).send({ locations: collection.locations() });
-  });
-
-  app.patch('/api/v1/locations/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid location id.' });
-    const body = (request.body ?? {}) as any;
-    try {
-      collection.updateLocation(id, {
-        name: typeof body.name === 'string' ? body.name : undefined,
-        kind: typeof body.kind === 'string' ? body.kind : undefined,
-        notes: body.notes === null || typeof body.notes === 'string' ? body.notes : undefined,
-        isArchived: typeof body.isArchived === 'boolean' ? body.isArchived : undefined,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.status(400).send({ error: 'Could not update that location.', detail: message });
-    }
-    return { locations: collection.locations() };
-  });
-
-  app.delete('/api/v1/locations/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid location id.' });
-
-    const moveTo = asInt((request.query as any).moveTo);
-    try {
-      if (moveTo !== undefined) collection.moveLocationContents(id, moveTo);
-      collection.deleteLocation(id);
-    } catch (error) {
-      if (error instanceof LocationInUseError) {
-        // 409, not 400: the request is well formed, the state forbids it.
-        return reply.status(409).send({ error: error.message, cardCount: error.cardCount });
+  app.post<{ Body: { name: string; kind?: string; notes?: string | null } }>(
+    '/api/v1/locations',
+    { schema: { body: bodySchema({ name: NAME, kind: LOCATION_KIND, notes: TEXT_OR_NULL }, ['name']) } },
+    async (request, reply) => {
+      const { name, kind, notes } = request.body;
+      if (!name.trim()) return reply.status(400).send({ error: 'A location needs a name.' });
+      try {
+        collection.createLocation({ name, kind, notes: notes ?? null });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // The unique index on name is the likely cause, and the user can fix it.
+        return reply.status(400).send({ error: 'Could not create that location.', detail: message });
       }
-      throw error;
-    }
-    return { locations: collection.locations() };
-  });
+      return reply.status(201).send({ locations: collection.locations() });
+    },
+  );
+
+  app.patch<{
+    Params: { id: number };
+    Body: { name?: string; kind?: string; notes?: string | null; isArchived?: boolean };
+  }>(
+    '/api/v1/locations/:id',
+    {
+      schema: {
+        params: idParams('id'),
+        body: bodySchema({ name: NAME, kind: LOCATION_KIND, notes: TEXT_OR_NULL, isArchived: FLAG }),
+      },
+    },
+    async (request, reply) => {
+      const { name, kind, notes, isArchived } = request.body;
+      try {
+        collection.updateLocation(request.params.id, { name, kind, notes, isArchived });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return reply.status(400).send({ error: 'Could not update that location.', detail: message });
+      }
+      return { locations: collection.locations() };
+    },
+  );
+
+  app.delete<{ Params: { id: number } }>(
+    '/api/v1/locations/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const moveTo = asInt((request.query as any).moveTo);
+      try {
+        if (moveTo !== undefined) collection.moveLocationContents(id, moveTo);
+        collection.deleteLocation(id);
+      } catch (error) {
+        if (error instanceof LocationInUseError) {
+          // 409, not 400: the request is well formed, the state forbids it.
+          return reply.status(409).send({ error: error.message, cardCount: error.cardCount });
+        }
+        throw error;
+      }
+      return { locations: collection.locations() };
+    },
+  );
 
   // -- browsing --------------------------------------------------------------
 
@@ -113,77 +155,108 @@ export function registerCollectionRoutes(
 
   // -- editing ---------------------------------------------------------------
 
-  app.post('/api/v1/collection/items', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    const printingId = typeof body.printingId === 'string' ? body.printingId : '';
-    const locationId = asInt(body.locationId);
-    const quantity = asInt(body.quantity) ?? 1;
-
-    if (!printingId) return reply.status(400).send({ error: 'printingId is required.' });
-    if (locationId === undefined) return reply.status(400).send({ error: 'locationId is required.' });
-    if (quantity < 1) return reply.status(400).send({ error: 'Quantity must be at least 1.' });
-
-    try {
-      const id = collection.addLot({
-        printingId,
-        locationId,
-        quantity,
-        finish: oneOf(FINISHES, body.finish),
-        condition: oneOf(CONDITIONS, body.condition),
-        language: typeof body.language === 'string' ? body.language : undefined,
-        priceOverride: asMoney(body.priceOverride) ?? null,
-        acquiredAt: typeof body.acquiredAt === 'string' && body.acquiredAt ? body.acquiredAt : null,
-        acquiredUnitCost: asMoney(body.acquiredUnitCost) ?? null,
-        acquisitionKind: oneOf(ACQUISITION_KINDS, body.acquisitionKind),
-        acquiredFrom: typeof body.acquiredFrom === 'string' && body.acquiredFrom ? body.acquiredFrom : null,
-        notes: typeof body.notes === 'string' && body.notes ? body.notes : null,
-        costMethod: oneOf(COST_METHODS, body.costMethod),
-        fixedAmount: asMoney(body.fixedAmount) ?? null,
-        importBatchId: asInt(body.batchId),
-      });
-      // Acquiring copies directly can satisfy a want — same reconcile a trade runs.
-      const oracle = db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
-        .get(printingId) as { oracle_id: string } | undefined;
-      if (oracle) reconcileWants(db, new AlertStore(db), oracle.oracle_id);
-      return reply.status(201).send({ id });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.status(400).send({ error: 'Could not add those cards.', detail: message });
-    }
-  });
+  app.post<{
+    Body: LotBody & {
+      printingId: string; locationId: number; quantity?: number;
+      costMethod?: CostMethod; fixedAmount?: number | null; batchId?: number;
+    };
+  }>(
+    '/api/v1/collection/items',
+    {
+      schema: {
+        body: bodySchema(
+          {
+            printingId: NAME,
+            locationId: ID,
+            // At least one copy: adding zero cards is not an addition.
+            quantity: { type: 'integer', minimum: 1 },
+            ...LOT_FIELDS,
+            costMethod: COST_METHOD,
+            fixedAmount: MONEY_OR_NULL,
+            batchId: ID,
+          },
+          ['printingId', 'locationId'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const body = request.body;
+      try {
+        const id = collection.addLot({
+          printingId: body.printingId,
+          locationId: body.locationId,
+          quantity: body.quantity ?? 1,
+          finish: body.finish,
+          condition: body.condition,
+          language: body.language,
+          priceOverride: body.priceOverride ?? null,
+          acquiredAt: body.acquiredAt || null,
+          acquiredUnitCost: body.acquiredUnitCost ?? null,
+          acquisitionKind: body.acquisitionKind,
+          acquiredFrom: body.acquiredFrom || null,
+          notes: body.notes || null,
+          costMethod: body.costMethod,
+          fixedAmount: body.fixedAmount ?? null,
+          importBatchId: body.batchId,
+        });
+        // Acquiring copies directly can satisfy a want — same reconcile a trade runs.
+        const oracle = db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
+          .get(body.printingId) as { oracle_id: string } | undefined;
+        if (oracle) reconcileWants(db, new AlertStore(db), oracle.oracle_id);
+        return reply.status(201).send({ id });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return reply.status(400).send({ error: 'Could not add those cards.', detail: message });
+      }
+    },
+  );
 
   // The cost pool currently accepting cards (box/draft), or null.
   app.get('/api/v1/collection/cost-pools/open', async () => ({ pool: collection.currentCostPool() }));
 
   // Opens a cost pool: a lump sum spread evenly across the copies later added
   // with this batch id, and marked the open pool so it resumes after a break.
-  app.post('/api/v1/collection/cost-pools', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    const totalCostUsd = asMoney(body.totalCostUsd);
-    if (totalCostUsd === undefined || totalCostUsd === null) {
-      return reply.status(400).send({ error: 'totalCostUsd is required.' });
-    }
-    const pool = collection.openCostPool({
-      totalCostUsd,
-      label: typeof body.label === 'string' && body.label ? body.label : null,
-      setCode: typeof body.setCode === 'string' && body.setCode ? body.setCode.toLowerCase() : null,
-    });
-    return reply.status(201).send({ batchId: pool.id, pool });
-  });
+  app.post<{ Body: { totalCostUsd: number; label?: string | null; setCode?: string | null } }>(
+    '/api/v1/collection/cost-pools',
+    {
+      schema: {
+        body: bodySchema(
+          { totalCostUsd: MONEY, label: TEXT_OR_NULL, setCode: TEXT_OR_NULL },
+          ['totalCostUsd'],
+        ),
+      },
+    },
+    async (request, reply) => {
+      const { totalCostUsd, label, setCode } = request.body;
+      const pool = collection.openCostPool({
+        totalCostUsd,
+        label: label || null,
+        setCode: setCode ? setCode.toLowerCase() : null,
+      });
+      return reply.status(201).send({ batchId: pool.id, pool });
+    },
+  );
 
   // Adjusts an open pool: its lump sum (re-dividing it across the copies it
   // holds) and/or the set the session is working through (for resume).
-  app.patch('/api/v1/collection/cost-pools/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid pool id.' });
-    const body = (request.body ?? {}) as any;
-    const totalCostUsd = asMoney(body.totalCostUsd);
-    if (totalCostUsd !== undefined && totalCostUsd !== null) collection.updateCostPoolTotal(id, totalCostUsd);
-    if ('setCode' in body) {
-      collection.setOpenPoolSet(typeof body.setCode === 'string' && body.setCode ? body.setCode.toLowerCase() : null);
-    }
-    return { pool: collection.currentCostPool() };
-  });
+  app.patch<{ Params: { id: number }; Body: { totalCostUsd?: number; setCode?: string | null } }>(
+    '/api/v1/collection/cost-pools/:id',
+    {
+      schema: {
+        params: idParams('id'),
+        body: bodySchema({ totalCostUsd: MONEY, setCode: TEXT_OR_NULL }),
+      },
+    },
+    async (request) => {
+      const { totalCostUsd, setCode } = request.body;
+      if (totalCostUsd !== undefined) collection.updateCostPoolTotal(request.params.id, totalCostUsd);
+      // Present-and-null clears the set; absent leaves it alone.
+      if ('setCode' in request.body) {
+        collection.setOpenPoolSet(setCode ? setCode.toLowerCase() : null);
+      }
+      return { pool: collection.currentCostPool() };
+    },
+  );
 
   // Finishes the open pool (the batch stays in history; its lots keep their cost).
   app.post('/api/v1/collection/cost-pools/close', async () => {
@@ -191,54 +264,53 @@ export function registerCollectionRoutes(
     return { pool: null };
   });
 
-  app.patch('/api/v1/collection/items/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid item id.' });
-    const body = (request.body ?? {}) as any;
+  app.patch<{ Params: { id: number }; Body: LotBody & { quantity?: number; locationId?: number } }>(
+    '/api/v1/collection/items/:id',
+    {
+      schema: {
+        params: idParams('id'),
+        // Quantity 0 is allowed and means "remove the lot".
+        body: bodySchema({ quantity: COUNT, locationId: ID, ...LOT_FIELDS }),
+      },
+    },
+    async (request, reply) => {
+      try {
+        collection.updateLot(request.params.id, { ...request.body });
+        return { ok: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return reply.status(400).send({ error: 'Could not update those cards.', detail: message });
+      }
+    },
+  );
 
-    try {
-      collection.updateLot(id, {
-        quantity: asInt(body.quantity),
-        locationId: asInt(body.locationId),
-        finish: oneOf(FINISHES, body.finish),
-        condition: oneOf(CONDITIONS, body.condition),
-        language: typeof body.language === 'string' ? body.language : undefined,
-        priceOverride: asMoney(body.priceOverride),
-        acquiredAt: body.acquiredAt === null || typeof body.acquiredAt === 'string' ? body.acquiredAt : undefined,
-        acquiredUnitCost: asMoney(body.acquiredUnitCost),
-        acquisitionKind: oneOf(ACQUISITION_KINDS, body.acquisitionKind),
-        acquiredFrom: body.acquiredFrom === null || typeof body.acquiredFrom === 'string' ? body.acquiredFrom : undefined,
-        notes: body.notes === null || typeof body.notes === 'string' ? body.notes : undefined,
-      });
-      return { ok: true };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.status(400).send({ error: 'Could not update those cards.', detail: message });
-    }
-  });
-
-  app.delete('/api/v1/collection/items/:id', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid item id.' });
-    collection.removeLot(id);
-    return reply.status(204).send();
-  });
+  app.delete<{ Params: { id: number } }>(
+    '/api/v1/collection/items/:id',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      collection.removeLot(request.params.id);
+      return reply.status(204).send();
+    },
+  );
 
   // Undo a tap-to-add: remove one copy of the plainly-added card.
-  app.post('/api/v1/collection/items/decrement', async (request, reply) => {
-    const body = (request.body ?? {}) as any;
-    if (typeof body.printingId !== 'string') return reply.status(400).send({ error: 'printingId is required.' });
-    const locationId = asInt(body.locationId);
-    if (locationId === undefined) return reply.status(400).send({ error: 'locationId is required.' });
-
-    const owned = collection.decrementCopy({
-      printingId: body.printingId,
-      locationId,
-      finish: oneOf(FINISHES, body.finish),
-      condition: oneOf(CONDITIONS, body.condition),
-    });
-    return { removed: owned !== null, owned };
-  });
+  app.post<{
+    Body: { printingId: string; locationId: number; finish?: Finish; condition?: Condition };
+  }>(
+    '/api/v1/collection/items/decrement',
+    {
+      schema: {
+        body: bodySchema(
+          { printingId: NAME, locationId: ID, finish: FINISH, condition: CONDITION },
+          ['printingId', 'locationId'],
+        ),
+      },
+    },
+    async (request) => {
+      const owned = collection.decrementCopy(request.body);
+      return { removed: owned !== null, owned };
+    },
+  );
 
   // -- value and sets --------------------------------------------------------
 
@@ -261,29 +333,33 @@ export function registerCollectionRoutes(
 
   // -- shopping list ---------------------------------------------------------
 
-  app.get('/api/v1/decks/:id/shopping-list', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    const list = id === undefined ? null : shoppingList(db, id);
-    if (!list) return reply.status(404).send({ error: 'No deck with that id.' });
-    return list;
-  });
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/decks/:id/shopping-list',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const list = shoppingList(db, request.params.id);
+      if (!list) return reply.status(404).send({ error: 'No deck with that id.' });
+      return list;
+    },
+  );
 
-  app.post('/api/v1/decks/:id/shopping-list/want', async (request, reply) => {
-    const id = asInt((request.params as any).id);
-    if (id === undefined) return reply.status(400).send({ error: 'Invalid deck id.' });
-    const body = (request.body ?? {}) as any;
-
-    try {
-      const result = pushToWantList(db, id, {
-        wantListId: asInt(body.wantListId),
-        oracleIds: Array.isArray(body.oracleIds)
-          ? body.oracleIds.filter((v: unknown) => typeof v === 'string') : undefined,
-      });
-      return { ...result, wantList: wantList(db, asInt(body.wantListId)) };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.status(400).send({ error: 'Could not add to the want list.', detail: message });
-    }
-  });
-
+  app.post<{ Params: { id: number }; Body: { wantListId?: number; oracleIds?: string[] } }>(
+    '/api/v1/decks/:id/shopping-list/want',
+    {
+      schema: {
+        params: idParams('id'),
+        body: bodySchema({ wantListId: ID, oracleIds: { type: 'array', items: NAME } }),
+      },
+    },
+    async (request, reply) => {
+      const { wantListId, oracleIds } = request.body;
+      try {
+        const result = pushToWantList(db, request.params.id, { wantListId, oracleIds });
+        return { ...result, wantList: wantList(db, wantListId) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return reply.status(400).send({ error: 'Could not add to the want list.', detail: message });
+      }
+    },
+  );
 }
