@@ -44,6 +44,26 @@ export interface Conflict {
   tradingAway: number;
 }
 
+/**
+ * What to do when copies leaving would drop availability below what decks claim.
+ *
+ * `'prompt'` is the web UI's path: stop and ask, then clamp the deck on `force`.
+ * `'alert'` is the non-interactive path for Phase 13's sales and Phase 20's
+ * offline replay — never blocks, never edits a deck, and leaves one alert per
+ * affected card behind instead.
+ */
+export type ConflictMode = 'prompt' | 'alert';
+
+/** A card a deck still claims more copies of than are now owned. */
+export interface AllocationShortfall {
+  oracleId: string;
+  name: string;
+  owned: number;
+  allocated: number;
+  /** Copies decks claim that no longer exist. */
+  short: number;
+}
+
 export interface CompleteResult {
   completed: boolean;
   needsConfirmation?: boolean;
@@ -51,6 +71,46 @@ export interface CompleteResult {
   fulfilledWants?: FulfilledWant[];
   clampedTradeListItems?: number;
   resolvedConflicts?: Conflict[];
+  /** `conflictMode: 'alert'` only — the alerts raised instead of blocking. */
+  allocationAlerts?: AllocationShortfall[];
+}
+
+/** One card leaving the collection. Lots are drawn oldest-first. */
+export interface DisposalRequest {
+  printingId: string;
+  quantity: number;
+  finish?: Finish;
+  condition?: Condition;
+  language?: string;
+  /** Preferred lot to draw from; other matching lots follow it, oldest first. */
+  sourceCollectionItemId?: number | null;
+  /** Per-copy value credited (trade) or cash received (sale). */
+  unitProceedsUsd?: number | null;
+}
+
+/** Why the copies left, and who got them. */
+export interface DisposalContext {
+  kind: 'trade' | 'sale' | 'gift' | 'loss';
+  /** 'YYYY-MM-DD'. Today when omitted. */
+  disposedOn?: string | null;
+  tradeId?: number | null;
+  counterparty?: string | null;
+  notes?: string | null;
+}
+
+/** One lot drawn down by a `DisposalRequest`. */
+export interface LotConsumption {
+  /** Index into the `requests` array this came from. */
+  requestIndex: number;
+  lotId: number;
+  locationId: number;
+  quantity: number;
+}
+
+export interface DisposeResult {
+  consumed: LotConsumption[];
+  clampedTradeListItems: number;
+  allocationAlerts: AllocationShortfall[];
 }
 
 export class TradeStore {
@@ -311,35 +371,65 @@ export class TradeStore {
 
   /**
    * Applies a draft trade to the collection. Idempotent guard: only a draft
-   * completes. Returns a confirmation request instead of acting when an outgoing
-   * card is claimed by a deck and `force` was not given.
+   * completes.
+   *
+   * Under the default `conflictMode: 'prompt'`, an outgoing card a deck is
+   * using returns a confirmation request instead of acting, and `force` then
+   * clamps the deck's claim. Under `'alert'` the trade always completes, decks
+   * are left exactly as they are, and each affected card gets an
+   * `allocation_conflict` alert to sort out later.
    */
-  complete(id: number, options: { force?: boolean } = {}): CompleteResult {
+  complete(id: number, options: { force?: boolean; conflictMode?: ConflictMode } = {}): CompleteResult {
     const trade = this.requireDraft(id);
     const items = this.itemsFor(id);
     const out = items.filter((i) => i.direction === 'out');
     const incoming = items.filter((i) => i.direction === 'in');
+    const conflictMode = options.conflictMode ?? 'prompt';
 
     const conflicts = this.detectConflicts(out);
-    if (conflicts.length > 0 && !options.force) {
+    if (conflictMode === 'prompt' && conflicts.length > 0 && !options.force) {
       return { completed: false, needsConfirmation: true, conflicts };
     }
 
     const fulfilledWants: FulfilledWant[] = [];
     let clampedTradeListItems = 0;
     let resolvedConflicts: Conflict[] = [];
+    let allocationAlerts: AllocationShortfall[] = [];
 
     this.db.transaction(() => {
-      // OUT — copies leave, disposals logged.
+      // Clamp deck claims first, ahead of the copies actually leaving. The
+      // clamp works off the conflicts detected above either way, and going
+      // first means disposeFromLot's alert pass sees availability already
+      // reconciled and raises nothing on top of the clamp's own alert.
+      resolvedConflicts = conflictMode === 'prompt' && options.force
+        ? this.clampDeckAllocations(conflicts)
+        : [];
+
+      // OUT — copies leave, disposals logged, trade lists and deck-allocation
+      // alerts reconciled.
       let valueOut = 0;
-      for (const item of out) {
+      const requests: DisposalRequest[] = out.map((item) => {
         const unitValue = item.unitValueUsd ?? this.priceFor(item.printingId, item.finish) ?? 0;
         valueOut += unitValue * item.quantity;
-        this.disposeOut(id, trade.counterparty_name, trade.trade_date, item, unitValue);
-      }
-
-      // Force-resolve deck conflicts by clamping the deck's claim.
-      resolvedConflicts = options.force ? this.clampDeckAllocations(conflicts) : [];
+        return {
+          printingId: item.printingId,
+          quantity: item.quantity,
+          finish: item.finish,
+          condition: item.condition,
+          language: item.language,
+          sourceCollectionItemId: item.sourceCollectionItemId,
+          unitProceedsUsd: unitValue > 0 ? unitValue : null,
+        };
+      });
+      const disposed = this.disposeFromLot(requests, {
+        kind: 'trade',
+        disposedOn: trade.trade_date,
+        tradeId: id,
+        counterparty: trade.counterparty_name,
+      });
+      clampedTradeListItems = disposed.clampedTradeListItems;
+      allocationAlerts = disposed.allocationAlerts;
+      this.snapshotOutgoing(out, requests, disposed.consumed);
 
       // IN — copies arrive, wants reconciled.
       let valueIn = 0;
@@ -361,9 +451,8 @@ export class TradeStore {
         fulfilledWants.push(...reconcileWants(this.db, this.alerts, item.oracleId, { tradeId: id }));
       }
 
-      // Reconcile trade lists against the new owned quantities.
-      const affectedOracles = new Set(out.map((i) => i.oracleId));
-      clampedTradeListItems = this.reconcileTradeLists(affectedOracles);
+      // Copies arriving can cover a shortfall an earlier disposal alerted on.
+      this.reconcileAllocationAlerts(incoming.map((i) => i.oracleId));
 
       this.db.prepare(`
         UPDATE trades
@@ -375,7 +464,7 @@ export class TradeStore {
         Math.round(valueOut * 100) / 100, Math.round(valueIn * 100) / 100, id);
     })();
 
-    return { completed: true, fulfilledWants, clampedTradeListItems, resolvedConflicts };
+    return { completed: true, fulfilledWants, clampedTradeListItems, resolvedConflicts, allocationAlerts };
   }
 
   /** Outgoing cards that a deck is currently using. */
@@ -401,53 +490,141 @@ export class TradeStore {
     return conflicts;
   }
 
-  /** Decrements the source lot(s) FIFO and records a disposal per lot consumed. */
-  private disposeOut(
-    tradeId: number, counterparty: string, tradeDate: string | null,
-    item: ReturnType<TradeStore['itemsFor']>[number], unitValue: number,
-  ): void {
-    let remaining = item.quantity;
+  /**
+   * The one path copies take out of the collection.
+   *
+   * Decrements the source lot(s) oldest-first, records a disposal per lot
+   * consumed, then reconciles what the departure invalidates: trade-list
+   * quantities that now exceed the lot behind them, and deck claims that now
+   * exceed what is owned. Deck claims are never edited here — the shortfall
+   * becomes an `allocation_conflict` alert, one per card, keyed so it resolves
+   * itself once availability catches up.
+   *
+   * Trade completion calls this; so do Phase 13's sales and Phase 20's offline
+   * replay, which have no one to prompt.
+   */
+  disposeFromLot(requests: DisposalRequest[], context: DisposalContext): DisposeResult {
+    return this.db.transaction((): DisposeResult => {
+      const consumed: LotConsumption[] = [];
+      const oracleIds = new Set<string>();
+      const disposedOn = context.disposedOn ?? new Date().toISOString().slice(0, 10);
 
-    // Prefer the chosen lot, then fall back to other matching lots, oldest first.
-    const lots = this.db.prepare(`
-      SELECT id, quantity, acquired_unit_cost, acquired_at, location_id
-      FROM collection_items
-      WHERE printing_id = ? AND finish = ? AND condition = ? AND language = ?
-      ORDER BY (id = ?) DESC, (acquired_at IS NULL), acquired_at ASC, id ASC`)
-      .all(item.printingId, item.finish, item.condition, item.language,
-           item.sourceCollectionItemId ?? -1) as Array<{
-        id: number; quantity: number; acquired_unit_cost: number | null;
-        acquired_at: string | null; location_id: number;
-      }>;
+      requests.forEach((request, requestIndex) => {
+        const finish = request.finish ?? 'nonfoil';
+        const condition = request.condition ?? 'unknown';
+        const language = request.language ?? 'en';
+        const oracleId = this.oracleIdFor(request.printingId);
+        if (oracleId) oracleIds.add(oracleId);
 
-    let primaryLocation: number | null = null;
-    for (const lot of lots) {
-      if (remaining <= 0) break;
-      const take = Math.min(remaining, lot.quantity);
-      primaryLocation ??= lot.location_id;
+        let remaining = Math.max(0, Math.trunc(request.quantity));
 
-      this.db.prepare(`
-        INSERT INTO collection_disposals
-          (printing_id, quantity, finish, condition, language, disposed_on, disposal_kind,
-           unit_proceeds_usd, unit_cost_usd, acquired_at, source_lot_id, trade_id, counterparty)
-        VALUES (?,?,?,?,?,?, 'trade', ?,?,?,?,?,?)`).run(
-        item.printingId, take, item.finish, item.condition, item.language,
-        tradeDate ?? new Date().toISOString().slice(0, 10),
-        unitValue > 0 ? unitValue : null, lot.acquired_unit_cost, lot.acquired_at,
-        lot.id, tradeId, counterparty);
+        // Prefer the chosen lot, then fall back to other matching lots, oldest first.
+        const lots = this.db.prepare(`
+          SELECT id, quantity, acquired_unit_cost, acquired_at, location_id
+          FROM collection_items
+          WHERE printing_id = ? AND finish = ? AND condition = ? AND language = ?
+          ORDER BY (id = ?) DESC, (acquired_at IS NULL), acquired_at ASC, id ASC`)
+          .all(request.printingId, finish, condition, language,
+               request.sourceCollectionItemId ?? -1) as Array<{
+            id: number; quantity: number; acquired_unit_cost: number | null;
+            acquired_at: string | null; location_id: number;
+          }>;
 
-      this.collection.updateLot(lot.id, { quantity: lot.quantity - take });
-      remaining -= take;
+        for (const lot of lots) {
+          if (remaining <= 0) break;
+          const take = Math.min(remaining, lot.quantity);
+
+          this.db.prepare(`
+            INSERT INTO collection_disposals
+              (printing_id, quantity, finish, condition, language, disposed_on, disposal_kind,
+               unit_proceeds_usd, unit_cost_usd, acquired_at, source_lot_id, trade_id,
+               counterparty, notes)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+            request.printingId, take, finish, condition, language, disposedOn, context.kind,
+            request.unitProceedsUsd ?? null, lot.acquired_unit_cost, lot.acquired_at,
+            lot.id, context.tradeId ?? null, context.counterparty ?? null,
+            context.notes ?? null);
+
+          this.collection.updateLot(lot.id, { quantity: lot.quantity - take });
+          consumed.push({ requestIndex, lotId: lot.id, locationId: lot.location_id, quantity: take });
+          remaining -= take;
+        }
+      });
+
+      return {
+        consumed,
+        clampedTradeListItems: this.reconcileTradeLists(oracleIds),
+        allocationAlerts: this.reconcileAllocationAlerts(oracleIds),
+      };
+    })();
+  }
+
+  private oracleIdFor(printingId: string): string | null {
+    const row = this.db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
+      .get(printingId) as { oracle_id: string } | undefined;
+    return row?.oracle_id ?? null;
+  }
+
+  /**
+   * Brings `allocation_conflict` alerts in line with current availability.
+   *
+   * One alert per card, keyed `allocation_conflict:<oracle_id>`, so repeated
+   * disposals of the same card update a single row rather than piling up — and
+   * so the alert resolves itself the moment copies come back or a deck lets go
+   * of its claim. Call it after anything that moves owned or allocated counts.
+   */
+  reconcileAllocationAlerts(oracleIds: Iterable<string>): AllocationShortfall[] {
+    const shortfalls: AllocationShortfall[] = [];
+    for (const oracleId of new Set(oracleIds)) {
+      const row = this.db.prepare(`
+        SELECT o.name, COALESCE(av.owned_qty, 0) AS owned, COALESCE(av.allocated_qty, 0) AS allocated
+        FROM oracle_cards o
+        LEFT JOIN v_card_availability av ON av.oracle_id = o.oracle_id
+        WHERE o.oracle_id = ?`).get(oracleId) as
+        | { name: string; owned: number; allocated: number } | undefined;
+      if (!row) continue;
+
+      const dedupeKey = `allocation_conflict:${oracleId}`;
+      if (row.allocated <= row.owned) {
+        this.alerts.resolveByKey(dedupeKey);
+        continue;
+      }
+
+      const shortfall: AllocationShortfall = {
+        oracleId, name: row.name, owned: row.owned, allocated: row.allocated,
+        short: row.allocated - row.owned,
+      };
+      this.alerts.raise({
+        kind: 'allocation_conflict',
+        dedupeKey,
+        subjectType: 'oracle_card',
+        title: `Decks claim more copies than you own: ${row.name}`,
+        message: `Decks claim ${row.allocated}, but you own ${row.owned}. ` +
+          `Free up ${shortfall.short} or reacquire.`,
+        payload: shortfall,
+      });
+      shortfalls.push(shortfall);
     }
+    return shortfalls;
+  }
 
-    this.db.prepare(`
-      UPDATE trade_items
-         SET source_location_id = COALESCE(source_location_id, ?),
-             snapshot_name = ?, snapshot_set_code = ?, snapshot_number = ?,
-             unit_value_usd = COALESCE(unit_value_usd, ?), price_source = 'market'
-       WHERE id = ?`).run(
-      primaryLocation, item.name, item.setCode, item.collectorNumber,
-      unitValue > 0 ? unitValue : null, item.id);
+  /** Stamps the outgoing trade rows with where the copies came from and what they were. */
+  private snapshotOutgoing(
+    out: ReturnType<TradeStore['itemsFor']>,
+    requests: DisposalRequest[],
+    consumed: LotConsumption[],
+  ): void {
+    out.forEach((item, index) => {
+      const primaryLocation = consumed.find((c) => c.requestIndex === index)?.locationId ?? null;
+      this.db.prepare(`
+        UPDATE trade_items
+           SET source_location_id = COALESCE(source_location_id, ?),
+               snapshot_name = ?, snapshot_set_code = ?, snapshot_number = ?,
+               unit_value_usd = COALESCE(unit_value_usd, ?), price_source = 'market'
+         WHERE id = ?`).run(
+        primaryLocation, item.name, item.setCode, item.collectorNumber,
+        requests[index]?.unitProceedsUsd ?? null, item.id);
+    });
   }
 
   private snapshotItem(item: ReturnType<TradeStore['itemsFor']>[number]): void {
