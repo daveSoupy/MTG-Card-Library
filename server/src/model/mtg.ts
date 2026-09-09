@@ -162,6 +162,28 @@ export const EXTRA_LAYOUTS = ['art_series', 'token', 'double_faced_token', 'embl
 export const UNLIMITED_COPIES = -1;
 
 /**
+ * The two formats you build from what you just opened rather than from the
+ * whole card pool: draft and sealed.
+ *
+ * Every other format rule in this app is data on the `formats` row, and these
+ * two are no exception — 40 cards, no singleton, no sideboard cap all come from
+ * there. The one thing that cannot be data is legality: Scryfall publishes a
+ * `legalities` map per card and neither limited format is in it, so there are
+ * no `card_legalities` rows to read. Without an explicit skip, "no row" is
+ * indistinguishable from "not legal here" in a filter, and a draft deck's card
+ * picker would return nothing at all.
+ *
+ * Kept here rather than in the validator because the search store needs the
+ * same answer, and the two must not be able to disagree.
+ */
+export const LIMITED_FORMATS = ['draft', 'sealed'] as const;
+
+/** Whether this format has no published legality data, so checks must skip it. */
+export function isLimitedFormat(code: string | null | undefined): boolean {
+  return code != null && (LIMITED_FORMATS as readonly string[]).includes(code);
+}
+
+/**
  * Written-out numbers as they appear on cards. Magic spells quantities in
  * words in deck-construction text ("up to nine cards named Nazgûl"), never in
  * digits, but digits are accepted anyway since parsing them costs nothing.

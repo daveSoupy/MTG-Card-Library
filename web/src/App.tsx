@@ -14,6 +14,7 @@ import { SyntaxHelp } from './components/SyntaxHelp.tsx';
 import { CollectionPage } from './components/CollectionPage.tsx';
 import { DataPage } from './components/DataPage.tsx';
 import { TradesPage } from './components/TradesPage.tsx';
+import { GamesPage } from './components/GamesPage.tsx';
 import { AlertsBell } from './components/AlertsBell.tsx';
 import { BackToTop } from './components/BackToTop.tsx';
 import { CustomizeView } from './components/CustomizeView.tsx';
@@ -67,7 +68,7 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
 }
 
 type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
-  | { name: 'collection' } | { name: 'trades' }
+  | { name: 'collection' } | { name: 'trades' } | { name: 'games' }
   | { name: 'data' };
 
 /** Which page's density the topbar toggle is currently setting. The views with
@@ -305,6 +306,10 @@ export default function App() {
             onClick={() => setView({ name: 'trades' })}
           >Trade</button>
           <button
+            className={view.name === 'games' ? 'on' : ''}
+            onClick={() => setView({ name: 'games' })}
+          >Games</button>
+          <button
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => setView({ name: 'data' })}
           >Data</button>
@@ -382,12 +387,18 @@ export default function App() {
       </header>
 
       {view.name === 'collection' && (
-        <CollectionPage key={dataEpoch} {...densityControlsFor('collection')} />
+        <CollectionPage
+          key={dataEpoch}
+          {...densityControlsFor('collection')}
+          wantsDensity={densityControlsFor('wants')}
+        />
       )}
 
       {view.name === 'trades' && (
         <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
       )}
+
+      {view.name === 'games' && <GamesPage formats={formats} />}
 
       {view.name === 'data' && (
         <DataPage

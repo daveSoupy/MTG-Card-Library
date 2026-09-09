@@ -88,6 +88,7 @@ export function DeckPanes({
   apply,
   problemFor,
   requiresCommander,
+  limitedFormat = false,
   identity,
   cardSort,
   setCardSort,
@@ -116,6 +117,8 @@ export function DeckPanes({
   apply: (action: () => Promise<Deck>, label?: string) => void;
   problemFor: (card: DeckCard) => 'error' | 'warning' | null;
   requiresCommander: boolean;
+  /** Draft or sealed: no legality filter, and adds also buy the card. */
+  limitedFormat?: boolean;
   identity: string | null;
   cardSort: DeckSort;
   setCardSort: (sort: DeckSort) => void;
@@ -434,8 +437,18 @@ export function DeckPanes({
         </label>
         {deck.formatCode && (
           <p className="note">
-            Showing cards legal in {deck.validation.formatName}
-            {identity !== null && ` and within ${identity || 'colourless'} colour identity`}.
+            {limitedFormat
+              // Limited has no legality list to filter by, and adding a card
+              // here is also an acquisition — say so before it happens rather
+              // than leaving a collection row to be discovered later.
+              ? `Every card is legal in ${deck.validation.formatName}. Adding one here also adds `
+                + 'it to your collection, allocated to this deck — basic lands excepted.'
+              : (
+                <>
+                  Showing cards legal in {deck.validation.formatName}
+                  {identity !== null && ` and within ${identity || 'colourless'} colour identity`}.
+                </>
+              )}
           </p>
         )}
 
@@ -487,7 +500,13 @@ export function DeckPanes({
                   // In commander mode the destination is explicit. Otherwise
                   // no board is sent and the server decides — which is what
                   // makes the first card into an empty deck lead it.
-                  const options = pickingCommander ? { board: 'command' as const } : {};
+                  // printingId is the copy on screen: it pins the slot's art,
+                  // and in a draft or sealed deck it is the printing that goes
+                  // into the collection along with the slot.
+                  const options = {
+                    printingId: card.printingId,
+                    ...(pickingCommander ? { board: 'command' as const } : {}),
+                  };
                   setPickingCommander(false);
                   apply(() => addDeckCard(deck.id, card.oracleId, options), `adding ${card.name}`);
                 }}
@@ -502,7 +521,7 @@ export function DeckPanes({
               <button
                 className="picker-add"
                 onClick={() => apply(
-                  () => addDeckCard(deck.id, card.oracleId, { board: 'side' }),
+                  () => addDeckCard(deck.id, card.oracleId, { board: 'side', printingId: card.printingId }),
                   `adding ${card.name} to the sideboard`,
                 )}
                 title="Add to sideboard"
