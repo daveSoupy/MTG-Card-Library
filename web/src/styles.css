@@ -1643,7 +1643,14 @@ input[type='number'] { width: 72px; }
 /* One text row per card: no art element in the DOM, so nothing is fetched. */
 .text-row {
   display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 5px 8px; font-size: 13px; text-align: left;
+  padding: 5px 8px; font-size: 13px; text-align: left;
+  /* Fills the row it sits in, but yields to the star beside it. `width: 100%`
+     claimed the whole card and, with the automatic minimum size that a flex
+     item gets by default, refused to give any of it back — so a long name
+     pushed the star past the edge and the results column scrolled sideways.
+     `min-width: 0` is what actually lets it shrink; the name inside it is
+     already set up to ellipsis once it does. */
+  flex: 1 1 auto; min-width: 0;
 }
 .tr-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tr-set, .tr-qty, .tr-price {
