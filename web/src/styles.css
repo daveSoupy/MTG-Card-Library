@@ -1262,6 +1262,7 @@ input[type='number'] { width: 72px; }
   gap: 10px; align-items: center; font-size: 12px;
   padding: 5px 7px; border-radius: 6px; background: var(--panel-2);
 }
+.backup-actions { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 .btn.small { padding: 3px 9px; font-size: 11px; }
 .btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 
@@ -1420,27 +1421,122 @@ input[type='number'] { width: 72px; }
 .combobox-option.picker-option { display: flex; justify-content: space-between; gap: 8px; }
 .combobox-option.picker-option .mana { font-family: var(--mono); color: var(--text-3); font-size: 12px; }
 
-.want-rows { display: flex; flex-direction: column; gap: 4px; }
+.want-rows { display: flex; flex-direction: column; gap: 8px; }
 .want-row {
-  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
 }
 .want-row.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .want-row.done { opacity: .7; }
+/* Ultra-compact: no art, one line — name and the toolbar sit directly in the
+   row (no `.want-main` wrapper needed, since there's no thumbnail height to
+   share space with), everything shrunk down accordingly. */
+.want-row.ultra { padding: 6px 10px; gap: 4px 12px; }
+.want-row.ultra .want-name { font-size: 13px; font-weight: 500; gap: 6px; }
+.want-row.ultra .want-controls { gap: 4px 10px; }
+.want-row.ultra .want-controls-group { gap: 4px 6px; }
+.want-row.ultra .want-field { flex-direction: row; gap: 4px; font-size: 10px; }
+.want-row.ultra .want-field input, .want-row.ultra .want-field select { width: 42px; font-size: 12px; padding: 3px 4px; }
+.want-row.ultra .want-price { font-size: 12px; min-width: 40px; }
+.want-row.ultra .want-alert-toggle { font-size: 12px; padding: 2px 4px; }
+.want-row.ultra .tag { font-size: 10px; }
 .want-thumb { width: 34px; height: 48px; object-fit: cover; border-radius: 3px; flex: none; background: var(--panel-2); }
 .want-thumb.placeholder { display: block; }
-.want-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.want-name { font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.needed-for { font-size: 11px; color: var(--accent); }
-.want-notes { font-size: 11px; color: var(--text-3); }
-.want-price { font-family: var(--mono); font-size: 12px; min-width: 54px; text-align: right; }
-.want-field { display: flex; flex-direction: column; align-items: center; gap: 1px; font-size: 10px; color: var(--text-3); }
-.want-field input, .want-field select { width: 62px; font-size: 12px; padding: 2px 4px; }
-.reorder { display: flex; flex-direction: column; gap: 1px; }
-.reorder button { background: none; border: 0; color: var(--text-3); font-size: 9px; line-height: 1; padding: 1px; }
-.reorder button:disabled { opacity: .25; }
+/* Name and the qty/pri/price toolbar share one row, name on the left — so on
+   a wide screen they use the row's full width instead of huddling in a
+   narrow column with the rest of the row sitting empty. `flex-wrap` on this
+   row (not `.want-row` as a whole) is what drops the toolbar to its own line
+   once the two no longer fit side by side, e.g. on a phone. The toolbar's own
+   `margin-left: auto` (not `justify-content` here) is what pins it to the
+   right on whichever line it lands on — needed because "needed for: …"/notes
+   force a line break of their own, which would otherwise leave the toolbar
+   alone on a line with nothing to space against, sitting left. */
+.want-main {
+  flex: 1 1 240px; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: center;
+  column-gap: 16px; row-gap: 8px;
+}
+.needed-for { flex-basis: 100%; font-size: 11px; color: var(--accent); }
+.want-notes { flex-basis: 100%; font-size: 11px; color: var(--text-3); }
+.want-price { font-family: var(--mono); font-size: 16px; min-width: 54px; text-align: right; }
+/* The tappable art — bigger than the plain list classes give, since it's
+   also the entry point into the full card view. Sized to roughly match the
+   height of the name + toolbar it sits beside. */
+.want-open {
+  display: block; flex: none; background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
+}
+.want-open .want-thumb { width: 84px; height: 117px; border-radius: 6px; }
+/* The name itself is the other tap target into the full card view — plain
+   text size elsewhere in the row, blown up here since it's the one thing a
+   glance at this list needs to read instantly. */
+.want-name {
+  flex: 1 1 160px; min-width: 0;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: none; border: 0; padding: 0; margin: 0; text-align: left; cursor: pointer;
+  font-size: 21px; font-weight: 600; color: var(--text); line-height: 1.2;
+}
+.want-name:hover, .want-name:focus-visible { color: var(--accent); }
+/* Two small groups (qty/priority, then price/alert/remove) rather than one
+   flat row of controls — each stays intact (`flex-wrap: nowrap`) so a narrow
+   screen wraps a whole group onto its own line instead of splitting it
+   mid-group, which is what left the alert bell and remove ✕ stranded alone
+   under everything else. */
+.want-controls { flex: none; margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; }
+.want-controls-group { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 10px; }
+.want-field { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; color: var(--text-3); }
+.want-field input, .want-field select { width: 64px; font-size: 15px; padding: 5px 6px; }
+/* A single, thumb-sized grip rather than a pair of tiny arrows. Mouse drags
+   immediately; touch requires a brief hold first (see WantListsPage) so an
+   ordinary scroll through the list doesn't get mistaken for a reorder. */
+.want-drag {
+  display: flex; align-items: center; justify-content: center; flex: none;
+  width: 34px; height: 44px; border-radius: 6px; background: none; border: 0;
+  color: var(--text-3); font-size: 16px; line-height: 1;
+  touch-action: none; user-select: none; cursor: grab;
+}
+.want-drag:hover, .want-drag:focus-visible { background: var(--panel-2); color: var(--text); }
+.want-row.dragging {
+  position: relative; z-index: 5; background: var(--panel-2);
+  box-shadow: 0 6px 18px rgba(0,0,0,.25);
+}
+.want-row.dragging .want-drag { cursor: grabbing; }
+/* Collapsed by default — the alert it sets is a secondary action, not
+   something every row needs open. Lit up (accent color) once a target is
+   actually set, dim otherwise. */
+.want-alert-toggle {
+  flex: none; background: none; border: 0; border-radius: 6px; padding: 4px 6px;
+  font-size: 14px; color: var(--text-3); opacity: .5;
+}
+.want-alert-toggle:hover, .want-alert-toggle:focus-visible { opacity: 1; }
+.want-alert-toggle.active { opacity: 1; color: var(--accent); }
 .fulfilled { margin-top: 8px; }
 .fulfilled summary { cursor: pointer; color: var(--text-3); font-size: 12px; }
+
+/* The big-card view a want row opens into: full card art, current market
+   price, and every printing with its own price — CardDetailPane already has
+   all of that, so it's reused here (non-floating, since this backdrop
+   supplies its own overlay chrome) with the want-specific fields as a small
+   toolbar above it. Always an overlay, on every viewport width, rather than
+   only under the desktop/tablet breakpoints Browse's detail pane uses. */
+.want-detail-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 30;
+  display: flex; justify-content: flex-end;
+}
+.want-detail-sheet {
+  width: min(440px, 100%); height: 100%; overflow-y: auto; padding: 14px;
+  background: var(--panel); box-shadow: -12px 0 32px rgba(0, 0, 0, .4);
+}
+/* Browse's narrow-viewport rule hides any non-floating .detail-pane below
+   1100px, assuming it's always the desktop docked column — override it here,
+   since this usage is deliberately non-floating (the backdrop supplies its
+   own overlay) at every width, including narrow ones. */
+.want-detail-sheet .detail-pane { display: block; border-left: 0; padding: 0; }
+.want-detail-controls {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px;
+  margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line);
+}
+.want-detail-controls .field { flex: 1 1 110px; margin-bottom: 0; }
+.want-detail-controls .field input, .want-detail-controls .field select { width: 100%; }
 
 .lot-choices { display: flex; flex-direction: column; gap: 4px; }
 .lot-choices-head { font-size: 12px; color: var(--text-2); }
@@ -1518,7 +1614,11 @@ input[type='number'] { width: 72px; }
   .list-page { padding: 10px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }
   .want-field input, .want-field select { width: 54px; }
-  .want-row { flex-wrap: wrap; }
+  /* At phone width the toolbar is nearly as wide as the row already, so
+     pinning it right (the desktop fix for a toolbar stranded alone under
+     "needed for…" text) just opens an odd gap next to the name — left-aligned
+     under the name/tags reads cleaner here. */
+  .want-controls { margin-left: 0; }
   /* On a phone the add-by-set settings scroll away with the page rather than
      staying pinned over the cards. */
   .entry-bar { position: static; }
@@ -1886,3 +1986,64 @@ input[type='number'] { width: 72px; }
   .undo-toast-action { padding: 11px 18px; font-size: 14px; }
   .undo-toast-close { padding: 10px 12px; font-size: 19px; }
 }
+
+/* ---------- games and events (Phase 11) ---------- */
+
+/* The "12–4" chip. Monospace so a column of records lines up, and neutral in
+   colour: a losing record is not an error state. */
+.record-chip {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line-strong); border-radius: 999px;
+  padding: 1px 9px; color: var(--text-2); background: var(--panel-2);
+  margin-left: 6px; white-space: nowrap;
+}
+
+/* One event at a glance: when, what it cost, what was built, how it went.
+   auto-fit rather than fixed columns so it stays readable on a phone. */
+.event-summary {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px;
+  padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+}
+.event-summary > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.event-summary .dim { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.event-summary strong { font-size: 15px; }
+
+.game-filters { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+.game-filters .field { margin-bottom: 0; min-width: 130px; flex: 1 1 130px; }
+
+/* The log rows. Same shell as a want row, so the two lists read alike. */
+.game-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+}
+/* A hairline of the result's colour down the leading edge — enough to scan a
+   season by, without painting whole rows red. */
+.game-row.win  { border-left: 3px solid var(--good); }
+.game-row.loss { border-left: 3px solid var(--bad); }
+.game-row.draw { border-left: 3px solid var(--warn); }
+.game-main {
+  flex: 1 1 220px; min-width: 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 4px;
+}
+.game-opponents { font-weight: 600; }
+.result-chip {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600;
+  border-radius: 999px; padding: 2px 9px; border: 1px solid var(--line-strong); color: var(--text-2);
+}
+.result-chip.win  { color: var(--good); border-color: var(--good); }
+.result-chip.loss { color: var(--bad); border-color: var(--bad); }
+.result-chip.draw { color: var(--warn); border-color: var(--warn); }
+
+/* Win / Loss / Draw as one segmented control rather than a select: it is the
+   one field of a game log you always touch, and it is one tap this way. */
+.result-picker { display: flex; gap: 6px; }
+.result-picker .btn { flex: 1; }
+.result-picker .btn.on { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }
+
+/* A .field's own <span> is its uppercase label; an explanatory hint inside one
+   is a sentence and must not inherit that treatment. */
+.field > span.hint { text-transform: none; letter-spacing: 0; line-height: 1.4; }
+
+/* Side-by-side fields inside the game and event dialogs; wraps on a phone. */
+.game-fields { display: flex; flex-wrap: wrap; gap: 0 12px; align-items: flex-end; }
+.game-fields .field { flex: 1 1 130px; }

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { compileQuery, mentionsDigital, mentionsLegality } from './query.ts';
-import { normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
+import { isLimitedFormat, normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
 
 /**
  * The free text as a trigram MATCH, or null when it is too short to be one.
@@ -276,7 +276,12 @@ export class CardSearchStore {
                           AND sp.set_code = ?)`);
       params.push(filters.setCode);
     }
-    if (filters.format) {
+    // Limited is the one format the legality table cannot answer for: Scryfall
+    // publishes nothing for draft or sealed, so this clause would match no card
+    // at all and the deck builder's picker would come back empty for a draft
+    // deck. Every card is playable in limited anyway — the pool, not the format,
+    // is the restriction — so the filter is simply not applied.
+    if (filters.format && !isLimitedFormat(filters.format)) {
       where.push(`EXISTS (SELECT 1 FROM card_legalities cl WHERE cl.oracle_id = o.oracle_id
                           AND cl.format_code = ? AND cl.legality IN ('legal','restricted'))`);
       params.push(filters.format);
@@ -530,10 +535,14 @@ export class CardSearchStore {
   }
 
   formats() {
-    return this.db.prepare(
+    const rows = this.db.prepare(
       `SELECT code, display_name, requires_commander AS requiresCommander
      FROM formats WHERE is_active = 1 ORDER BY sort_order`,
     ).all() as any[];
+    // isLimited travels with the format so the client never has to keep its own
+    // copy of which formats these are: it changes what the deck builder's
+    // picker says, and adding a card to one of them also buys the card.
+    return rows.map((row) => ({ ...row, isLimited: isLimitedFormat(row.code) ? 1 : 0 }));
   }
 }
 

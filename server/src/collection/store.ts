@@ -6,6 +6,17 @@ export const OPEN_COST_POOL_ID = 'open_cost_pool_id';
 /** The set the open pool's session was last working through, for resume. */
 export const OPEN_COST_POOL_SET = 'open_cost_pool_set';
 
+/**
+ * Per-pool copy of that set scope, keyed by batch id.
+ *
+ * OPEN_COST_POOL_SET only ever describes the pool that is open right now, and
+ * closing a pool clears it — so without this, reopening a pool from the import
+ * history could restore the id but not the set the session was working
+ * through, and the first card added afterwards would come from the wrong set
+ * filter. Written whenever the open pool's set changes; read on reopen.
+ */
+const poolSetKey = (batchId: number) => `cost_pool_set_${batchId}`;
+
 export interface CostPoolSummary {
   id: number;
   label: string;
@@ -387,12 +398,36 @@ export class CollectionStore {
     const id = Number(result.lastInsertRowid);
     setSetting(this.db, OPEN_COST_POOL_ID, String(id));
     setSetting(this.db, OPEN_COST_POOL_SET, input.setCode ?? '');
+    setSetting(this.db, poolSetKey(id), input.setCode ?? '');
     return this.poolSummary(id)!;
   }
 
   /** Remembers the set the open session is working through, for resume. */
   setOpenPoolSet(setCode: string | null): void {
     setSetting(this.db, OPEN_COST_POOL_SET, setCode ?? '');
+    const open = getSetting(this.db, OPEN_COST_POOL_ID);
+    if (open) setSetting(this.db, poolSetKey(Number(open)), setCode ?? '');
+  }
+
+  /**
+   * Reopens a closed pool so more cards can join it.
+   *
+   * A draft entered across two sittings was previously two batches: nothing
+   * pointed the open-pool setting back at a past one, and openCostPool() always
+   * inserts a new row. The hard part was already solved — resplitCostPool()
+   * re-divides a batch's total across every card tied to its id no matter when
+   * each was added — so this only restores the way back in: the pool's id, and
+   * the set scope the original session was working through.
+   *
+   * Returns null when the id is not a cost pool (an ordinary import batch, or
+   * nothing at all), leaving whatever was open alone.
+   */
+  reopenCostPool(id: number): CostPoolSummary | null {
+    const summary = this.poolSummary(id);
+    if (!summary) return null;
+    setSetting(this.db, OPEN_COST_POOL_ID, String(id));
+    setSetting(this.db, OPEN_COST_POOL_SET, summary.setCode ?? '');
+    return summary;
   }
 
   /** The pool currently accepting cards, or null once it's finished/undone. */
@@ -432,7 +467,13 @@ export class CollectionStore {
       totalCostUsd: batch.total_cost_usd,
       cardCount: qty,
       perCopy: qty > 0 ? batch.total_cost_usd / qty : 0,
-      setCode: getSetting(this.db, OPEN_COST_POOL_SET) || null,
+      // Per-pool, so a summary of a closed pool reports its own set rather than
+      // whatever the currently-open one is working through. The open-pool
+      // setting is the fallback for pools opened before that key existed.
+      setCode: getSetting(this.db, poolSetKey(id))
+        || (getSetting(this.db, OPEN_COST_POOL_ID) === String(id)
+          ? getSetting(this.db, OPEN_COST_POOL_SET) : '')
+        || null,
     };
   }
 

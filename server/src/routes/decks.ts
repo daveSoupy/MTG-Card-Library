@@ -101,7 +101,7 @@ export function registerDeckRoutes(
     Params: { id: number };
     Body: {
       oracleId: string; board?: Board; quantity?: number; fromCollection?: number;
-      commanderRole?: CommanderRole | null;
+      commanderRole?: CommanderRole | null; printingId?: string | null;
     };
   }>(
     '/api/v1/decks/:id/cards',
@@ -111,6 +111,9 @@ export function registerDeckRoutes(
         body: body(
           {
             oracleId: NAME, board: BOARD, quantity: COUNT, fromCollection: COUNT,
+            // The printing the client was looking at. Pins a new slot's art,
+            // and is the printing a limited deck's add puts in the collection.
+            printingId: TEXT_OR_NULL,
             // Only meaningful alongside board 'command'; the store ignores it
             // otherwise. Undo sends it so restoring a signature spell does not
             // come back as a plain commander.
@@ -122,9 +125,11 @@ export function registerDeckRoutes(
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { oracleId, board, quantity, fromCollection, commanderRole } = request.body;
+      const { oracleId, board, quantity, fromCollection, commanderRole, printingId } = request.body;
       return guard(reply, () => {
-        decks.addCard(id, oracleId, { board, quantity: quantity ?? 1, fromCollection, commanderRole });
+        decks.addCard(id, oracleId, {
+          board, quantity: quantity ?? 1, fromCollection, commanderRole, printingId,
+        });
         // Keep basics in step when the user enabled it — never for a basic-land
         // add, which would fight a deliberate manual change.
         decks.autoMaintainLands(id, oracleId);

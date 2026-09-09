@@ -151,6 +151,12 @@ export interface FormatRecord {
   display_name: string;
   /** 1 when the format has a command zone. Drives the deck builder's slot. */
   requiresCommander?: number;
+  /**
+   * 1 for draft and sealed: no published legalities to filter a picker by, and
+   * adding a card to such a deck also puts it in the collection. Resolved by
+   * the server so this stays one list, on the side that owns the rules.
+   */
+  isLimited?: number;
 }
 
 export interface SearchParams {
@@ -477,6 +483,9 @@ export const addDeckCard = (
   options: {
     board?: Board; quantity?: number; fromCollection?: number;
     commanderRole?: string | null;
+    /** The printing on screen — pins the slot's art, and is the printing a
+     *  draft or sealed deck's add puts into the collection. */
+    printingId?: string | null;
   } = {},
 ) => send<{ deck: Deck }>(`/api/v1/decks/${deckId}/cards`, 'POST', { oracleId, ...options }).then((r) => r.deck);
 
@@ -797,6 +806,11 @@ export const setCostPoolSet = (id: number, setCode: string | null) =>
 /** Finishes the open pool (its cards keep their cost). */
 export const closeCostPool = () =>
   send<{ pool: null }>('/api/v1/collection/cost-pools/close', 'POST', {}).then((r) => r.pool);
+
+/** Points the open pool back at a past batch, set scope and all. */
+export const reopenCostPool = (id: number) =>
+  send<{ pool: CostPool }>(`/api/v1/collection/cost-pools/${id}/reopen`, 'POST', {})
+    .then((r) => r.pool);
 
 export const fetchLocations = (signal?: AbortSignal) =>
   getJson<{ locations: StorageLocation[] }>('/api/v1/locations', signal).then((r) => r.locations);
@@ -1210,3 +1224,129 @@ export const acknowledgeAlert = (id: number) =>
   send<{ activeCount: number }>(`/api/v1/alerts/${id}/acknowledge`, 'POST', {});
 export const resolveAlert = (id: number) =>
   send<{ activeCount: number }>(`/api/v1/alerts/${id}/resolve`, 'POST', {});
+
+// -- events and the game log (Phase 11) --------------------------------------
+
+export type GameResult = 'win' | 'loss' | 'draw';
+
+/** Match wins/losses/draws — the "12–4" a deck or an event is quoted as. */
+export interface MatchRecord {
+  wins: number;
+  losses: number;
+  draws: number;
+  games: number;
+}
+
+export interface EventSummary {
+  id: number;
+  name: string;
+  formatCode: string | null;
+  formatName: string | null;
+  eventDate: string | null;
+  notes: string | null;
+  deckId: number | null;
+  deckName: string | null;
+  importBatchId: number | null;
+  /** The linked cost pool's lump sum, read back through the link. */
+  spendUsd: number | null;
+  poolCardCount: number;
+  deckCardCount: number;
+  record: MatchRecord;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventDetail extends EventSummary {
+  games: Game[];
+}
+
+export interface Game {
+  id: number;
+  eventId: number | null;
+  eventName: string | null;
+  deckId: number;
+  deckName: string;
+  formatCode: string | null;
+  playedAt: string;
+  opponents: string | null;
+  result: GameResult;
+  gamesWon: number | null;
+  gamesLost: number | null;
+  gamesDrawn: number | null;
+  roundNumber: number | null;
+  notes: string | null;
+}
+
+export interface EventFields {
+  name?: string;
+  formatCode?: string | null;
+  eventDate?: string | null;
+  deckId?: number | null;
+  importBatchId?: number | null;
+  notes?: string | null;
+}
+
+export interface GameFields {
+  deckId?: number;
+  eventId?: number | null;
+  playedAt?: string | null;
+  opponents?: string | null;
+  result?: GameResult;
+  gamesWon?: number | null;
+  gamesLost?: number | null;
+  gamesDrawn?: number | null;
+  roundNumber?: number | null;
+  notes?: string | null;
+}
+
+/** The record view's filters. Everything is optional and independent. */
+export interface GameQuery {
+  deckId?: number;
+  eventId?: number;
+  format?: string;
+  from?: string;
+  to?: string;
+}
+
+export const fetchEvents = (signal?: AbortSignal) =>
+  getJson<{ events: EventSummary[] }>('/api/v1/events', signal).then((r) => r.events);
+
+export const fetchEvent = (id: number, signal?: AbortSignal) =>
+  getJson<{ event: EventDetail }>(`/api/v1/events/${id}`, signal).then((r) => r.event);
+
+export const createEvent = (fields: EventFields & { name: string }) =>
+  send<{ event: EventDetail }>('/api/v1/events', 'POST', fields).then((r) => r.event);
+
+export const updateEvent = (id: number, changes: EventFields) =>
+  send<{ event: EventDetail }>(`/api/v1/events/${id}`, 'PATCH', changes).then((r) => r.event);
+
+export const deleteEvent = (id: number) => send<void>(`/api/v1/events/${id}`, 'DELETE');
+
+export const fetchGames = (query: GameQuery = {}, signal?: AbortSignal) => {
+  const params = new URLSearchParams();
+  if (query.deckId !== undefined) params.set('deckId', String(query.deckId));
+  if (query.eventId !== undefined) params.set('eventId', String(query.eventId));
+  if (query.format) params.set('format', query.format);
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  const suffix = params.toString() ? `?${params}` : '';
+  return getJson<{ games: Game[]; record: MatchRecord }>(`/api/v1/games${suffix}`, signal);
+};
+
+export const logGame = (fields: GameFields & { deckId: number; result: GameResult }) =>
+  send<{ game: Game }>('/api/v1/games', 'POST', fields).then((r) => r.game);
+
+export const updateGame = (id: number, changes: GameFields) =>
+  send<{ game: Game }>(`/api/v1/games/${id}`, 'PATCH', changes).then((r) => r.game);
+
+export const deleteGame = (id: number) => send<void>(`/api/v1/games/${id}`, 'DELETE');
+
+/** A deck's lifetime record and the games behind it, event or not. */
+export const fetchDeckGames = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ games: Game[]; record: MatchRecord }>(`/api/v1/decks/${deckId}/games`, signal);
+
+/** "12–4", or "12–4–1" when there are draws. An empty record reads as "0–0". */
+export function formatRecord(record: MatchRecord): string {
+  const base = `${record.wins}\u2013${record.losses}`;
+  return record.draws > 0 ? `${base}\u2013${record.draws}` : base;
+}

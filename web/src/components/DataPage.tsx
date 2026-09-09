@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   backupDownloadUrl, cancelImageDownload, collectionCsvUrl, fetchImageDownloadStatus,
-  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStorage, resolveCategories, restoreBackup,
+  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStorage, reopenCostPool,
+  resolveCategories, restoreBackup,
   setCacheLimit, startImageDownload, takeScheduledBackup, undoImportBatch, updateSettings,
   CacheTooSmallError,
   type AppSettings, type ImageDownloadScope, type ImageDownloadStatus, type ImportBatch,
@@ -43,6 +44,8 @@ export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSyn
   const [resolving, setResolving] = useState(false);
   const [download, setDownload] = useState<ImageDownloadStatus | null>(null);
   const [capGb, setCapGb] = useState('');
+  // The pool just reopened, so the row can say where to go next.
+  const [reopened, setReopened] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const loadStorage = useCallback(() => {
@@ -128,6 +131,29 @@ export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSyn
       const result = await undoImportBatch(batch.id);
       setBatches(result.batches);
       onCollectionChanged();
+    } catch (cause: any) {
+      setError(cause.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Points the open cost pool back at a past batch — a draft entered across two
+   * sittings, or a box you kept opening the next evening. Cards added from
+   * Collection afterwards join the same batch, and its total re-divides across
+   * the combined set.
+   */
+  const reopen = async (batch: ImportBatch) => {
+    const when = formatWhen(batch.importedAt);
+    const detail = `opened ${when} with ${batch.cardsRemaining} card`
+      + `${batch.cardsRemaining === 1 ? '' : 's'} for $${(batch.totalCostUsd ?? 0).toFixed(2)}`;
+    if (!confirm(`Reopen “${batch.fileName ?? 'this pool'}” — ${detail}. Add more to it now?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await reopenCostPool(batch.id);
+      setReopened(batch.id);
     } catch (cause: any) {
       setError(cause.message);
     } finally {
@@ -500,11 +526,26 @@ export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSyn
                       </>
                     )}
                   </span>
-                  {batch.cardsRemaining > 0 ? (
-                    <button className="btn secondary small" onClick={() => undo(batch)} disabled={busy}>
-                      Undo ({batch.cardsRemaining})
-                    </button>
-                  ) : <span className="dim">undone</span>}
+                  {/* One cell, so the row keeps its four columns whether or
+                      not this batch is a reopenable cost pool. */}
+                  <span className="backup-actions">
+                    {/* Only a cost pool can be reopened; an ordinary CSV import
+                        has no total to re-divide across new cards. */}
+                    {batch.totalCostUsd != null && (
+                      reopened === batch.id
+                        ? <span className="dim">reopened — add cards from Collection</span>
+                        : (
+                          <button className="btn secondary small" onClick={() => reopen(batch)} disabled={busy}>
+                            Reopen
+                          </button>
+                        )
+                    )}
+                    {batch.cardsRemaining > 0 ? (
+                      <button className="btn secondary small" onClick={() => undo(batch)} disabled={busy}>
+                        Undo ({batch.cardsRemaining})
+                      </button>
+                    ) : <span className="dim">undone</span>}
+                  </span>
                 </div>
               ))}
             </div>

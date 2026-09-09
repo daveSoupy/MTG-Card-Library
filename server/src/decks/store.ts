@@ -6,8 +6,10 @@ import type { ManaBase } from './manabase.ts';
 import { planBasics, type BasicLand } from './lands.ts';
 import { loadTemplate, computeTemplateProgress, type TemplateProgress } from './templates.ts';
 import { getSetting } from '../db/index.ts';
+import { CollectionStore } from '../collection/store.ts';
 import { hasCardCategories } from '../sync/categories.ts';
 import { normalizeCategoryInput, parseCategoryList } from './categories.ts';
+import { isLimitedFormat } from '../model/mtg.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -37,6 +39,13 @@ export interface DeckSummary extends Deck {
   coverPrintingId: string | null;
 }
 
+/** The deck fields the limited-format acquisition path reads. */
+interface LimitedDeckRow {
+  id: number;
+  format_code: string | null;
+  home_location_id: number | null;
+}
+
 /**
  * Reads and writes decks.
  *
@@ -46,6 +55,8 @@ export interface DeckSummary extends Deck {
  */
 export class DeckStore {
   private readonly db: Database.Database;
+  /** Built on first use by the limited-deck path — see collection(). */
+  private collectionStore: CollectionStore | null = null;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -158,6 +169,11 @@ export class DeckStore {
   }
 
   private cardsFor(deckId: number, formatCode: string | null): DeckCard[] {
+    // Draft and sealed have no published legalities, so the join is deliberately
+    // given no format to match: every card comes back with a NULL legality
+    // rather than a missing row that later reads as "not legal here".
+    const legalityFormat = isLimitedFormat(formatCode) ? null : formatCode;
+
     // availableQuantity deliberately excludes this deck's own claim, so the
     // number reads as "copies other decks are not already using".
     const rows = this.db.prepare(`
@@ -203,7 +219,7 @@ export class DeckStore {
                  WHEN 'background' THEN 1
                  WHEN 'signature_spell' THEN 2
                  ELSE 3 END,
-               o.cmc, o.name COLLATE NOCASE`).all(formatCode, deckId, deckId) as any[];
+               o.cmc, o.name COLLATE NOCASE`).all(legalityFormat, deckId, deckId) as any[];
 
     const categories = this.categoriesByOracle(rows.map((r) => r.oracle_id));
 
@@ -446,10 +462,17 @@ export class DeckStore {
       quantity?: number;
       fromCollection?: number;
       commanderRole?: CommanderRole | null;
+      /**
+       * The exact printing being added, when the caller knows which one it is.
+       * Pins a new slot's art, and is the printing acquired by a limited deck's
+       * add below. Falls back to the card's default printing.
+       */
+      printingId?: string | null;
     } = {},
   ): void {
-    const deck = this.db.prepare('SELECT id, format_code FROM decks WHERE id = ?')
-      .get(deckId) as { id: number; format_code: string | null } | undefined;
+    const deck = this.db.prepare(
+      'SELECT id, format_code, home_location_id FROM decks WHERE id = ?',
+    ).get(deckId) as LimitedDeckRow | undefined;
     if (!deck) throw new DeckNotFoundError(deckId);
 
     const quantity = Math.max(1, options.quantity ?? 1);
@@ -467,6 +490,16 @@ export class DeckStore {
         'SELECT id, quantity, quantity_from_collection FROM deck_cards WHERE deck_id = ? AND oracle_id = ? AND board = ?',
       ).get(deckId, oracleId, board) as any;
 
+      // A limited deck is built out of cards you physically opened, so adding
+      // one is an acquisition as well as a slot: the copies enter the
+      // collection first, and the allocation below then finds them free and
+      // claims them. Skipped when the caller states the allocation itself —
+      // an undo or a snapshot restore is putting back a slot whose copies were
+      // acquired once already, and must not buy them twice.
+      if (options.fromCollection === undefined && isLimitedFormat(deck.format_code)) {
+        this.acquireForLimitedDeck(deck, oracleId, quantity, options.printingId ?? null);
+      }
+
       const free = this.availableFor(oracleId, deckId);
       const alreadyClaimed = existing?.quantity_from_collection ?? 0;
       const claimable = Math.max(0, Math.min(quantity, free - alreadyClaimed));
@@ -481,13 +514,92 @@ export class DeckStore {
       } else {
         this.db.prepare(`
           INSERT INTO deck_cards (deck_id, oracle_id, board, quantity,
-                                  quantity_from_collection, commander_role)
-          VALUES (?,?,?,?,?,?)`)
+                                  quantity_from_collection, commander_role,
+                                  preferred_printing_id)
+          VALUES (?,?,?,?,?,?,?)`)
           .run(deckId, oracleId, board, quantity, Math.min(quantity, fromCollection),
-               board === 'command' ? (commanderRole ?? 'commander') : null);
+               board === 'command' ? (commanderRole ?? 'commander') : null,
+               this.printingFor(oracleId, options.printingId ?? null));
       }
       this.touch(deckId);
     })();
+  }
+
+  /**
+   * Puts the copies a limited deck just claimed into the collection.
+   *
+   * Everything about the lot is the ordinary add-to-collection path — the same
+   * merge rules, and the same cost pool re-split — so a draft entered through
+   * the deck builder costs what a draft entered through Collection costs.
+   *
+   * Basic lands are the exception: in paper limited they come from the venue's
+   * land station rather than out of the packs, so a Mountain in a draft deck is
+   * a deck slot and nothing more. Non-basic lands are ordinary cards here.
+   */
+  private acquireForLimitedDeck(
+    deck: LimitedDeckRow,
+    oracleId: string,
+    quantity: number,
+    printingId: string | null,
+  ): void {
+    const card = this.db.prepare(
+      'SELECT is_basic_land, default_printing_id FROM oracle_cards WHERE oracle_id = ?',
+    ).get(oracleId) as { is_basic_land: number; default_printing_id: string | null } | undefined;
+    if (!card || card.is_basic_land) return;
+
+    const printing = this.printingFor(oracleId, printingId) ?? card.default_printing_id;
+    const locationId = this.acquisitionLocation(deck.home_location_id);
+    // Nothing to file the copies against — a card whose printings have not been
+    // synced, or a database with no storage locations at all. The slot is still
+    // worth adding, so this degrades to today's behaviour rather than failing.
+    if (!printing || locationId == null) return;
+
+    const collection = this.collection();
+    // A draft's cost pool, when one is open: the lot joins the batch and the
+    // pool re-divides its total across everything it now holds.
+    const pool = collection.currentCostPool();
+    collection.addLot({
+      printingId: printing,
+      locationId,
+      quantity,
+      acquisitionKind: 'pull',
+      importBatchId: pool?.id ?? null,
+      costMethod: pool ? 'box' : 'unknown',
+    });
+  }
+
+  /** The given printing when it really is one of this card's, otherwise null. */
+  private printingFor(oracleId: string, printingId: string | null): string | null {
+    if (!printingId) return null;
+    const row = this.db.prepare(
+      'SELECT id FROM card_printings WHERE id = ? AND oracle_id = ?',
+    ).get(printingId, oracleId) as { id: string } | undefined;
+    return row?.id ?? null;
+  }
+
+  /** Where a limited deck's cards land: its own home, else the default bucket. */
+  private acquisitionLocation(homeLocationId: number | null): number | null {
+    if (homeLocationId != null) {
+      const home = this.db.prepare('SELECT id FROM storage_locations WHERE id = ?')
+        .get(homeLocationId) as { id: number } | undefined;
+      if (home) return home.id;
+    }
+    const fallback = this.db.prepare(
+      'SELECT id FROM storage_locations ORDER BY is_default DESC, sort_order, id LIMIT 1',
+    ).get() as { id: number } | undefined;
+    return fallback?.id ?? null;
+  }
+
+  /**
+   * The collection store, built on demand.
+   *
+   * Only the limited-deck path needs it, and building it here rather than
+   * taking it as a constructor argument keeps every existing `new DeckStore(db)`
+   * — routes and tests alike — working unchanged.
+   */
+  private collection(): CollectionStore {
+    this.collectionStore ??= new CollectionStore(this.db);
+    return this.collectionStore;
   }
 
   /**

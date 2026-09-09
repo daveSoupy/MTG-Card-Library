@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 15;
+PRAGMA user_version = 16;
 
 
 -- =====================================================================
@@ -984,7 +984,62 @@ CREATE INDEX idx_alerts_active ON alerts(state, created_at DESC);
 
 
 -- =====================================================================
--- SECTION 9 — PHASE 7 (OCR) — optional stretch goal, tables cost nothing
+-- SECTION 9 — EVENTS & GAMES (Phase 11)
+--
+-- An event is one occasion — a draft night, a prerelease, a sealed pool —
+-- and exists to tie three things that already exist into one record: the
+-- cost pool that bought the cards (import_batches), the deck built from
+-- them (decks), and the games played with it (games). Nothing is copied
+-- onto the event row: spend and card list are read back through the links,
+-- so editing the pool or the deck can never leave the event stale.
+--
+-- Both links are ON DELETE SET NULL rather than CASCADE: deleting a deck
+-- detaches it, and the night it was played still happened.
+-- =====================================================================
+
+CREATE TABLE events (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT    NOT NULL,        -- freeform: 'FDN Draft Night'
+    format_code     TEXT    REFERENCES formats(code) ON DELETE SET NULL,
+    event_date      TEXT,                    -- 'YYYY-MM-DD'
+    deck_id         INTEGER REFERENCES decks(id) ON DELETE SET NULL,
+    import_batch_id INTEGER REFERENCES import_batches(id) ON DELETE SET NULL,
+    notes           TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+CREATE INDEX idx_events_date  ON events(event_date DESC, id DESC);
+CREATE INDEX idx_events_deck  ON events(deck_id);
+CREATE INDEX idx_events_batch ON events(import_batch_id);
+
+-- The match log. One row per game, from the tracked deck's perspective —
+-- never one per opponent, which is why `opponents` is a single freeform
+-- field holding a comma-separated pod. Same convention as trade
+-- counterparties: no accounts, no second entity.
+--
+-- Most games belong to no event at all (a constructed game at the kitchen
+-- table), so event_id is nullable; deck_id is not, because a game with no
+-- deck is not a record of anything. games_won/lost/drawn are the optional
+-- Bo3 breakdown beneath `result`, which is always the match outcome.
+CREATE TABLE games (
+    id           INTEGER PRIMARY KEY,
+    event_id     INTEGER REFERENCES events(id) ON DELETE SET NULL,
+    deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    played_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    opponents    TEXT,
+    result       TEXT    NOT NULL CHECK (result IN ('win','loss','draw')),
+    games_won    INTEGER,
+    games_lost   INTEGER,
+    games_drawn  INTEGER,
+    round_number INTEGER,
+    notes        TEXT
+);
+CREATE INDEX idx_games_deck  ON games(deck_id, played_at DESC);
+CREATE INDEX idx_games_event ON games(event_id, round_number);
+
+
+-- =====================================================================
+-- SECTION 10 — PHASE 16 (OCR) — optional stretch goal, tables cost nothing
 -- =====================================================================
 
 -- The batch-scanning session's preset attributes (foil, frame/border,
@@ -1022,7 +1077,7 @@ CREATE INDEX idx_ocr_text ON ocr_corrections(ocr_text_normalized);
 
 
 -- =====================================================================
--- SECTION 10 — DERIVED VIEWS
+-- SECTION 11 — DERIVED VIEWS
 --
 -- Allocation, availability, shopping lists and "where do my copies live"
 -- are all computed, never stored. That is what makes CLAUDE.md's
@@ -1319,7 +1374,7 @@ LEFT JOIN v_card_availability av ON av.oracle_id = p.oracle_id;
 
 
 -- =====================================================================
--- SECTION 11 — BOOTSTRAP SEED DATA
+-- SECTION 12 — BOOTSTRAP SEED DATA
 --
 -- Not synced from Scryfall. The format rows are the Phase 2/3 deck
 -- validator's rule table; keys match Scryfall's `legalities` keys exactly
@@ -1350,7 +1405,13 @@ INSERT INTO formats
     ('premodern',       'Premodern',          60, NULL, 4, 0, 15, 0, 0, 0, 190),
     ('oldschool',       'Old School',         60, NULL, 4, 0, 15, 0, 0, 0, 200),
     ('penny',           'Penny Dreadful',     60, NULL, 4, 0, 15, 0, 0, 0, 210),
-    ('future',          'Future Standard',    60, NULL, 4, 0, 15, 0, 0, 0, 220);
+    ('future',          'Future Standard',    60, NULL, 4, 0, 15, 0, 0, 0, 220),
+    -- Limited. Scryfall publishes no legalities for these two, so the
+    -- validator skips the legality check for them entirely — see
+    -- isLimitedFormat() in src/model/mtg.ts. max_copies is 99 rather than
+    -- 4 because limited has no copy limit at all: you play what you opened.
+    ('draft',           'Draft',              40, NULL, 99, 0, NULL, 0, 0, 1, 230),
+    ('sealed',          'Sealed',             40, NULL, 99, 0, NULL, 0, 0, 1, 240);
 
 -- Formats whose command zone takes something other than a legendary creature.
 UPDATE formats SET commander_kind = 'planeswalker'              WHERE code = 'oathbreaker';

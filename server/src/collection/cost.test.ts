@@ -169,3 +169,36 @@ test('updateCostPoolTotal re-divides across the copies held', () => {
   assert.equal(cost, 10);
   db.close();
 });
+
+test('reopening a closed pool restores both its id and its set scope', () => {
+  const { db, store, loc } = fixture();
+  const pool = store.openCostPool({ totalCostUsd: 12, label: 'Draft', setCode: 'tst' });
+  store.addLot({ printingId: 'priced', locationId: loc, quantity: 2, costMethod: 'box', importBatchId: pool.id });
+  store.closeCostPool();
+  assert.equal(store.currentCostPool(), null);
+
+  const reopened = store.reopenCostPool(pool.id);
+  assert.equal(reopened?.id, pool.id);
+  assert.equal(reopened?.setCode, 'tst', 'the set filter the first sitting was working through');
+  assert.equal(store.currentCostPool()?.setCode, 'tst');
+
+  // A card added straight after joins the original batch, and the total
+  // re-divides across both sittings' copies.
+  const open = store.currentCostPool()!;
+  store.addLot({ printingId: 'unpriced', locationId: loc, quantity: 1, costMethod: 'box', importBatchId: open.id });
+  assert.equal(store.currentCostPool()?.cardCount, 3);
+  assert.equal(store.currentCostPool()?.perCopy, 4, '12 / 3 copies across both sittings');
+  const costs = (db.prepare(
+    'SELECT DISTINCT acquired_unit_cost AS c FROM collection_items WHERE import_batch_id = ?',
+  ).all(pool.id) as Array<{ c: number }>).map((r) => r.c);
+  assert.deepEqual(costs, [4], 'every copy in the batch, whenever added, is re-split');
+  db.close();
+});
+
+test('an ordinary import batch is not reopenable as a cost pool', () => {
+  const { db, store } = fixture();
+  const batch = db.prepare(`INSERT INTO import_batches (source) VALUES ('csv')`).run();
+  assert.equal(store.reopenCostPool(Number(batch.lastInsertRowid)), null);
+  assert.equal(store.currentCostPool(), null, 'and nothing was opened');
+  db.close();
+});

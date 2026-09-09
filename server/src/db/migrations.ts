@@ -413,4 +413,50 @@ export const MIGRATIONS: Migration[] = [
            OR oracle_text_all LIKE '%deck can have only %card named%');
     `,
   },
+  {
+    version: 16,
+    description: 'Events, the game log, and the two limited formats (Phase 11)',
+    sql: `
+      CREATE TABLE IF NOT EXISTS events (
+          id              INTEGER PRIMARY KEY,
+          name            TEXT    NOT NULL,
+          format_code     TEXT    REFERENCES formats(code) ON DELETE SET NULL,
+          event_date      TEXT,
+          deck_id         INTEGER REFERENCES decks(id) ON DELETE SET NULL,
+          import_batch_id INTEGER REFERENCES import_batches(id) ON DELETE SET NULL,
+          notes           TEXT,
+          created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+          updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_events_date  ON events(event_date DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_events_deck  ON events(deck_id);
+      CREATE INDEX IF NOT EXISTS idx_events_batch ON events(import_batch_id);
+
+      CREATE TABLE IF NOT EXISTS games (
+          id           INTEGER PRIMARY KEY,
+          event_id     INTEGER REFERENCES events(id) ON DELETE SET NULL,
+          deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+          played_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+          opponents    TEXT,
+          result       TEXT    NOT NULL CHECK (result IN ('win','loss','draw')),
+          games_won    INTEGER,
+          games_lost   INTEGER,
+          games_drawn  INTEGER,
+          round_number INTEGER,
+          notes        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_games_deck  ON games(deck_id, played_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_games_event ON games(event_id, round_number);
+
+      -- Draft and sealed as data, the same as every other format. Scryfall
+      -- publishes no legalities for either, so the validator skips the check
+      -- for them rather than reading every card as illegal; max_copies is 99
+      -- because limited has no copy limit — you play what you opened.
+      INSERT OR IGNORE INTO formats
+          (code, display_name, min_deck_size, exact_deck_size, max_copies, is_singleton,
+           sideboard_size, requires_commander, enforces_color_id, is_active, sort_order) VALUES
+          ('draft',  'Draft',  40, NULL, 99, 0, NULL, 0, 0, 1, 230),
+          ('sealed', 'Sealed', 40, NULL, 99, 0, NULL, 0, 0, 1, 240);
+    `,
+  },
 ];

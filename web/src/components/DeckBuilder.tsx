@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addRecommendedLands, fetchDeck, fetchSettings, fetchTemplates, imageUrl, resolveCategories,
-  searchCards, updateDeck,
+  addRecommendedLands, fetchDeck, fetchDeckGames, fetchSettings, fetchTemplates, formatRecord,
+  imageUrl, resolveCategories, searchCards, updateDeck,
   type AppSettings, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
+  type MatchRecord,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
 import { DeckPanes } from './DeckPanes.tsx';
@@ -11,6 +12,7 @@ import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
+import { DeckGamesPanel } from './DeckGamesPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
 import { UndoRedo } from './UndoRedo.tsx';
 import {
@@ -63,6 +65,10 @@ export function DeckBuilder({
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [history, setHistory] = useState(false);
+  const [games, setGames] = useState(false);
+  // The deck's lifetime record, shown on the chip beside Playtest. Kept here
+  // rather than in the panel so it is visible without opening anything.
+  const [record, setRecord] = useState<MatchRecord | null>(null);
   const [coverNote, setCoverNote] = useState<string | null>(null);
 
   // Mirrors the two deck-builder breakpoints in styles.css: below 860px the
@@ -98,6 +104,11 @@ export function DeckBuilder({
   const requiresCommander = Boolean(
     formats.find((f) => f.code === deck?.formatCode)?.requiresCommander,
   );
+  // Draft and sealed. The server decides which formats these are and says so on
+  // the format record, so the client keeps no list of its own.
+  const limitedFormat = Boolean(
+    formats.find((f) => f.code === deck?.formatCode)?.isLimited,
+  );
   // Set by clicking the empty command slot: narrows the picker to cards that
   // can actually lead this deck, whatever "commander" means in this format.
   const [pickingCommander, setPickingCommander] = useState(false);
@@ -123,6 +134,14 @@ export function DeckBuilder({
   }, [deckId]);
 
   useEffect(load, [load]);
+
+  // The record is its own fetch: it changes when a game is logged, not when a
+  // card moves, so it does not belong on the deck payload every edit reloads.
+  const loadRecord = useCallback(() => {
+    fetchDeckGames(deckId).then((r) => setRecord(r.record)).catch(() => undefined);
+  }, [deckId]);
+
+  useEffect(loadRecord, [loadRecord]);
 
   // Global on/off (settings.showDeckTemplates) alongside the per-deck picker;
   // the template list is small and rarely changes, so one fetch per visit is
@@ -337,6 +356,14 @@ export function DeckBuilder({
         <button className="btn secondary" onClick={() => setPlaytesting(true)}>
           Playtest
         </button>
+        <button
+          className="btn secondary"
+          onClick={() => setGames(true)}
+          title="Games played with this deck, and its lifetime record"
+        >
+          Games
+          {record && record.games > 0 && <span className="record-chip">{formatRecord(record)}</span>}
+        </button>
         <button className="btn secondary" onClick={() => setShopping(true)}>
           Shopping list
           {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
@@ -390,6 +417,13 @@ export function DeckBuilder({
         />
       )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
+      {games && (
+        <DeckGamesPanel
+          deckId={deck.id}
+          onChanged={loadRecord}
+          onClose={() => setGames(false)}
+        />
+      )}
       {artFor && (
         <DeckArtDialog
           deckId={deck.id}
@@ -404,6 +438,7 @@ export function DeckBuilder({
         apply={apply}
         problemFor={problemFor}
         requiresCommander={requiresCommander}
+        limitedFormat={limitedFormat}
         identity={identity}
         cardSort={cardSort}
         setCardSort={setCardSort}

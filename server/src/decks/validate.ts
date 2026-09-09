@@ -1,4 +1,4 @@
-import { colorsFromMask, normalizeName, UNLIMITED_COPIES } from '../model/mtg.ts';
+import { colorsFromMask, isLimitedFormat, normalizeName, UNLIMITED_COPIES } from '../model/mtg.ts';
 import type { DeckCard, DeckIssue, DeckValidation, FormatRules } from './types.ts';
 
 /**
@@ -196,7 +196,18 @@ function checkCopyLimits(issues: DeckIssue[], rules: FormatRules, cards: DeckCar
   }
 }
 
+/**
+ * Banned and not-legal cards, read from the per-format legality the deck read
+ * already joined on.
+ *
+ * Limited is the exception and has to be skipped outright: Scryfall publishes
+ * no legalities for draft or sealed, so every card in a draft deck carries no
+ * legality row — and the moment anything starts treating "no row" as "not
+ * legal", a perfectly ordinary draft deck reads as 40 illegal cards.
+ */
 function checkLegality(issues: DeckIssue[], rules: FormatRules, cards: DeckCard[]): void {
+  if (isLimitedFormat(rules.code)) return;
+
   const seen = new Set<string>();
   for (const card of cards) {
     if (card.board === 'maybe' || seen.has(card.oracleId)) continue;

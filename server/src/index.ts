@@ -25,12 +25,14 @@ import { registerTradeRoutes } from './routes/trades.ts';
 import { registerWantRoutes } from './routes/wants.ts';
 import { registerTradeListRoutes } from './routes/tradeLists.ts';
 import { registerAlertRoutes } from './routes/alerts.ts';
+import { registerEventRoutes } from './routes/events.ts';
 import { errorHandler } from './routes/errorHandler.ts';
 import { ImageDownloadManager } from './images/downloadManager.ts';
 import { AlertStore } from './alerts/store.ts';
 import { TradeStore } from './trades/store.ts';
 import { WantStore } from './collection/wants.ts';
 import { TradeListStore } from './tradelists/store.ts';
+import { EventStore } from './events/store.ts';
 import { startBackupSchedule } from './porting/schedule.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +48,7 @@ const alerts = new AlertStore(library.db);
 const trades = new TradeStore(library.db, collection, alerts);
 const wants = new WantStore(library.db);
 const tradeLists = new TradeListStore(library.db);
+const events = new EventStore(library.db);
 const sync = new SyncManager(dataDir);
 const downloads = new ImageDownloadManager(library.db, library.imageDir);
 const backups = startBackupSchedule(library.db, dataDir);
@@ -72,6 +75,7 @@ registerTradeRoutes(app, trades);
 registerWantRoutes(app, wants);
 registerTradeListRoutes(app, tradeLists);
 registerAlertRoutes(app, alerts);
+registerEventRoutes(app, events);
 
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 

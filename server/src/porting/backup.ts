@@ -30,6 +30,9 @@ export const USER_TABLES = [
   'deck_tags',
   'deck_snapshots',
   'deck_snapshot_cards',
+  // After decks: an event links to one, and a game requires one.
+  'events',
+  'games',
   'trades',
   'trade_items',
   'want_lists',

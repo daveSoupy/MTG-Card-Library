@@ -264,6 +264,21 @@ export function registerCollectionRoutes(
     return { pool: null };
   });
 
+  // Points the open pool back at a past batch — a draft entered across two
+  // sittings. Cards added afterwards carry the same batch id, and bumping the
+  // total re-divides it across the combined set.
+  app.post<{ Params: { id: number } }>(
+    '/api/v1/collection/cost-pools/:id/reopen',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const pool = collection.reopenCostPool(request.params.id);
+      if (!pool) {
+        return reply.status(404).send({ error: 'That import batch is not a cost pool.' });
+      }
+      return { pool };
+    },
+  );
+
   app.patch<{ Params: { id: number }; Body: LotBody & { quantity?: number; locationId?: number } }>(
     '/api/v1/collection/items/:id',
     {
