@@ -435,6 +435,7 @@ export default function App() {
         <DeckBuilder
           deckId={view.id}
           formats={formats}
+          categoryLabels={status?.categoryLabels ?? {}}
           onBack={() => setView({ name: 'decks' })}
           {...densityControlsFor('deck')}
         />

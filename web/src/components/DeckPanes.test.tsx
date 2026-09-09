@@ -68,6 +68,7 @@ describe('DeckPanes', () => {
         onFilterShortfall={vi.fn()}
         showTemplates={false}
         onResolveCategories={vi.fn()}
+        categoryLabels={{}}
       />,
     );
 
@@ -97,6 +98,7 @@ describe('DeckPanes', () => {
         onFilterShortfall={vi.fn()}
         showTemplates={false}
         onResolveCategories={vi.fn()}
+        categoryLabels={{}}
         pickerFloating
         onClosePicker={onClosePicker}
       />,
@@ -136,6 +138,7 @@ describe('DeckPanes', () => {
         onFilterShortfall={vi.fn()}
         showTemplates={false}
         onResolveCategories={vi.fn()}
+        categoryLabels={{}}
         paneWidths={{ picker: 320, stats: 280 }}
         onPaneResize={vi.fn()}
         onPaneCommit={onPaneCommit}

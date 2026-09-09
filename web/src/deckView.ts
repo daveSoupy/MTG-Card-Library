@@ -18,6 +18,8 @@ import type { DeckCard } from './api.ts';
 
 export type DeckSort =
   | 'type' | 'type-alpha' | 'mana' | 'color' | 'name' | 'price' | 'rarity'
+  /** 'template' is the old name for 'category' — kept so a stored preference
+   *  from before the two merged still resolves instead of silently resetting. */
   | 'category' | 'template';
 
 export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
@@ -29,20 +31,7 @@ export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
   { value: 'price', label: 'Price' },
   { value: 'rarity', label: 'Rarity' },
   { value: 'category', label: 'Category' },
-  { value: 'template', label: 'Template' },
 ];
-
-/** Mirrors the server's sync/categories.ts CATEGORY_LABELS for display only. */
-const TAG_CATEGORY_LABEL: Record<string, string> = {
-  removal: 'Removal',
-  draw: 'Card draw',
-  ramp: 'Ramp',
-  recursion: 'Recursion',
-  protection: 'Protection',
-  tutor: 'Tutor',
-  sweeper: 'Board wipes',
-  counterspell: 'Counterspell',
-};
 
 /**
  * The shape every grouping here needs.
@@ -267,36 +256,60 @@ const SORT_GROUPING: Partial<Record<DeckSort, GroupBy>> = {
   price: 'none',
 };
 
+/** What the deck's own category grouping needs to read well. */
+export interface DeckGroupOptions {
+  /** Server-owned category labels, so 'sweeper' heads a group as "Board wipes". */
+  labels?: Record<string, string>;
+  /** The active template's categories in its own order, so a template-shaped
+   *  deck groups the way the template panel lists it rather than alphabetically. */
+  templateCategories?: string[];
+}
+
+/**
+ * The one bucket a card belongs in when the decklist is grouped by category.
+ *
+ * A card can match several categories at once — the Template panel deliberately
+ * counts every match — but a heading has to partition the deck or its counts
+ * mean nothing. So exactly one wins, in this order: the first category the
+ * manual override names, then the card's tag categories preferring one the
+ * template actually targets, then the land/creature split, then Uncategorised.
+ */
+function categoryBucket(card: DeckCard, options: DeckGroupOptions): Bucket {
+  const labelFor = (key: string) => options.labels?.[key] ?? key;
+
+  // The stored value is a comma-separated list the server has already
+  // normalised, so reading the first entry is all that is needed here — the
+  // parsing rules themselves stay server-side, in decks/categories.ts.
+  const manual = card.category?.split(',')[0]?.trim();
+  if (manual) return { key: manual.toLowerCase(), label: manual, rank: 0 };
+
+  const tags = [...card.categories].sort();
+  const targeted = (options.templateCategories ?? []).find((c) => tags.includes(c));
+  const tag = targeted ?? tags[0];
+  if (tag) return { key: tag, label: labelFor(tag), rank: 1 };
+
+  const type = card.typeLine.toLowerCase();
+  if (type.includes('land')) return { key: 'lands', label: 'Lands', rank: 2 };
+  if (type.includes('creature')) return { key: 'creatures', label: 'Creatures', rank: 3 };
+  return { key: 'zzz-uncategorised', label: 'Uncategorised', rank: 4 };
+}
+
 /** Groups a deck's cards for display. Returns groups in their display order. */
-export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
+export function groupCards(
+  cards: DeckCard[],
+  sort: DeckSort,
+  options: DeckGroupOptions = {},
+): CardGroup[] {
   const deckBucket = (card: DeckCard): Bucket => {
     switch (sort) {
-      case 'category': {
-        // Uncategorised cards collect at the end rather than under a blank
-        // heading, so the grouping stays readable while a deck is part-tagged.
-        const category = card.category?.trim();
-        return category
-          ? { key: category, label: category, rank: 0 }
-          : { key: '~uncategorised', label: 'Uncategorised', rank: 1 };
-      }
-      case 'template': {
-        // Presentation grouping only — a card can match several template
-        // categories at once (see the stats panel's Template section, which
-        // counts every match), but a decklist heading needs exactly one
-        // bucket per card. Priority: a manual category always wins; failing
-        // that, the alphabetically-first tag category; failing that, the
-        // land/creature split; failing that, Uncategorised.
-        const manual = card.category?.trim();
-        if (manual) return { key: manual.toLowerCase(), label: manual, rank: 0 };
-        const tagCategory = [...card.categories].sort()[0];
-        if (tagCategory) {
-          return { key: tagCategory, label: TAG_CATEGORY_LABEL[tagCategory] ?? tagCategory, rank: 1 };
-        }
-        const type = card.typeLine.toLowerCase();
-        if (type.includes('land')) return { key: 'lands', label: 'Lands', rank: 2 };
-        if (type.includes('creature')) return { key: 'creatures', label: 'Creatures', rank: 3 };
-        return { key: 'zzz-uncategorised', label: 'Uncategorised', rank: 4 };
-      }
+      // 'template' was a second grouping that differed from 'category' only in
+      // falling back to Scryfall's tags. Since 'category' looked at the manual
+      // value alone, a fully tag-resolved deck grouped entirely as
+      // "Uncategorised" — so the two merged rather than shipping a menu with a
+      // right answer and a wrong one.
+      case 'category':
+      case 'template':
+        return categoryBucket(card, options);
       default:
         return bucketFor(card, SORT_GROUPING[sort] ?? 'none');
     }
@@ -342,6 +355,10 @@ const SORT_KEY = 'mtg.deckSort';
 export function loadSortPreference(): DeckSort {
   try {
     const sort = localStorage.getItem(SORT_KEY);
+    // 'template' was folded into 'category'; resolve rather than reset, so a
+    // preference saved before the merge is honoured instead of silently
+    // reverting to Card type.
+    if (sort === 'template') return 'category';
     return DECK_SORTS.some((s) => s.value === sort) ? (sort as DeckSort) : 'type';
   } catch {
     // Private browsing, or storage disabled — the default is fine.

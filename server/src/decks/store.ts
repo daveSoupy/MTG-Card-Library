@@ -7,6 +7,7 @@ import { planBasics, type BasicLand } from './lands.ts';
 import { loadTemplate, computeTemplateProgress, type TemplateProgress } from './templates.ts';
 import { getSetting } from '../db/index.ts';
 import { hasCardCategories } from '../sync/categories.ts';
+import { CANONICAL_CATEGORIES, normalizeCategoryInput, parseCategoryList } from './categories.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -606,11 +607,14 @@ export class DeckStore {
   }
 
   /** Moves a slot between main, sideboard, command zone and maybeboard. */
-  /** A user-named section within the deck: Ramp, Removal, Draw. */
+  /**
+   * A user-named section within the deck: Ramp, Removal, Draw — or several at
+   * once, comma-separated, for a card doing two jobs. Normalised on the way in
+   * so the stored spelling is canonical.
+   */
   setCategory(deckId: number, cardId: number, category: string | null): void {
-    const trimmed = category?.trim();
     this.db.prepare('UPDATE deck_cards SET category = ? WHERE id = ? AND deck_id = ?')
-      .run(trimmed ? trimmed : null, cardId, deckId);
+      .run(normalizeCategoryInput(category), cardId, deckId);
     this.touch(deckId);
   }
 
@@ -624,13 +628,24 @@ export class DeckStore {
     this.touch(deckId);
   }
 
-  /** Every category used in a deck, for offering them again. */
+  /**
+   * Every category on offer for a deck: the canonical eight that templates
+   * actually count, plus whatever this deck already uses. Stored values are
+   * lists, so they are split rather than offered whole — "ramp, draw" is two
+   * suggestions, not one unusable third.
+   */
   categories(deckId: number): string[] {
-    return (this.db.prepare(`
-      SELECT DISTINCT category FROM deck_cards
-      WHERE deck_id = ? AND category IS NOT NULL AND category <> ''
-      ORDER BY category COLLATE NOCASE`).all(deckId) as Array<{ category: string }>)
-      .map((row) => row.category);
+    const stored = (this.db.prepare(`
+      SELECT category FROM deck_cards
+      WHERE deck_id = ? AND category IS NOT NULL AND category <> ''`)
+      .pluck().all(deckId) as string[]).flatMap(parseCategoryList);
+
+    const seen = new Map<string, string>();
+    for (const value of [...CANONICAL_CATEGORIES, ...stored]) {
+      const key = value.toLowerCase();
+      if (!seen.has(key)) seen.set(key, value);
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   }
 
   setBoard(deckId: number, cardId: number, board: Board, commanderRole?: CommanderRole | null): void {

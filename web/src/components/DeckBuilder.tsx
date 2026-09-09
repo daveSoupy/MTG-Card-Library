@@ -25,12 +25,15 @@ import { type Density } from '../density.ts';
 export function DeckBuilder({
   deckId,
   formats,
+  categoryLabels,
   onBack,
   density,
   onDensity,
 }: {
   deckId: number;
   formats: FormatRecord[];
+  /** From /status — 'sweeper' heads a group as "Board wipes". */
+  categoryLabels: Record<string, string>;
   onBack: () => void;
   /** The deck builder's own density — the one page that offers Lined-up. */
   density: Density;
@@ -403,6 +406,7 @@ export function DeckBuilder({
         identity={identity}
         cardSort={cardSort}
         setCardSort={setCardSort}
+        categoryLabels={categoryLabels}
         density={density}
         onDensity={onDensity}
         listRef={listRef}

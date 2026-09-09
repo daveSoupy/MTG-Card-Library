@@ -83,6 +83,33 @@ test('computeTemplateProgress: a category at or above its ideal is reported as m
   }
 });
 
+test('computeTemplateProgress: an override naming several categories counts toward each', () => {
+  // A card that really is both ramp and card draw should not have to pick one
+  // row to satisfy.
+  const template = loadTemplateFixture([
+    { category: 'ramp', ideal: 10 },
+    { category: 'draw', ideal: 10 },
+    { category: 'removal', ideal: 5 },
+  ]);
+  const cards = [card({ id: 1, quantity: 2, category: 'ramp, draw', categories: ['removal'] })];
+  const progress = computeTemplateProgress(cards, template);
+
+  const current = Object.fromEntries(progress.rows.map((r) => [r.category, r.current]));
+  assert.equal(current.ramp, 2);
+  assert.equal(current.draw, 2);
+  // Still replaces the tags rather than adding to them: the override is the
+  // whole truth for that card.
+  assert.equal(current.removal, 0);
+  assert.equal(progress.uncategorisedCount, 0);
+});
+
+test('computeTemplateProgress: an override matches a category by its label too', () => {
+  const template = loadTemplateFixture([{ category: 'sweeper', ideal: 3 }]);
+  // 'Board wipes' is what the panel shows; 'sweeper' is what the row is keyed on.
+  const cards = [card({ id: 1, quantity: 1, category: 'Board wipes', categories: [] })];
+  assert.equal(computeTemplateProgress(cards, template).rows[0].current, 1);
+});
+
 test('computeTemplateProgress: tagDataAvailable is carried through and changes no count', () => {
   // The flag exists so the panel can say *why* a row reads zero. It must not
   // become a second way to compute the row itself.
