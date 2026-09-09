@@ -34,6 +34,21 @@ export function registerSyncRoutes(
   );
 
   /**
+   * Resolve the category tags on their own.
+   *
+   * A card re-import takes ~17 seconds and is usually not what is wrong; this
+   * is one small bulk file and a rewrite of card_categories. `force` because
+   * asking for this explicitly means "do it now", not "skip if the published
+   * file has not moved".
+   */
+  app.post('/api/v1/sync/categories', async (_request, reply) => {
+    if (sync.isRunning) {
+      return reply.status(409).send({ error: 'A sync is already running.', sync: sync.current });
+    }
+    return { sync: sync.start({ task: 'categories', force: true }) };
+  });
+
+  /**
    * Progress as Server-Sent Events.
    *
    * SSE rather than websockets: the traffic is one-way, it survives proxies,

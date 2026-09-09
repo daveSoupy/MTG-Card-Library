@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   backupDownloadUrl, cancelImageDownload, collectionCsvUrl, fetchImageDownloadStatus,
-  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStorage, restoreBackup,
+  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStorage, resolveCategories, restoreBackup,
   setCacheLimit, startImageDownload, takeScheduledBackup, undoImportBatch, updateSettings,
   CacheTooSmallError,
   type AppSettings, type ImageDownloadScope, type ImageDownloadStatus, type ImportBatch,
@@ -33,6 +33,7 @@ export function DataPage({ locations, onCollectionChanged }: {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [resolving, setResolving] = useState(false);
   const [download, setDownload] = useState<ImageDownloadStatus | null>(null);
   const [capGb, setCapGb] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
@@ -162,6 +163,40 @@ export function DataPage({ locations, onCollectionChanged }: {
               <span className="dim">Cards stored</span>
               <strong>{storage.cards.oracleCards.toLocaleString()}</strong>
               <span className="dim"> unique · {storage.cards.printings.toLocaleString()} printings · {storage.cards.sets.toLocaleString()} sets</span>
+            </div>
+            {/* An empty card_categories is invisible everywhere else — the deck
+                template tracker just reads "0 removal", which looks like a
+                verdict on the deck. This is where it can be seen and fixed. */}
+            <div>
+              <span className="dim">Card categories</span>
+              <strong>{storage.categories.cards.toLocaleString()}</strong>
+              <span className="dim">
+                {' '}cards tagged
+                {storage.categories.syncedAt
+                  ? ` · resolved ${new Date(storage.categories.syncedAt).toLocaleString()}`
+                  : ' · never resolved'}
+              </span>
+              {storage.categories.error && (
+                <span className="hint bad">Last attempt failed: {storage.categories.error}</span>
+              )}
+              <button
+                className="btn secondary small"
+                style={{ marginTop: 6 }}
+                disabled={resolving}
+                onClick={() => {
+                  setResolving(true);
+                  resolveCategories()
+                    // The work happens in the sync worker, so re-read once it
+                    // has had time to write rather than trusting the response.
+                    .then(() => setTimeout(() => { loadStorage(); setResolving(false); }, 5000))
+                    .catch((e: unknown) => {
+                      setError(e instanceof Error ? e.message : String(e));
+                      setResolving(false);
+                    });
+                }}
+              >
+                {resolving ? 'Resolving…' : 'Resolve categories'}
+              </button>
             </div>
           </div>
 

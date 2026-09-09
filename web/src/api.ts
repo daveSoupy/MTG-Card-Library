@@ -381,6 +381,9 @@ export interface TemplateProgress {
   rows: TemplateProgressRow[];
   uncategorisedCount: number;
   countedTotal: number;
+  /** False when Scryfall's tags have never been resolved — every tag-derived
+   *  row then reads zero for a reason that has nothing to do with the deck. */
+  tagDataAvailable: boolean;
 }
 
 export interface DeckTemplate {
@@ -537,6 +540,8 @@ export interface StorageInfo {
   database: { bytes: number };
   imageCache: { bytes: number; count: number; limitBytes: number };
   cards: { oracleCards: number; printings: number; sets: number };
+  /** Phase 7 tag coverage. `cards` is distinct cards; one card can hold several. */
+  categories: { cards: number; rows: number; syncedAt: string | null; error: string | null };
   coverage: { referenced: number; cached: number };
   fullEstimateBytes: number;
 }
@@ -562,6 +567,11 @@ export const fetchStorage = (signal?: AbortSignal) =>
 
 export const setCacheLimit = (bytes: number) =>
   send<{ limitBytes: number }>('/api/v1/storage/cache-limit', 'PUT', { bytes });
+
+/** Resolves Scryfall's tag categories on their own — seconds, rather than the
+ *  ~17 seconds a full card re-import costs. */
+export const resolveCategories = () =>
+  send<{ sync: unknown }>('/api/v1/sync/categories', 'POST', {});
 
 /** Raised when a full download would exceed the cache cap; carries the numbers. */
 export class CacheTooSmallError extends Error {

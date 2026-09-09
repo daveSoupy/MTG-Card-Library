@@ -6,6 +6,7 @@ import type { ManaBase } from './manabase.ts';
 import { planBasics, type BasicLand } from './lands.ts';
 import { loadTemplate, computeTemplateProgress, type TemplateProgress } from './templates.ts';
 import { getSetting } from '../db/index.ts';
+import { hasCardCategories } from '../sync/categories.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -149,7 +150,9 @@ export class DeckStore {
       validation: validateDeck(cards, rules),
       stats: deckStats(cards),
       manaBase: analyseManaBase(cards),
-      templateProgress: template ? computeTemplateProgress(cards, template) : null,
+      templateProgress: template
+        ? computeTemplateProgress(cards, template, hasCardCategories(this.db))
+        : null,
     };
   }
 

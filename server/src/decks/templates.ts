@@ -47,6 +47,14 @@ export interface TemplateProgress {
   uncategorisedCount: number;
   /** Sum of every counted card's quantity — never claimed to equal any row total, since categories overlap. */
   countedTotal: number;
+  /**
+   * Whether Scryfall's tag categories have ever been resolved.
+   *
+   * False makes every tag-derived row read zero, which is indistinguishable
+   * from a deck that genuinely has no removal — so the panel has to be able
+   * to say which it is looking at.
+   */
+  tagDataAvailable: boolean;
 }
 
 /** A category label, from the shared list or capitalised as a fallback. */
@@ -101,7 +109,11 @@ export function loadTemplate(db: Database.Database, id: number): DeckTemplate | 
  * with no manual category counts toward every tag category it matches, which
  * is why the rows deliberately do not sum to the deck size.
  */
-export function computeTemplateProgress(cards: DeckCard[], template: DeckTemplate): TemplateProgress {
+export function computeTemplateProgress(
+  cards: DeckCard[],
+  template: DeckTemplate,
+  tagDataAvailable = true,
+): TemplateProgress {
   // Sideboard is outside the built list and the maybeboard is a scratch pad;
   // template targets describe the deck itself.
   const counted = cards.filter((c) => c.board === 'main' || c.board === 'command');
@@ -145,6 +157,7 @@ export function computeTemplateProgress(cards: DeckCard[], template: DeckTemplat
     rows,
     uncategorisedCount,
     countedTotal: counted.reduce((total, c) => total + c.quantity, 0),
+    tagDataAvailable,
   };
 }
 

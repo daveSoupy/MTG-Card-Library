@@ -70,8 +70,9 @@ test('syncCardCategories never throws — a card sync must survive the tag sourc
   try {
     const db = new Database(':memory:');
     db.exec(SCHEMA);
-    const ok = await syncCardCategories(db);
-    assert.equal(ok, false);
+    const result = await syncCardCategories(db);
+    assert.equal(result.status, 'failed');
+    assert.match(result.error ?? '', /DNS failure/);
     // No rows written, but no throw either — the caller's card sync is untouched.
     assert.equal((db.prepare('SELECT count(*) AS n FROM card_categories').get() as any).n, 0);
     db.close();
@@ -91,5 +92,127 @@ test('writeCardCategories replaces the whole table rather than accumulating', ()
 
   const rows = db.prepare('SELECT category FROM card_categories').all() as Array<{ category: string }>;
   assert.deepEqual(rows.map((r) => r.category), ['draw']);
+  db.close();
+});
+
+// ------------------------------------------------ Phase 7 revival: gating
+
+import { gzipSync } from 'node:zlib';
+import { getSetting, setSetting } from '../db/index.ts';
+
+/** A fake Scryfall: the small bulk listing, then a gzipped JSONL tag file. */
+function stubScryfall(updatedAt: string, tags: TagRecord[]) {
+  return (async (url: string | URL) => {
+    const href = String(url);
+    if (href.includes('/bulk-data')) {
+      return new Response(JSON.stringify({
+        data: [{
+          object: 'bulk_data', type: 'oracle_tags', updated_at: updatedAt,
+          jsonl_download_uri: 'https://example.test/oracle-tags.jsonl.gz',
+        }],
+      }), { status: 200 });
+    }
+    const body = tags.map((t) => JSON.stringify({
+      object: 'tag', type: 'oracle', id: t.id, slug: t.slug, label: t.label,
+      child_ids: t.childIds,
+      taggings: t.taggings.map((x) => ({ oracle_id: x.oracleId, weight: x.weight })),
+    })).join('\n');
+    return new Response(gzipSync(Buffer.from(body)), { status: 200 });
+  }) as unknown as typeof fetch;
+}
+
+function libraryWithOneCard() {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA);
+  db.prepare(`INSERT INTO oracle_cards (oracle_id, name, name_normalized, oracle_text_all)
+              VALUES ('o-a', 'A', 'a', '')`).run();
+  return db;
+}
+
+async function withStub<T>(stub: typeof fetch, run: () => Promise<T>): Promise<T> {
+  const original = globalThis.fetch;
+  globalThis.fetch = stub;
+  try { return await run(); } finally { globalThis.fetch = original; }
+}
+
+test('an empty card_categories re-runs even when the tag file has not moved', async () => {
+  // The Phase 7 bug in miniature: this database was populated before card
+  // categories existed, so the "already loaded" timestamp is no reason to
+  // skip — there is nothing to skip past.
+  const db = libraryWithOneCard();
+  setSetting(db, 'loaded_oracle_tags_updated_at', '2026-09-08T21:00:00Z');
+
+  const result = await withStub(
+    stubScryfall('2026-09-08T21:00:00Z', [tag('t1', 'ramp', [], ['o-a'])]),
+    () => syncCardCategories(db),
+  );
+
+  assert.equal(result.status, 'done');
+  assert.equal(result.rows, 1);
+  db.close();
+});
+
+test('an unchanged tag file with rows already written is skipped', async () => {
+  const db = libraryWithOneCard();
+  const stub = stubScryfall('2026-09-08T21:00:00Z', [tag('t1', 'ramp', [], ['o-a'])]);
+
+  await withStub(stub, () => syncCardCategories(db));
+  const second = await withStub(stub, () => syncCardCategories(db));
+
+  assert.equal(second.status, 'skipped');
+  assert.equal(second.rows, 0);
+  // The rows the first run wrote are still there.
+  assert.equal((db.prepare('SELECT count(*) AS n FROM card_categories').get() as any).n, 1);
+  db.close();
+});
+
+test('a republished tag file re-runs even with rows already written', async () => {
+  const db = libraryWithOneCard();
+  await withStub(stubScryfall('2026-09-08T21:00:00Z', [tag('t1', 'ramp', [], ['o-a'])]),
+                 () => syncCardCategories(db));
+
+  const result = await withStub(
+    stubScryfall('2026-09-09T21:00:00Z', [tag('t1', 'draw', [], ['o-a'])]),
+    () => syncCardCategories(db),
+  );
+
+  assert.equal(result.status, 'done');
+  assert.equal(getSetting(db, 'loaded_oracle_tags_updated_at'), '2026-09-09T21:00:00Z');
+  const rows = db.prepare('SELECT category FROM card_categories').pluck().all();
+  assert.deepEqual(rows, ['draw']);
+  db.close();
+});
+
+test('force resolves even when nothing has changed', async () => {
+  const db = libraryWithOneCard();
+  const stub = stubScryfall('2026-09-08T21:00:00Z', [tag('t1', 'ramp', [], ['o-a'])]);
+  await withStub(stub, () => syncCardCategories(db));
+
+  const forced = await withStub(stub, () => syncCardCategories(db, { force: true }));
+  assert.equal(forced.status, 'done');
+  db.close();
+});
+
+test('a run records what it did, so a silent failure can never look like an empty deck', async () => {
+  const db = libraryWithOneCard();
+  await withStub(stubScryfall('2026-09-08T21:00:00Z', [tag('t1', 'ramp', [], ['o-a'])]),
+                 () => syncCardCategories(db));
+
+  const ok = db.prepare("SELECT * FROM sync_log WHERE bulk_type = 'oracle_tags'").get() as any;
+  assert.equal(ok.status, 'success');
+  assert.equal(ok.printings_upserted, 1);
+  assert.ok(getSetting(db, 'last_category_sync_at'));
+  assert.equal(getSetting(db, 'last_category_sync_error'), '');
+
+  // A later failure is recorded too, and leaves the existing rows alone.
+  const failed = await withStub(
+    (async () => { throw new Error('the tag file went away'); }) as unknown as typeof fetch,
+    () => syncCardCategories(db, { force: true }),
+  );
+  assert.equal(failed.status, 'failed');
+  assert.match(getSetting(db, 'last_category_sync_error') ?? '', /went away/);
+  const rows = db.prepare("SELECT status FROM sync_log WHERE bulk_type = 'oracle_tags' ORDER BY id").pluck().all();
+  assert.deepEqual(rows, ['success', 'failed']);
+  assert.equal((db.prepare('SELECT count(*) AS n FROM card_categories').get() as any).n, 1);
   db.close();
 });

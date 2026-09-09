@@ -1804,3 +1804,16 @@ input[type='number'] { width: 72px; }
   content: ''; position: absolute; left: 1px; top: 2px; bottom: 2px; width: 3px;
   border-radius: 2px; background: var(--id-tint); opacity: .85;
 }
+
+/* ---------- card categories -------------------------------------------------
+   Phase 7's tag data has no other surface, and an empty card_categories reads
+   downstream as "this deck has no removal" rather than as a sync that never
+   ran. These two say which it is. */
+.tmpl-nodata {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  margin: 4px 0 10px; padding: 8px 10px;
+  font-size: 12px; color: var(--text-2);
+  background: var(--panel-2); border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--warn); border-radius: 7px;
+}
+.hint.bad { color: var(--bad); display: block; }

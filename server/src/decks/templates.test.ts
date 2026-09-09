@@ -83,6 +83,23 @@ test('computeTemplateProgress: a category at or above its ideal is reported as m
   }
 });
 
+test('computeTemplateProgress: tagDataAvailable is carried through and changes no count', () => {
+  // The flag exists so the panel can say *why* a row reads zero. It must not
+  // become a second way to compute the row itself.
+  const template = loadTemplateFixture([{ category: 'ramp', ideal: 10 }]);
+  const cards = [card({ id: 1, quantity: 2, categories: ['ramp'] })];
+
+  const withTags = computeTemplateProgress(cards, template, true);
+  const without = computeTemplateProgress(cards, template, false);
+
+  assert.equal(withTags.tagDataAvailable, true);
+  assert.equal(without.tagDataAvailable, false);
+  assert.equal(without.rows[0].current, withTags.rows[0].current);
+  assert.equal(without.uncategorisedCount, withTags.uncategorisedCount);
+  // Defaults to true, so every existing caller reads unchanged.
+  assert.equal(computeTemplateProgress(cards, template).tagDataAvailable, true);
+});
+
 test('computeTemplateProgress: uncategorised is its own count, not hidden', () => {
   const template = loadTemplateFixture([{ category: 'ramp', ideal: 10 }]);
   const cards = [
