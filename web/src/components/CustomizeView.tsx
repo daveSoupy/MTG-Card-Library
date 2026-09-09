@@ -64,10 +64,6 @@ export function CustomizeView({
   }, [open]);
 
   const densities = DENSITIES_FOR[page];
-  const summary = [
-    groupBy === 'none' ? null : GROUP_BY_LABEL[groupBy],
-    showDensity && density !== 'full' ? DENSITY_LABEL[density] : null,
-  ].filter(Boolean).join(' · ');
 
   return (
     <div className="customize-view" ref={ref}>
@@ -77,7 +73,11 @@ export function CustomizeView({
         onClick={() => setOpen((v) => !v)}
         title="Group, sort and size the cards on this page"
       >
-        View{summary ? <span className="customize-summary">{summary}</span> : null}
+        {/* The label alone, and a fixed width with it. Naming the current
+            grouping and size here restated what the panel says the moment it
+            opens, and grew the button enough to shove the rest of the bar
+            sideways every time either changed. */}
+        View
       </button>
 
       {open && (
