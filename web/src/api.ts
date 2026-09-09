@@ -490,9 +490,6 @@ export const updateDeckCard = (
 export const addRecommendedLands = (deckId: number) =>
   send<{ deck: Deck }>(`/api/v1/decks/${deckId}/recommended-lands`, 'POST', {}).then((r) => r.deck);
 
-export const fetchDeckCategories = (deckId: number, signal?: AbortSignal) =>
-  getJson<{ categories: string[] }>(`/api/v1/decks/${deckId}/categories`, signal)
-    .then((r) => r.categories);
 
 // -------------------------------------------------------- deck templates
 

@@ -26,7 +26,7 @@ describe('DeckRow', () => {
         onPreview={() => {}}
         onArt={() => {}}
         onCategory={() => {}}
-        categoryOptions={[]}
+        categoryLabels={{}}
       />,
     );
 
