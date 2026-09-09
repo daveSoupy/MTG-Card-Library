@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DECK_SORTS, groupByField, groupCards, identityKey,
+  DECK_SORTS, effectiveCategories, groupByField, groupCards, identityKey,
   type DeckSort, type GroupBy,
 } from './deckView.ts';
 import type { DeckCard } from './api.ts';
@@ -306,4 +306,21 @@ test('the retired "template" sort still resolves to the merged grouping', () => 
   );
   // …and is no longer offered as a menu entry of its own.
   assert.equal(DECK_SORTS.filter((s) => s.value === 'template').length, 0);
+});
+
+test('what a card is counted as: the override where there is one, else the tags', () => {
+  const labels = { removal: 'Removal', draw: 'Card draw' };
+  assert.deepEqual(
+    effectiveCategories(card({ categories: ['removal', 'draw'], category: null }), labels),
+    ['Card draw', 'Removal'],
+  );
+  // The override replaces the tags for counting, so it has to replace them
+  // here too — otherwise the row says one thing and the template rows another.
+  assert.deepEqual(
+    effectiveCategories(card({ categories: ['removal'], category: 'Ramp, Board wipes' }), labels),
+    ['Ramp', 'Board wipes'],
+  );
+  assert.deepEqual(effectiveCategories(card({ categories: [], category: null }), labels), []);
+  // No labels supplied: the raw key is better than nothing.
+  assert.deepEqual(effectiveCategories(card({ categories: ['ramp'], category: null })), ['ramp']);
 });

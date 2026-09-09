@@ -294,6 +294,19 @@ function categoryBucket(card: DeckCard, options: DeckGroupOptions): Bucket {
   return { key: 'zzz-uncategorised', label: 'Uncategorised', rank: 4 };
 }
 
+/**
+ * Every category a card is counted as, labelled for display.
+ *
+ * A manual override replaces the tags rather than adding to them, so this
+ * shows the override where there is one — otherwise a card counted as ramp
+ * would still read "removal" beside its name.
+ */
+export function effectiveCategories(card: DeckCard, labels: Record<string, string> = {}): string[] {
+  const manual = (card.category ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+  if (manual.length > 0) return manual;
+  return [...card.categories].sort().map((key) => labels[key] ?? key);
+}
+
 /** The label of the one category group a card belongs to — the same
  *  resolution the headings use, for anywhere that wants to show it per card. */
 export function categoryLabelFor(card: DeckCard, options: DeckGroupOptions = {}): string {
