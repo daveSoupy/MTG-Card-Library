@@ -317,11 +317,6 @@ export function DeckPanes({
                           onPreview={() =>
                             card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
                           onArt={() => setArtFor(card)}
-                          onCategory={(category) =>
-                            apply(
-                              () => updateDeckCard(deck.id, card.id, { category }),
-                              `categorising ${card.name}`,
-                            )}
                           categoryLabels={categoryLabels}
                         />
                       </div>

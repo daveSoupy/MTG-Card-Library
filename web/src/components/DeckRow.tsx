@@ -1,6 +1,5 @@
 import type { Board, DeckCard } from '../api.ts';
-import { identityKey } from '../deckView.ts';
-import { CategoryPicker } from './CategoryPicker.tsx';
+import { effectiveCategories, identityKey } from '../deckView.ts';
 
 export function DeckRow({
   card,
@@ -11,7 +10,6 @@ export function DeckRow({
   onToggleOwned,
   onPreview,
   onArt,
-  onCategory,
   categoryLabels,
 }: {
   card: DeckCard;
@@ -22,13 +20,12 @@ export function DeckRow({
   onToggleOwned: () => void;
   onPreview: () => void;
   onArt: () => void;
-  /** A manual category always wins over Scryfall's tag-derived ones; empty clears it. */
-  onCategory: (category: string | null) => void;
   /** Category key → display name, from /api/v1/status. */
   categoryLabels: Record<string, string>;
 }) {
   const claimed = card.quantityFromCollection;
   const shortfall = claimed > card.availableQuantity;
+  const categories = effectiveCategories(card, categoryLabels);
 
   return (
     // The colour bar down the left edge reads a decklist the way a pile of
@@ -47,6 +44,14 @@ export function DeckRow({
 
       <button className="deck-name" onClick={onPreview} title={card.typeLine}>
         {card.name}
+        {/* What the template rows count this card as, read rather than set —
+            quiet enough beside the name to scan past when you are not looking
+            for it. */}
+        {categories.length > 0 && (
+          <span className="deck-name-tags" title={`Counted as ${categories.join(', ')}`}>
+            {categories.join(', ')}
+          </span>
+        )}
         {card.legality === 'banned' && <span className="tag bad">banned</span>}
         {card.legality === 'restricted' && <span className="tag warn">restricted</span>}
       </button>
@@ -76,13 +81,6 @@ export function DeckRow({
         <option value="command">Command zone</option>
         <option value="maybe">Maybeboard</option>
       </select>
-
-      <CategoryPicker
-        value={card.category}
-        labels={categoryLabels}
-        cardName={card.name}
-        onChange={onCategory}
-      />
 
       <button className="row-art" onClick={onArt} aria-label={`Choose art for ${card.name}`} title="Choose printing / art">◆</button>
       <button className="row-remove" onClick={onRemove} aria-label={`Remove ${card.name}`}>×</button>
