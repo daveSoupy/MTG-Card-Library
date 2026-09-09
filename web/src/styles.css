@@ -1353,7 +1353,6 @@ input[type='number'] { width: 72px; }
 .playtest-card-tile[data-playable="false"] { opacity: .4; }
 .playtest-card-tile[data-playable="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-.theme-toggle { min-width: 34px; }
 
 /* The command zone's empty state, and the picker mode it turns on. */
 .command-empty {
@@ -1837,3 +1836,10 @@ input[type='number'] { width: 72px; }
   margin-left: 7px;
   font-style: italic; font-size: 11px; color: var(--text-3);
 }
+
+/* A labelled control in the Settings list, alongside the checkboxes. */
+.setting-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 4px 0 2px;
+}
+.setting-row > span { font-size: 13px; color: var(--text-2); }
