@@ -36,7 +36,7 @@ export const DENSITY_HINT: Record<Density, string> = {
 export const DENSITIES_FOR: Record<DensityPage, Density[]> = {
   browse: ['full', 'compact', 'ultra'],
   collection: ['full', 'compact', 'ultra'],
-  deck: ['full', 'lined', 'compact', 'ultra'],
+  deck: ['ultra', 'compact', 'lined', 'full'],
 };
 
 const ALL_DENSITIES: Density[] = ['full', 'lined', 'compact', 'ultra'];

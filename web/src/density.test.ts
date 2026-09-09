@@ -2,7 +2,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   coerceDensity, densityAllowed, DENSITIES_FOR, effectiveDensity, loadDensity, nextDensity,
-  savePageDensity, saveGlobalDensity, type Density,
+  savePageDensity, saveGlobalDensity, type Density, type DensityPage,
 } from './density.ts';
 
 /** A localStorage good enough for the storage rules, which is all this tests. */
@@ -94,16 +94,23 @@ test('nothing here throws when storage does', () => {
 });
 
 test('the topbar cycle only offers what the page being looked at can show', () => {
+  // Against DENSITIES_FOR rather than a written-out order: which order the
+  // levels sit in is a presentation choice that gets rearranged, and pinning
+  // it here would fail the next time it is.
+  for (const page of ['browse', 'collection', 'deck'] as DensityPage[]) {
+    const options = DENSITIES_FOR[page];
+    let level = options[0];
+    const lap: Density[] = [];
+    for (let i = 0; i < options.length; i += 1) {
+      level = nextDensity(level, page);
+      lap.push(level);
+    }
+    // One lap visits every level that page offers, exactly once, in the order
+    // they are listed, and lands back where it started.
+    assert.deepEqual(lap, [...options.slice(1), options[0]], `${page} cycles its own levels`);
+    assert.equal(new Set(lap).size, options.length, `${page} repeats a level`);
+  }
   // Four levels on the deck builder, three everywhere else.
-  let level: Density = 'full';
-  const seen: Density[] = [];
-  for (let i = 0; i < 4; i += 1) { level = nextDensity(level, 'deck'); seen.push(level); }
-  assert.deepEqual(seen, ['lined', 'compact', 'ultra', 'full']);
-
-  level = 'full';
-  const browseSeen: Density[] = [];
-  for (let i = 0; i < 3; i += 1) { level = nextDensity(level, 'browse'); browseSeen.push(level); }
-  assert.deepEqual(browseSeen, ['compact', 'ultra', 'full']);
   assert.equal(DENSITIES_FOR.browse.length, 3);
   assert.equal(DENSITIES_FOR.deck.length, 4);
 });
@@ -111,5 +118,6 @@ test('the topbar cycle only offers what the page being looked at can show', () =
 test('a level the page cannot reach still cycles somewhere it can', () => {
   // Lined-up carried over from the deck builder as the global default: the
   // cycle must not be stuck on a value that is not in Browse's list.
-  assert.equal(nextDensity('lined', 'browse'), 'full');
+  const next = nextDensity('lined', 'browse');
+  assert.ok(densityAllowed(next, 'browse'), `${next} is not one of Browse's levels`);
 });
