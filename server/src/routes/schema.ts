@@ -32,6 +32,13 @@ export const NAME = { type: 'string', minLength: 1 } as const;
 
 export const TEXT = { type: 'string' } as const;
 export const TEXT_OR_NULL = { type: ['string', 'null'] } as const;
+
+/**
+ * A deck slot's manual category list, comma-separated. The outer bound only —
+ * the per-entry and per-count caps live in decks/categories.ts, which ajv
+ * cannot express, and which normalise rather than reject.
+ */
+export const CATEGORY_LIST = { type: ['string', 'null'], maxLength: 200 } as const;
 export const FLAG = { type: 'boolean' } as const;
 
 /** 'YYYY-MM-DD', the form every date column in the schema stores. */

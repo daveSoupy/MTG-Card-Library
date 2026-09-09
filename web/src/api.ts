@@ -128,6 +128,9 @@ export interface StatusResponse {
   library: LibraryStatus;
   sync: SyncState;
   bulkTypes: Record<string, { label: string; detail: string }>;
+  /** Server-owned display names for the tag categories — the client keeps no
+   *  copy of its own, so the two can never drift. */
+  categoryLabels: Record<string, string>;
 }
 
 export interface SetRecord {

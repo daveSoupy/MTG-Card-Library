@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { CATEGORY_LABELS } from '../sync/categories.ts';
+import { categoryListMatches, parseCategoryList } from './categories.ts';
 import type { DeckCard } from './types.ts';
 
 /** Setting key: when '1', the "Follow a template" control appears on decks. */
@@ -105,9 +106,11 @@ export function loadTemplate(db: Database.Database, id: number): DeckTemplate | 
  *
  * Pure and DB-free: a card's manual category (deck_cards.category) always
  * wins over Scryfall's tag-derived ones — the phase's priority order — so a
- * card with a manual category counts toward that one category alone. A card
- * with no manual category counts toward every tag category it matches, which
- * is why the rows deliberately do not sum to the deck size.
+ * card with a manual override counts toward the categories that override
+ * names and no others. That override may name several, so a card doing two
+ * jobs need not pick one row to satisfy. A card with no override counts
+ * toward every tag category it matches, which is why the rows deliberately do
+ * not sum to the deck size.
  */
 export function computeTemplateProgress(
   cards: DeckCard[],
@@ -119,14 +122,14 @@ export function computeTemplateProgress(
   const counted = cards.filter((c) => c.board === 'main' || c.board === 'command');
   const targetCategories = new Set(template.targets.map((t) => t.category));
 
-  const manualMatch = (card: DeckCard, category: string): boolean => {
-    const manual = card.category?.trim().toLowerCase();
-    if (!manual) return false;
-    return manual === category.toLowerCase() || manual === labelFor(category).toLowerCase();
-  };
+  // A manual override may name several categories, and then counts toward
+  // each of them — a card that really is both ramp and card draw should not
+  // have to pick one row to satisfy.
+  const manualMatch = (card: DeckCard, category: string): boolean =>
+    categoryListMatches(parseCategoryList(card.category), category, labelFor);
 
   const cardMatches = (card: DeckCard, category: string): boolean => {
-    if (card.category?.trim()) return manualMatch(card, category);
+    if (parseCategoryList(card.category).length > 0) return manualMatch(card, category);
     if (category === 'lands') return card.typeLine.toLowerCase().includes('land');
     if (category === 'creatures') return card.typeLine.toLowerCase().includes('creature');
     return card.categories.includes(category);

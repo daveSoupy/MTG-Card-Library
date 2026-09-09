@@ -86,6 +86,7 @@ export function DeckPanes({
   identity,
   cardSort,
   setCardSort,
+  categoryLabels,
   density,
   onDensity,
   listRef,
@@ -113,6 +114,7 @@ export function DeckPanes({
   identity: string | null;
   cardSort: DeckSort;
   setCardSort: (sort: DeckSort) => void;
+  categoryLabels: Record<string, string>;
   /** The decklist's whole layout, not a size within one: Ultra-compact is the
    *  text list that used to be its own "List" view mode. */
   density: Density;
@@ -205,7 +207,12 @@ export function DeckPanes({
           const alwaysShow = board === 'main' || (board === 'command' && requiresCommander);
           if (cards.length === 0 && !alwaysShow) return null;
           const count = cards.reduce((total, c) => total + c.quantity, 0);
-          const groups = groupCards(cards, cardSort);
+          // Grouped the way the template lists its categories where one is
+          // set, so a template-shaped deck reads in the template's order.
+          const groups = groupCards(cards, cardSort, {
+            labels: categoryLabels,
+            templateCategories: deck.templateProgress?.rows.map((r) => r.category),
+          });
 
           return (
             <section className="board" key={board}>

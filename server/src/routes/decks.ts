@@ -5,7 +5,7 @@ import { BOARDS, type Board, type CommanderRole } from '../decks/types.ts';
 import {
   takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
 } from '../decks/snapshots.ts';
-import { ID, ID_OR_NULL, COUNT, NAME, TEXT, TEXT_OR_NULL, FLAG, body, enumOrNull, idParams } from './schema.ts';
+import { ID, ID_OR_NULL, COUNT, NAME, TEXT, TEXT_OR_NULL, FLAG, body, enumOrNull, idParams, CATEGORY_LIST } from './schema.ts';
 
 const COMMANDER_ROLES: CommanderRole[] = [
   'commander', 'partner', 'background', 'companion', 'signature_spell',
@@ -158,7 +158,7 @@ export function registerDeckRoutes(
         body: body({
           quantity: COUNT, fromCollection: COUNT, board: BOARD,
           commanderRole: enumOrNull(COMMANDER_ROLES),
-          category: TEXT_OR_NULL, preferredPrintingId: TEXT_OR_NULL,
+          category: CATEGORY_LIST, preferredPrintingId: TEXT_OR_NULL,
         }),
       },
     },

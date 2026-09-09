@@ -243,3 +243,67 @@ test('every universal grouping keeps every card', () => {
     assert.equal(total, rows.length, `${by} must not drop or duplicate cards`);
   }
 });
+
+// ---------------------------------------- category grouping (Template merged in)
+
+test('category grouping falls back to Scryfall tags, not "Uncategorised"', () => {
+  // The old 'category' grouping read the manual value alone, so a fully
+  // tag-resolved deck grouped entirely as Uncategorised — the reason the two
+  // groupings merged.
+  const groups = groupCards([
+    card({ name: 'Bolt', category: null, categories: ['removal'] }),
+    card({ name: 'Divination', category: null, categories: ['draw'] }),
+  ], 'category', { labels: { removal: 'Removal', draw: 'Card draw' } });
+
+  assert.deepEqual(labels(groups), ['Card draw', 'Removal']);
+});
+
+test('a manual override beats the tags, and its first entry names the group', () => {
+  const groups = groupCards([
+    card({ name: 'Talisman', category: 'ramp, draw', categories: ['removal'] }),
+  ], 'category');
+  // Exactly one bucket: headings partition the deck, unlike the Template
+  // panel's rows, which count every match.
+  assert.deepEqual(labels(groups), ['ramp']);
+  assert.equal(groups.length, 1);
+});
+
+test('a card with several tags lands in exactly one group', () => {
+  const deck = [
+    card({ name: 'Carom', category: null, categories: ['draw', 'protection'] }),
+    card({ name: 'Clear', category: null, categories: ['draw', 'removal'] }),
+  ];
+  const groups = groupCards(deck, 'category');
+  assert.equal(groups.flatMap((g) => g.cards).length, 2, 'no card counted twice');
+  assert.equal(groups.reduce((n, g) => n + g.count, 0), 2, 'counts partition the deck');
+});
+
+test('a template makes its own categories win the tie', () => {
+  // Alphabetically 'draw' wins, but a deck tracking a template that targets
+  // removal should read in the template's terms.
+  const deck = [card({ name: 'Clear', category: null, categories: ['draw', 'removal'] })];
+  assert.deepEqual(labels(groupCards(deck, 'category')), ['draw']);
+  assert.deepEqual(
+    labels(groupCards(deck, 'category', { templateCategories: ['removal', 'draw'] })),
+    ['removal'],
+  );
+});
+
+test('untagged cards still split into lands, creatures and the rest', () => {
+  const groups = groupCards([
+    card({ name: 'Forest', typeLine: 'Basic Land — Forest', categories: [] }),
+    card({ name: 'Bear', typeLine: 'Creature — Bear', categories: [] }),
+    card({ name: 'Odd', typeLine: 'Enchantment', categories: [] }),
+  ], 'category');
+  assert.deepEqual(labels(groups), ['Lands', 'Creatures', 'Uncategorised']);
+});
+
+test('the retired "template" sort still resolves to the merged grouping', () => {
+  const deck = [card({ name: 'Bolt', category: null, categories: ['removal'] })];
+  assert.deepEqual(
+    labels(groupCards(deck, 'template', { labels: { removal: 'Removal' } })),
+    labels(groupCards(deck, 'category', { labels: { removal: 'Removal' } })),
+  );
+  // …and is no longer offered as a menu entry of its own.
+  assert.equal(DECK_SORTS.filter((s) => s.value === 'template').length, 0);
+});

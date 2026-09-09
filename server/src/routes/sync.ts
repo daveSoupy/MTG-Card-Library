@@ -4,6 +4,7 @@ import { libraryStatus } from '../db/index.ts';
 import type { SyncManager } from '../sync/syncManager.ts';
 import type { SyncProgress } from '../sync/runSync.ts';
 import { BULK_TYPES, type BulkType } from '../sync/scryfall.ts';
+import { CATEGORY_LABELS } from '../sync/categories.ts';
 import { FLAG, body as bodySchema } from './schema.ts';
 
 export function registerSyncRoutes(
@@ -15,6 +16,9 @@ export function registerSyncRoutes(
     library: libraryStatus(db),
     sync: sync.current,
     bulkTypes: BULK_TYPES,
+    /** Display names for the tag categories, so the client renders 'sweeper'
+     *  as "Board wipes" without keeping its own copy of the list to drift. */
+    categoryLabels: CATEGORY_LABELS,
   }));
 
   app.post<{ Body: { bulkType?: BulkType; force?: boolean } }>(
