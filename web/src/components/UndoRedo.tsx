@@ -23,7 +23,7 @@ export function UndoRedo({
         className="btn secondary"
         disabled={!canUndo || busy}
         onClick={onUndo}
-        title={undoLabel ? `Undo ${undoLabel}` : 'Nothing to undo'}
+        title={`${undoLabel ? `Undo ${undoLabel}` : 'Nothing to undo'} · ⌘Z`}
         aria-label={undoLabel ? `Undo ${undoLabel}` : 'Undo'}
       >
         ↶<span className="undo-word"> Undo</span>
@@ -32,7 +32,7 @@ export function UndoRedo({
         className="btn secondary"
         disabled={!canRedo || busy}
         onClick={onRedo}
-        title={redoLabel ? `Redo ${redoLabel}` : 'Nothing to redo'}
+        title={`${redoLabel ? `Redo ${redoLabel}` : 'Nothing to redo'} · ⌘⇧Z`}
         aria-label={redoLabel ? `Redo ${redoLabel}` : 'Redo'}
       >
         ↷<span className="undo-word"> Redo</span>

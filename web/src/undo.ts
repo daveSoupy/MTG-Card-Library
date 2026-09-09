@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * A per-context undo/redo stack.
@@ -19,6 +19,8 @@ export interface UndoEntry {
 }
 
 const LIMIT = 50;
+
+export type UndoStack = ReturnType<typeof useUndoStack>;
 
 export function useUndoStack() {
   const [past, setPast] = useState<UndoEntry[]>([]);
@@ -71,4 +73,38 @@ export function useUndoStack() {
     undoLabel: past[past.length - 1]?.label ?? null,
     redoLabel: future[future.length - 1]?.label ?? null,
   };
+}
+
+/**
+ * ⌘Z / ⌘⇧Z — Ctrl on anything that is not a Mac — for a stack.
+ *
+ * Bound by whichever page owns the stack, so the shortcut reaches the same
+ * one its buttons would and only while that page is open.
+ *
+ * Keystrokes inside a text field are left alone: the browser's own undo is
+ * what someone half-way through typing a location name or a price means, and
+ * taking it over to revert a card edit instead would be a nasty surprise.
+ */
+export function useUndoShortcuts(stack: Pick<UndoStack, 'undo' | 'redo'>): void {
+  // The stack is a fresh object every render, so the listener reads it through
+  // a ref and binds once rather than re-subscribing on each keystroke's worth
+  // of re-rendering.
+  const latest = useRef(stack);
+  latest.current = stack;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'z' || event.altKey) return;
+      if (!event.metaKey && !event.ctrlKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.('input, textarea, [contenteditable]')) return;
+
+      event.preventDefault();
+      const step = event.shiftKey ? latest.current.redo : latest.current.undo;
+      // A failed replay has already put its reason on screen.
+      step().catch(() => undefined);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 }
