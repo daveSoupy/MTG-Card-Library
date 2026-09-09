@@ -10,6 +10,7 @@ import {
 import { formatBytes, percent } from '../format.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { THEME_LABEL, THEMES, type Theme } from '../theme.ts';
 
 const formatWhen = (iso: string) => new Date(iso).toLocaleString();
 
@@ -19,9 +20,15 @@ const formatWhen = (iso: string) => new Date(iso).toLocaleString();
  * Restoring is the only genuinely destructive thing in the app, so it is behind
  * an explicit confirmation that names what is about to be replaced.
  */
-export function DataPage({ locations, onCollectionChanged }: {
+export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSync }: {
   locations: StorageLocation[];
   onCollectionChanged: () => void;
+  /** Per device, so it is App's state rather than an app_settings row. */
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
+  /** Opens the sync dialog, which App owns because it can also open itself
+   *  on a first run with no card data at all. */
+  onSync: () => void;
 }) {
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [backups, setBackups] = useState<ScheduledBackup[]>([]);
@@ -149,6 +156,21 @@ export function DataPage({ locations, onCollectionChanged }: {
     <div className="data-page">
       {error && <div className="error">{error}</div>}
 
+      {/* Outside the storage gate below: syncing is how a library with nothing
+          in it gets anything, so it must not depend on a panel that needs
+          data to render. */}
+      <section className="data-section">
+        <h3>Card data</h3>
+        <p className="hint">
+          Scryfall publishes a bulk file daily. A sync downloads it and updates the local
+          catalogue, then refreshes prices, categories and rulings from the same run.
+          Everything stays searchable while it works.
+        </p>
+        <div className="btnrow">
+          <button className="btn" onClick={onSync}>Sync card data</button>
+        </div>
+      </section>
+
       {storage && (
         <section className="data-section">
           <h3>Storage</h3>
@@ -253,6 +275,27 @@ export function DataPage({ locations, onCollectionChanged }: {
 
       <section className="data-section">
         <h3>Settings</h3>
+
+        <label className="setting-row">
+          <span>Appearance</span>
+          <div className="tabs small">
+            {THEMES.map((option) => (
+              <button
+                key={option}
+                className={option === theme ? 'on' : ''}
+                aria-pressed={option === theme}
+                onClick={() => onTheme(option)}
+              >
+                {THEME_LABEL[option]}
+              </button>
+            ))}
+          </div>
+        </label>
+        <p className="hint">
+          Auto follows the operating system. Unlike the settings below, this is remembered
+          per device rather than in the library — a phone can be dark while the desktop is not.
+        </p>
+
         {settings && (
           <label className="check">
             <input

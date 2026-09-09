@@ -22,6 +22,7 @@ import {
   DENSITY_HINT, DENSITY_LABEL, effectiveDensity, loadDensity, nextDensity,
   savePageDensity, saveGlobalDensity, type Density, type DensityPage,
 } from './density.ts';
+import { applyTheme, storedTheme, type Theme } from './theme.ts';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -40,25 +41,6 @@ const BROWSE_GROUPS: GroupBy[] =
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
-
-type Theme = 'system' | 'light' | 'dark';
-const THEME_KEY = 'mtg.theme';
-const THEME_LABEL: Record<Theme, string> = { system: 'Auto', light: 'Light', dark: 'Dark' };
-
-/**
- * Reads the saved theme.
- *
- * localStorage throws outright in some privacy modes rather than returning
- * null, so this must not be the thing that stops the app rendering.
- */
-function storedTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
-  } catch {
-    return 'system';
-  }
-}
 
 /** The filter panel's state as the search API wants it. Shared by the initial
  *  search and by "Load more", so the two cannot drift apart. */
@@ -135,14 +117,7 @@ export default function App() {
   // Oracle ids with no entry defer to the fetched quantity.
   const [wantOverride, setWantOverride] = useState<Map<string, number | null>>(new Map());
 
-  // 'system' removes the attribute rather than setting one, so the stylesheet's
-  // prefers-color-scheme rule takes over again.
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'system') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', theme);
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* private mode */ }
-  }, [theme]);
+  useEffect(() => applyTheme(theme), [theme]);
 
   // The active page's density, which is what `data-density` on the app root
   // carries — Full and Compact are pure CSS off that attribute, while
@@ -400,16 +375,10 @@ export default function App() {
         >
           {density === 'full' ? '▢' : density === 'lined' ? '▤' : density === 'compact' ? '▦' : '☰'}
         </button>
-        <button
-          className="btn secondary theme-toggle"
-          title={`Theme: ${THEME_LABEL[theme]} — click to change`}
-          onClick={() => setTheme((current) =>
-            current === 'system' ? 'light' : current === 'light' ? 'dark' : 'system')}
-        >
-          {theme === 'system' ? '◐' : theme === 'light' ? '☀' : '☾'}
-        </button>
+        {/* Theme and Sync live on the Data page: neither is something you
+            reach for mid-search, and the top bar was four rows of buttons on
+            a phone. */}
         <AlertsBell refreshKey={alertKey} />
-        <button className="btn secondary" onClick={() => setShowSync(true)}>Sync</button>
       </header>
 
       {view.name === 'collection' && (
@@ -424,6 +393,9 @@ export default function App() {
         <DataPage
           locations={locations}
           onCollectionChanged={() => { setDataEpoch((n) => n + 1); loadStatus(); }}
+          theme={theme}
+          onTheme={setTheme}
+          onSync={() => setShowSync(true)}
         />
       )}
 
