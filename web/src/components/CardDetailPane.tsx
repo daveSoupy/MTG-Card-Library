@@ -31,7 +31,6 @@ export function CardDetailPane({
   wantOverride,
   wantPending = false,
   onToggleWantList,
-  categoryLabels = {},
 }: {
   oracleId: string | null;
   floating: boolean;
@@ -47,8 +46,6 @@ export function CardDetailPane({
    *  (add-then-add) instead of reversing it. */
   wantPending?: boolean;
   onToggleWantList?: (oracleId: string, currentlyWanted: boolean) => void;
-  /** Server-owned display names for the tag categories. */
-  categoryLabels?: Record<string, string>;
 }) {
   const [card, setCard] = useState<CardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -119,20 +116,6 @@ export function CardDetailPane({
             {card.typeLine}
             {card.manaCost ? ` · ${card.manaCost}` : ''}
           </div>
-
-          {/* What the deck templates count this card as. The deck row only
-              exists at Ultra-compact density, so without this there is nowhere
-              to see a card's categories at any other density, or from Browse.
-              Read-only: setting an override belongs to a deck slot, and this
-              pane is opened from Browse and the collection, where there is
-              none. */}
-          {card.categories.length > 0 && (
-            <div className="cat-chips" title="Resolved from Scryfall’s card tags">
-              {card.categories.map((key) => (
-                <span className="cat-chip" key={key}>{categoryLabels[key] ?? key}</span>
-              ))}
-            </div>
-          )}
 
           {showFaces ? (
             <div className="faces">
