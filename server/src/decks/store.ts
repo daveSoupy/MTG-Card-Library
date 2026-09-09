@@ -7,7 +7,7 @@ import { planBasics, type BasicLand } from './lands.ts';
 import { loadTemplate, computeTemplateProgress, type TemplateProgress } from './templates.ts';
 import { getSetting } from '../db/index.ts';
 import { hasCardCategories } from '../sync/categories.ts';
-import { CANONICAL_CATEGORIES, normalizeCategoryInput, parseCategoryList } from './categories.ts';
+import { normalizeCategoryInput, parseCategoryList } from './categories.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -629,10 +629,14 @@ export class DeckStore {
   }
 
   /**
-   * Every category on offer for a deck: the canonical eight that templates
-   * actually count, plus whatever this deck already uses. Stored values are
-   * lists, so they are split rather than offered whole — "ramp, draw" is two
-   * suggestions, not one unusable third.
+   * The categories a deck actually uses. Stored values are lists, so they are
+   * split rather than reported whole — "ramp, draw" is two categories, not one
+   * odd third.
+   *
+   * The client no longer suggests from this: the category control is a
+   * checklist of the categories the server resolves, not a free-text box that
+   * needed completions. Kept as a resource because "what is this deck filed
+   * under" is a fair question to ask the API.
    */
   categories(deckId: number): string[] {
     const stored = (this.db.prepare(`
@@ -641,7 +645,7 @@ export class DeckStore {
       .pluck().all(deckId) as string[]).flatMap(parseCategoryList);
 
     const seen = new Map<string, string>();
-    for (const value of [...CANONICAL_CATEGORIES, ...stored]) {
+    for (const value of stored) {
       const key = value.toLowerCase();
       if (!seen.has(key)) seen.set(key, value);
     }

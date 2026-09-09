@@ -1,5 +1,6 @@
 import type { Board, DeckCard } from '../api.ts';
 import { identityKey } from '../deckView.ts';
+import { CategoryPicker } from './CategoryPicker.tsx';
 
 export function DeckRow({
   card,
@@ -11,7 +12,7 @@ export function DeckRow({
   onPreview,
   onArt,
   onCategory,
-  categoryOptions,
+  categoryLabels,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -23,7 +24,8 @@ export function DeckRow({
   onArt: () => void;
   /** A manual category always wins over Scryfall's tag-derived ones; empty clears it. */
   onCategory: (category: string | null) => void;
-  categoryOptions: string[];
+  /** Category key → display name, from /api/v1/status. */
+  categoryLabels: Record<string, string>;
 }) {
   const claimed = card.quantityFromCollection;
   const shortfall = claimed > card.availableQuantity;
@@ -75,25 +77,12 @@ export function DeckRow({
         <option value="maybe">Maybeboard</option>
       </select>
 
-      <input
-        className="row-category"
-        list={`deck-categories-${card.id}`}
-        defaultValue={card.category ?? ''}
-        placeholder={card.categories.length > 0 ? card.categories.join(', ') : 'Category'}
-        title={card.category
-          ? 'Manual category — wins over any tag-derived one'
-          : card.categories.length > 0
-            ? `Tag-derived: ${card.categories.join(', ')}. Type to override.`
-            : 'No category yet'}
-        onBlur={(e) => onCategory(e.target.value.trim() || null)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        }}
-        aria-label={`Category for ${card.name}`}
+      <CategoryPicker
+        value={card.category}
+        labels={categoryLabels}
+        cardName={card.name}
+        onChange={onCategory}
       />
-      <datalist id={`deck-categories-${card.id}`}>
-        {categoryOptions.map((option) => <option key={option} value={option} />)}
-      </datalist>
 
       <button className="row-art" onClick={onArt} aria-label={`Choose art for ${card.name}`} title="Choose printing / art">◆</button>
       <button className="row-remove" onClick={onRemove} aria-label={`Remove ${card.name}`}>×</button>

@@ -15,7 +15,6 @@ vi.mock('../api.ts', async (importOriginal) => ({
     { printing_id: 'P1', name: 'Ancestral Recall', collector_number: '48', owned_qty: 1, image_small: 'x' },
     { printing_id: 'P2', name: 'Black Lotus', collector_number: '232', owned_qty: 0, image_small: 'x' },
   ]),
-  fetchDeckCategories: vi.fn(async () => []),
   fetchCostPools: vi.fn(async () => []),
 }));
 

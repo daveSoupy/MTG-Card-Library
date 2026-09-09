@@ -1,5 +1,3 @@
-import { CATEGORY_LABELS } from '../sync/categories.ts';
-
 /**
  * The manual category on a deck slot, which is a *list*.
  *
@@ -63,7 +61,3 @@ export function categoryListMatches(
   const wanted = new Set([category.toLowerCase(), labelFor(category).toLowerCase()]);
   return values.some((value) => wanted.has(value.toLowerCase()));
 }
-
-/** The canonical category names, offered alongside whatever a deck already
- *  uses so the eight that templates actually count are always one click away. */
-export const CANONICAL_CATEGORIES = Object.values(CATEGORY_LABELS);

@@ -1,6 +1,6 @@
-import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
+import { useState, type CSSProperties, type RefObject } from 'react';
 import {
-  addDeckCard, fetchDeckCategories, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
+  addDeckCard, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
   type Board, type CardSummary, type Deck, type DeckCard,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
@@ -159,11 +159,6 @@ export function DeckPanes({
   // opens the card whole instead of the tile controls.
   const coarsePointer = useCoarsePointer();
   const [cascadeCard, setCascadeCard] = useState<DeckCard | null>(null);
-
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
-  useEffect(() => {
-    fetchDeckCategories(deck.id).then(setCategoryOptions).catch(() => undefined);
-  }, [deck.id]);
 
   // Dividers belong to the docked layout only: an overlay picker has no
   // column edge to drag, and the stats pane is not a column at that width.
@@ -327,7 +322,7 @@ export function DeckPanes({
                               () => updateDeckCard(deck.id, card.id, { category }),
                               `categorising ${card.name}`,
                             )}
-                          categoryOptions={categoryOptions}
+                          categoryLabels={categoryLabels}
                         />
                       </div>
                     ))
