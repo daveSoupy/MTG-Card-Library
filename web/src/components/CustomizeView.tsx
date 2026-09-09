@@ -30,6 +30,7 @@ export function CustomizeView({
   onSort,
   sortOptions,
   showDensity = true,
+  showGroupSort = true,
   unavailableNote,
 }: {
   page: DensityPage;
@@ -38,14 +39,17 @@ export function CustomizeView({
   /** Whether this page currently overrides the topbar's global default. */
   densityOverridden: boolean;
   onResetDensity: () => void;
-  groupBy: GroupBy;
-  onGroupBy: (groupBy: GroupBy) => void;
-  groupOptions: GroupBy[];
-  sort: string;
-  onSort: (sort: string) => void;
-  sortOptions: readonly SortOption[];
+  groupBy?: GroupBy;
+  onGroupBy?: (groupBy: GroupBy) => void;
+  groupOptions?: GroupBy[];
+  sort?: string;
+  onSort?: (sort: string) => void;
+  sortOptions?: readonly SortOption[];
   /** The picker's rows carry no art, so density has nothing to act on there. */
   showDensity?: boolean;
+  /** Off for a page with no grouping or server-side sort of its own — a want
+   *  list orders by drag, not either of those. */
+  showGroupSort?: boolean;
   /** Why a grouping this page cannot offer is missing, where that needs saying. */
   unavailableNote?: string;
 }) {
@@ -82,27 +86,31 @@ export function CustomizeView({
 
       {open && (
         <div className="customize-drop">
-          <div className="customize-section">
-            <span className="customize-label">Group by</span>
-            <select
-              value={groupBy}
-              onChange={(e) => onGroupBy(e.target.value as GroupBy)}
-              aria-label="Group by"
-            >
-              {groupOptions.map((option) => (
-                <option key={option} value={option}>{GROUP_BY_LABEL[option]}</option>
-              ))}
-            </select>
-          </div>
+          {showGroupSort && groupBy !== undefined && onGroupBy && groupOptions && (
+            <div className="customize-section">
+              <span className="customize-label">Group by</span>
+              <select
+                value={groupBy}
+                onChange={(e) => onGroupBy(e.target.value as GroupBy)}
+                aria-label="Group by"
+              >
+                {groupOptions.map((option) => (
+                  <option key={option} value={option}>{GROUP_BY_LABEL[option]}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
-          <div className="customize-section">
-            <span className="customize-label">Sort by</span>
-            <select value={sort} onChange={(e) => onSort(e.target.value)} aria-label="Sort by">
-              {sortOptions.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </div>
+          {showGroupSort && sort !== undefined && onSort && sortOptions && (
+            <div className="customize-section">
+              <span className="customize-label">Sort by</span>
+              <select value={sort} onChange={(e) => onSort(e.target.value)} aria-label="Sort by">
+                {sortOptions.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {showDensity && (
             <div className="customize-section">

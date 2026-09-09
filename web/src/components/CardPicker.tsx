@@ -6,11 +6,13 @@ import { searchCards, type CardSummary } from '../api.ts';
  * dropdown — the same shape as the set picker. Reused wherever one card is
  * picked from the database (wants, trade items). Full Scryfall syntax, debounced.
  */
-export function CardPicker({ onPick, placeholder, ownedOnly }: {
+export function CardPicker({ onPick, placeholder, ownedOnly, hideMana }: {
   onPick: (card: CardSummary) => void;
   placeholder?: string;
   /** Limit results to cards in the collection — for the "giving away" side. */
   ownedOnly?: boolean;
+  /** Drop the mana cost from each result row — a want list doesn't price by cost. */
+  hideMana?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CardSummary[]>([]);
@@ -84,7 +86,7 @@ export function CardPicker({ onPick, placeholder, ownedOnly }: {
               title={card.typeLine}
             >
               <span>{card.name}</span>
-              <span className="mana">{card.manaCost ?? ''}</span>
+              {!hideMana && <span className="mana">{card.manaCost ?? ''}</span>}
             </button>
           ))}
         </div>
