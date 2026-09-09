@@ -7,7 +7,7 @@ import { OwnedGrid } from './OwnedGrid.tsx';
 import { AddBySetTab } from './AddBySetTab.tsx';
 import { DeckPanes, type DeckPickerState } from './DeckPanes.tsx';
 import type { CollectionCard, Deck, DeckCard, SetRecord, StorageLocation } from '../api.ts';
-import type { Density } from '../density.ts';
+import { DENSITIES_FOR, DENSITY_LABEL, type Density } from '../density.ts';
 
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
@@ -239,13 +239,15 @@ describe('the decklist toolbar', () => {
 
   it('offers the four levels as the view modes, and nothing else', () => {
     // The List/Cards pair is gone: those two were the same choice this control
-    // already makes, so there is one segmented control rather than two.
+    // already makes, so there is one segmented control rather than two. Read
+    // off DENSITIES_FOR rather than written out, so rearranging which order
+    // the levels sit in stays a presentation choice.
     const { container } = renderPanes([deckCard()], 'full');
     const tabs = container.querySelector('.deck-toolbar .tabs.small')!;
     expect([...tabs.querySelectorAll('button')].map((b) => b.textContent))
-      .toEqual(['Full', 'Lined-up', 'Compact', 'Ultra-compact']);
+      .toEqual(DENSITIES_FOR.deck.map((level) => DENSITY_LABEL[level]));
     expect(container.querySelectorAll('.deck-toolbar .tabs').length).toBe(1);
-    expect(tabs.querySelector('.on')!.textContent).toBe('Full');
+    expect(tabs.querySelector('.on')!.textContent).toBe(DENSITY_LABEL.full);
   });
 
   it('reports the level that was picked', () => {
