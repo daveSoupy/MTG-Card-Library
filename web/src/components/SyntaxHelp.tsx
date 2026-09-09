@@ -51,6 +51,11 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
       { syntax: 'set:blb  ·  e:blb', meaning: 'Printed in a set' },
       { syntax: 'rarity:mythic  ·  r:m', meaning: 'Rarity' },
       { syntax: 'artist:"Rebecca Guay"  ·  a:guay', meaning: 'Artist' },
+      {
+        syntax: 'category:removal  ·  cat:ramp',
+        meaning: 'What a card does — removal, draw, ramp, recursion, protection, '
+          + 'tutor, sweeper, counterspell',
+      },
       { syntax: 'layout:split', meaning: 'Card layout' },
     ],
   },

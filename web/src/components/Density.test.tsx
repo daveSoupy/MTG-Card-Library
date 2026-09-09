@@ -82,6 +82,7 @@ const picker = (): DeckPickerState => ({
   pickerHybrid: false, setPickerHybrid: noop, results: [], resultsTotal: 0, searching: false,
   pickingCommander: false, setPickingCommander: noop, searchInput: createRef(),
   preview: null, setPreview: noop, coverNote: null, setCoverNote: noop,
+  pickerCategory: null, clearPickerCategory: noop, categoryLabels: {},
 });
 
 function renderPanes(cards: DeckCard[], density: Density) {

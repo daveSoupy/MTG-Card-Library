@@ -41,6 +41,7 @@ function fakePicker(overrides: Partial<DeckPickerState> = {}): DeckPickerState {
     pickerHybrid: false, setPickerHybrid: vi.fn(), results: [], resultsTotal: 0, searching: false,
     pickingCommander: false, setPickingCommander: vi.fn(), searchInput: createRef(),
     preview: null, setPreview: vi.fn(), coverNote: null, setCoverNote: vi.fn(),
+    pickerCategory: null, clearPickerCategory: vi.fn(), categoryLabels: {},
     ...overrides,
   };
 }

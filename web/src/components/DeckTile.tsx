@@ -12,6 +12,7 @@ export function DeckTile({
   onPreview,
   tapOpensPreview = false,
   cascade,
+  categoryLabel,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -30,6 +31,9 @@ export function DeckTile({
   /** Lined-up only. 'stacked' is what the stylesheet pulls up over the card
    *  before it; the first card in a column sits where it falls. */
   cascade?: 'first' | 'stacked';
+  /** The one bucket this card groups under, already resolved and labelled by
+   *  the caller. Shown at Full and Compact; Lined-up has no room for it. */
+  categoryLabel?: string;
 }) {
   // The controls are a hover affordance on a desktop, and hover never fires on
   // a touch screen — which left the qty stepper and the art picker unreachable
@@ -83,6 +87,9 @@ export function DeckTile({
       {lined && !(card.printingId && card.imageSmall) && (
         <span className="cascade-strip">{card.name}</span>
       )}
+      {/* Under the art rather than over it: the tile is already dense, and
+          covering a card's own text to say what it does would be perverse. */}
+      {!lined && categoryLabel && <div className="tile-category">{categoryLabel}</div>}
 
       {/* Controls sit over the art on hover — or after a tap — so the grid
           stays scannable when you are only reading it. */}

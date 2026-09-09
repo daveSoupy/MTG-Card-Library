@@ -11,7 +11,8 @@ import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { PaneDivider } from './PaneDivider.tsx';
 import {
-  DECK_SORTS, groupByField, groupCards, type DeckSort, type GroupBy,
+  categoryLabelFor, DECK_SORTS, groupByField, groupCards,
+  type DeckSort, type GroupBy,
 } from '../deckView.ts';
 import {
   DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density,
@@ -75,6 +76,11 @@ export type DeckPickerState = {
   setPreview: (value: { printingId: string; name: string } | null) => void;
   coverNote: string | null;
   setCoverNote: (value: string | null) => void;
+  /** Set by a Template shortfall link. Invisible until now: it survived every
+   *  later search with nothing on screen to say a filter was still applied. */
+  pickerCategory: string | null;
+  clearPickerCategory: () => void;
+  categoryLabels: Record<string, string>;
 };
 
 /** The `.decklist` / `.picker` / `.stats-pane` layout shell. */
@@ -144,6 +150,7 @@ export function DeckPanes({
     pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
     results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
     preview, setPreview, coverNote, setCoverNote,
+    pickerCategory, clearPickerCategory, categoryLabels: pickerCategoryLabels,
   } = picker;
 
   const [pickerGroupBy, setPickerGroupBy] = useState<GroupBy>('none');
@@ -209,10 +216,14 @@ export function DeckPanes({
           const count = cards.reduce((total, c) => total + c.quantity, 0);
           // Grouped the way the template lists its categories where one is
           // set, so a template-shaped deck reads in the template's order.
-          const groups = groupCards(cards, cardSort, {
+          const groupOptions = {
             labels: categoryLabels,
             templateCategories: deck.templateProgress?.rows.map((r) => r.category),
-          });
+          };
+          const groups = groupCards(cards, cardSort, groupOptions);
+          // The same resolution the headings use, so a tile never disagrees
+          // with the group it is sitting in.
+          const categoryOf = (card: DeckCard) => categoryLabelFor(card, groupOptions);
 
           return (
             <section className="board" key={board}>
@@ -328,6 +339,7 @@ export function DeckPanes({
                           card={card}
                           problem={problemFor(card)}
                           density={density}
+                          categoryLabel={categoryOf(card)}
                           onQuantity={(delta) =>
                             apply(
                               () => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }),
@@ -381,6 +393,16 @@ export function DeckPanes({
             aria-label="Search cards to add"
           />
         </div>
+        {pickerCategory && (
+          <div className="picker-chip">
+            <span>{pickerCategoryLabels[pickerCategory] ?? pickerCategory}</span>
+            <button
+              onClick={clearPickerCategory}
+              aria-label={`Stop filtering by ${pickerCategoryLabels[pickerCategory] ?? pickerCategory}`}
+              title="Clear this filter"
+            >×</button>
+          </div>
+        )}
         {pickingCommander && (
           <div className="picking-note">
             <span>Showing cards that can lead this deck.</span>

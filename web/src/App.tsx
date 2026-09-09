@@ -592,6 +592,7 @@ export default function App() {
 
         <CardDetailPane
           oracleId={selected}
+          categoryLabels={status?.categoryLabels ?? {}}
           floating={!wide && selected !== null}
           onClose={() => setSelected(null)}
           canToggleWantList={wantLists.length > 0}
