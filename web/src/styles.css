@@ -1855,23 +1855,32 @@ input[type='number'] { width: 72px; }
    since a card can genuinely be both ramp and card draw. */
 .category-picker { position: relative; min-width: 0; }
 .category-summary {
-  width: 100%; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-3);
-  border-radius: 6px; padding: 4px 7px; font-size: 12px;
+  display: flex; align-items: center; gap: 4px; width: 100%;
+  background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--text-3);
+  border-radius: 6px; padding: 4px 5px 4px 8px; font-size: 12px; text-align: left;
+}
+.category-summary-text {
+  flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Says "menu", not "text field" — the reason the old box did not read as one. */
+.category-caret { flex: 0 0 auto; font-size: 9px; opacity: .8; }
 .category-summary:hover { border-color: var(--accent); color: var(--text-2); }
-.category-summary.set { color: var(--text); border-color: var(--line-strong); }
+.category-summary.set { color: var(--text); }
+.category-summary.open { border-color: var(--accent); color: var(--text); }
+
+/* Anchored to the viewport: the deck list is its own scroll container, and a
+   panel positioned inside a row is clipped by it. */
 .category-drop {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
-  width: max-content; min-width: 170px; max-width: min(240px, 90vw);
+  position: fixed; z-index: 60;
+  max-width: min(260px, calc(100vw - 16px)); max-height: 70vh; overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, .35);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .45);
   padding: 6px; display: flex; flex-direction: column; gap: 1px;
 }
 .category-option {
-  display: flex; align-items: center; gap: 7px;
-  padding: 5px 6px; border-radius: 5px; font-size: 12.5px; color: var(--text-2);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 7px; border-radius: 5px; font-size: 12.5px; color: var(--text-2);
 }
 .category-option:hover { background: var(--panel-2); color: var(--text); }
 .category-option input { margin: 0; }
@@ -1879,16 +1888,8 @@ input[type='number'] { width: 72px; }
    not offered again once it is. */
 .category-option.legacy { color: var(--text-3); }
 .category-option.legacy .hint { font-size: 10px; margin-left: auto; }
-.category-drop .linkish { margin: 4px 6px 2px; text-align: left; }
-
-/* The drop would be clipped by the scrolling deck list otherwise. */
-.decklist { overflow: visible auto; }
-
-@media (max-width: 620px) {
-  /* Pinned to the viewport, like the alerts and view panels — a row-anchored
-     popover runs off the edge once the row wraps. */
-  .category-drop {
-    position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px;
-    width: auto; min-width: 0; max-width: none; max-height: 60vh; overflow-y: auto;
-  }
+.category-drop-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--line);
 }
+.category-drop-foot .linkish { margin-right: auto; }

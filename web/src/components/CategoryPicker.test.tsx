@@ -17,10 +17,21 @@ function picker(value: string | null, onChange = vi.fn()) {
   return { ...view, onChange };
 }
 
+/** Nothing is saved until the list closes — that is what makes it a checklist. */
+const done = () => fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
 const box = (label: string) =>
   screen.getByRole('checkbox', { name: new RegExp(`^${label}`) });
 
 describe('CategoryPicker', () => {
+  it('reads as a menu rather than a text field', () => {
+    picker(null);
+    const control = screen.getByLabelText('Categories for Sol Ring');
+    expect(control.getAttribute('aria-expanded')).toBe('true');
+    expect(control.getAttribute('aria-haspopup')).toBe('true');
+    expect(control.textContent).toContain('▾');
+  });
+
   it('offers only the categories the server resolves — nothing to type', () => {
     const { container } = picker(null);
     expect(screen.getAllByRole('checkbox').map((b) => b.parentElement?.textContent?.trim()))
@@ -41,28 +52,52 @@ describe('CategoryPicker', () => {
   it('stores the display name, which is what a group heading shows', () => {
     const { onChange } = picker(null);
     fireEvent.click(box('Board wipes'));
+    done();
     expect(onChange).toHaveBeenCalledWith('Board wipes');
+  });
+
+  it('saves nothing until the list closes', () => {
+    // Saving per tick wrote to the deck mid-interaction. With the list grouped
+    // by category that moved the row into another group, remounting this
+    // control and closing it — so only one box could ever be ticked.
+    const { onChange } = picker(null);
+    fireEvent.click(box('Ramp'));
+    fireEvent.click(box('Card draw'));
+    expect(onChange).not.toHaveBeenCalled();
+
+    done();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('Ramp, Card draw');
   });
 
   it('accumulates rather than replacing, so a card can satisfy two rows', () => {
     const { onChange } = picker('Ramp');
     fireEvent.click(box('Card draw'));
+    done();
     expect(onChange).toHaveBeenCalledWith('Ramp, Card draw');
   });
 
-  it('keeps up when two boxes are ticked before the server answers', () => {
-    // Each toggle round-trips through the deck, so `value` stays a tick behind.
-    // Computing both toggles from it would drop the first.
-    const { onChange } = picker(null);
-    fireEvent.click(box('Ramp'));
+  it('ticking and unticking the same box saves nothing at all', () => {
+    const { onChange } = picker('Ramp');
     fireEvent.click(box('Card draw'));
-    expect(onChange).toHaveBeenLastCalledWith('Ramp, Card draw');
+    fireEvent.click(box('Card draw'));
+    done();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('unticking the last one clears the override rather than storing blank', () => {
     const { onChange } = picker('Ramp');
     fireEvent.click(box('Ramp'));
+    done();
     expect(onChange).toHaveBeenCalledWith(null);
+  });
+
+  it('closes and saves on Escape', () => {
+    const { onChange } = picker(null);
+    fireEvent.click(box('Ramp'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onChange).toHaveBeenCalledWith('Ramp');
+    expect(screen.queryByRole('checkbox')).toBeNull();
   });
 
   it('shows a value from before the checklist so it can be removed', () => {
@@ -73,6 +108,7 @@ describe('CategoryPicker', () => {
     expect(legacy).toBeChecked();
 
     fireEvent.click(legacy);
+    done();
     expect(onChange).toHaveBeenCalledWith('Ramp');
   });
 
