@@ -18,7 +18,7 @@ import {
   type DeckSort, type PaneWidths,
 } from '../deckView.ts';
 import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
-import { useUndoStack } from '../undo.ts';
+import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import { useNarrow } from '../viewport.ts';
 import { type Density } from '../density.ts';
 
@@ -75,6 +75,7 @@ export function DeckBuilder({
   const [paneWidths, setPaneWidths] = useState<PaneWidths>(loadPaneWidths);
 
   const undoStack = useUndoStack();
+  useUndoShortcuts(undoStack);
 
   const [cardSort, setCardSortState] = useState(loadSortPreference);
   const setCardSort = (next: DeckSort) => {
