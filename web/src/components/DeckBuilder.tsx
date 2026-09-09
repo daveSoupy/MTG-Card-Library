@@ -13,8 +13,8 @@ import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
 import { UndoRedo } from './UndoRedo.tsx';
 import {
-  loadPaneWidths, loadViewPreference, savePaneWidth, saveViewPreference,
-  type DeckSort, type DeckViewMode, type PaneWidths,
+  loadPaneWidths, loadSortPreference, savePaneWidth, saveSortPreference,
+  type DeckSort, type PaneWidths,
 } from '../deckView.ts';
 import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
 import { useUndoStack } from '../undo.ts';
@@ -72,14 +72,10 @@ export function DeckBuilder({
 
   const undoStack = useUndoStack();
 
-  const [{ view, sort: cardSort }, setViewPref] = useState(loadViewPreference);
-  const setView = (next: DeckViewMode) => {
-    setViewPref({ view: next, sort: cardSort });
-    saveViewPreference(next, cardSort);
-  };
+  const [cardSort, setCardSortState] = useState(loadSortPreference);
   const setCardSort = (next: DeckSort) => {
-    setViewPref({ view, sort: next });
-    saveViewPreference(view, next);
+    setCardSortState(next);
+    saveSortPreference(next);
   };
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -404,9 +400,7 @@ export function DeckBuilder({
         problemFor={problemFor}
         requiresCommander={requiresCommander}
         identity={identity}
-        view={view}
         cardSort={cardSort}
-        setView={setView}
         setCardSort={setCardSort}
         density={density}
         onDensity={onDensity}

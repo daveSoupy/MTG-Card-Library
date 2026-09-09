@@ -1638,6 +1638,9 @@ input[type='number'] { width: 72px; }
    column formula is the only thing that decides how big a card is. */
 [data-density='compact'] .grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 [data-density='compact'] .deck-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 7px; }
+/* Four labels rather than two, so the segmented control wraps onto its own
+   line before the toolbar starts squeezing the sort next to it. */
+.deck-toolbar .tabs.small { flex: 0 1 auto; }
 [data-density='compact'] .entry-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 7px; }
 [data-density='compact'] .card .cname { font-size: 11px; margin-top: 3px; }
 [data-density='compact'] .card .cset,
@@ -1656,33 +1659,23 @@ input[type='number'] { width: 72px; }
 .tr-qty { color: var(--text-2); min-width: 30px; text-align: right; }
 .tr-price { min-width: 54px; text-align: right; }
 
+/* The deck builder has no artless *tile*: Ultra-compact there renders the
+   `.deck-row` text list instead, which is styled with the decklist. */
 [data-density='ultra'] .grid,
-[data-density='ultra'] .deck-grid,
 [data-density='ultra'] .entry-grid { display: block; gap: 0; margin: 4px 0 12px; }
 [data-density='ultra'] .card,
-[data-density='ultra'] .deck-tile,
 [data-density='ultra'] .entry-tile {
   display: flex; align-items: center; gap: 6px;
   width: 100%; border-radius: 6px;
   border-bottom: 1px solid var(--line);
 }
 [data-density='ultra'] .card:hover,
-[data-density='ultra'] .deck-tile:hover,
 [data-density='ultra'] .entry-tile:hover { transform: none; background: var(--panel-2); }
 [data-density='ultra'] .entry-tile.owned .text-row { opacity: .5; }
 /* Nothing is laid over a row, so the star sits in it. */
 [data-density='ultra'] .want-toggle {
   position: static; flex: 0 0 auto; width: 26px; height: 26px; font-size: 13px; margin-right: 4px;
 }
-/* Same for the tile controls: no art to reveal them over, so they stay put. */
-[data-density='ultra'] .tile-controls {
-  position: static; flex: 0 0 auto; opacity: 1;
-  background: none; padding: 0 4px 0 0; border-radius: 0;
-}
-[data-density='ultra'] .deck-tile.error,
-[data-density='ultra'] .deck-tile.warning { outline: none; }
-[data-density='ultra'] .deck-tile.error { box-shadow: inset 3px 0 0 var(--bad); }
-[data-density='ultra'] .deck-tile.warning { box-shadow: inset 3px 0 0 var(--warn); }
 
 /* ---------- lined-up (deck builder only) ------------------------------------
    A cascade per group, the way a pile of cards fans out: each card is pulled up

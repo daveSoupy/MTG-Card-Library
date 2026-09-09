@@ -19,7 +19,6 @@ import type { DeckCard } from './api.ts';
 export type DeckSort =
   | 'type' | 'type-alpha' | 'mana' | 'color' | 'name' | 'price' | 'rarity'
   | 'category' | 'template';
-export type DeckViewMode = 'list' | 'cards';
 
 export const DECK_SORTS: Array<{ value: DeckSort; label: string }> = [
   { value: 'type', label: 'Card type' },
@@ -327,34 +326,31 @@ export function groupCards(cards: DeckCard[], sort: DeckSort): CardGroup[] {
 
   return assemble(cards, deckBucket, copiesOf, withinGroup);
 }
-// -- persisted view preference ------------------------------------------------
+// -- persisted sort preference ------------------------------------------------
 
-const VIEW_KEY = 'mtg.deckView';
 const SORT_KEY = 'mtg.deckSort';
 
 /**
- * View preferences live in the browser rather than the database on purpose:
- * card view suits a desktop and list view suits a phone, so this is genuinely
- * per-device rather than per-user.
+ * Which grouping the decklist opens on, in the browser rather than the
+ * database: it suits the screen you are sitting at rather than the deck, the
+ * same as the pane widths and the display density beside it.
+ *
+ * There used to be a view mode stored next to this — list or cards. The four
+ * density levels replaced it: Ultra-compact *is* the list, so a separate
+ * toggle offered two ways to say the same thing.
  */
-export function loadViewPreference(): { view: DeckViewMode; sort: DeckSort } {
-  const fallback = { view: 'list' as DeckViewMode, sort: 'type' as DeckSort };
+export function loadSortPreference(): DeckSort {
   try {
-    const view = localStorage.getItem(VIEW_KEY);
     const sort = localStorage.getItem(SORT_KEY);
-    return {
-      view: view === 'cards' || view === 'list' ? view : fallback.view,
-      sort: DECK_SORTS.some((s) => s.value === sort) ? (sort as DeckSort) : fallback.sort,
-    };
+    return DECK_SORTS.some((s) => s.value === sort) ? (sort as DeckSort) : 'type';
   } catch {
-    // Private browsing, or storage disabled — the defaults are fine.
-    return fallback;
+    // Private browsing, or storage disabled — the default is fine.
+    return 'type';
   }
 }
 
-export function saveViewPreference(view: DeckViewMode, sort: DeckSort): void {
+export function saveSortPreference(sort: DeckSort): void {
   try {
-    localStorage.setItem(VIEW_KEY, view);
     localStorage.setItem(SORT_KEY, sort);
   } catch {
     // Not being able to remember the preference is not worth surfacing.

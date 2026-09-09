@@ -11,7 +11,7 @@ import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { PaneDivider } from './PaneDivider.tsx';
 import {
-  DECK_SORTS, groupByField, groupCards, type DeckSort, type DeckViewMode, type GroupBy,
+  DECK_SORTS, groupByField, groupCards, type DeckSort, type GroupBy,
 } from '../deckView.ts';
 import {
   DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density,
@@ -84,9 +84,7 @@ export function DeckPanes({
   problemFor,
   requiresCommander,
   identity,
-  view,
   cardSort,
-  setView,
   setCardSort,
   density,
   onDensity,
@@ -112,12 +110,10 @@ export function DeckPanes({
   problemFor: (card: DeckCard) => 'error' | 'warning' | null;
   requiresCommander: boolean;
   identity: string | null;
-  view: DeckViewMode;
   cardSort: DeckSort;
-  setView: (view: DeckViewMode) => void;
   setCardSort: (sort: DeckSort) => void;
-  /** Applies within 'cards' view only — 'list' renders `DeckRow`, which has no
-   *  art to size and so is unaffected by any of the four levels. */
+  /** The decklist's whole layout, not a size within one: Ultra-compact is the
+   *  text list that used to be its own "List" view mode. */
   density: Density;
   onDensity: (density: Density) => void;
   listRef: RefObject<HTMLDivElement | null>;
@@ -170,13 +166,23 @@ export function DeckPanes({
     >
       <div className="decklist" ref={listRef}>
         <div className="deck-toolbar">
+          {/* The four levels are the decklist's view modes, in the segmented
+              control the List/Cards pair used to sit in — Ultra-compact is
+              that old List view, so this is one control rather than two that
+              overlapped. Overrides the topbar default for this page alone,
+              and it is the only page that offers Lined-up. */}
           <div className="tabs small">
-            <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}>
-              List
-            </button>
-            <button className={view === 'cards' ? 'on' : ''} onClick={() => setView('cards')}>
-              Cards
-            </button>
+            {DENSITIES_FOR.deck.map((option) => (
+              <button
+                key={option}
+                className={option === density ? 'on' : ''}
+                aria-pressed={option === density}
+                title={DENSITY_HINT[option]}
+                onClick={() => onDensity(option)}
+              >
+                {DENSITY_LABEL[option]}
+              </button>
+            ))}
           </div>
           <label className="toolbar-sort">
             <span>Sort</span>
@@ -185,25 +191,6 @@ export function DeckPanes({
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
-          </label>
-          {/* Overrides the topbar default for the deck builder alone — and it
-              is the one page that offers Lined-up. Left visible in list view,
-              where it simply has nothing to act on. */}
-          <label className="toolbar-sort">
-            <span>Size</span>
-            <div className="density-choices">
-              {DENSITIES_FOR.deck.map((option) => (
-                <button
-                  key={option}
-                  className={`density-choice${option === density ? ' on' : ''}`}
-                  aria-pressed={option === density}
-                  title={DENSITY_HINT[option]}
-                  onClick={() => onDensity(option)}
-                >
-                  {DENSITY_LABEL[option]}
-                </button>
-              ))}
-            </div>
           </label>
         </div>
 
@@ -239,7 +226,7 @@ export function DeckPanes({
                 </p>
               )}
 
-              {view === 'cards' && density === 'lined' ? (
+              {density === 'lined' ? (
                 /* Lined-up: one column per group, wrapping within the centre
                    pane. A sort with a single "All cards" bucket falls out to
                    one column with no special-casing. */
@@ -284,7 +271,11 @@ export function DeckPanes({
                     <h4>{group.label}<span className="count">{group.count}</span></h4>
                   )}
 
-                  {view === 'list' ? (
+                  {/* Ultra-compact: no art, one text row per card. That row is
+                      `DeckRow`, which is where the board, category and
+                      collection controls live — the reason it stays a row
+                      rather than an artless tile. */}
+                  {density === 'ultra' ? (
                     group.cards.map((card) => (
                       <div data-oracle={card.oracleId} key={card.id}>
                         <DeckRow
