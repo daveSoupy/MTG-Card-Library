@@ -137,9 +137,12 @@ export function DeckBuilder({
 
   // The record is its own fetch: it changes when a game is logged, not when a
   // card moves, so it does not belong on the deck payload every edit reloads.
+  // Skipped entirely while the game log is parked — nothing would show it.
+  const showGameLog = Boolean(settings?.showGameLog);
   const loadRecord = useCallback(() => {
+    if (!showGameLog) return;
     fetchDeckGames(deckId).then((r) => setRecord(r.record)).catch(() => undefined);
-  }, [deckId]);
+  }, [deckId, showGameLog]);
 
   useEffect(loadRecord, [loadRecord]);
 
@@ -356,14 +359,16 @@ export function DeckBuilder({
         <button className="btn secondary" onClick={() => setPlaytesting(true)}>
           Playtest
         </button>
-        <button
-          className="btn secondary"
-          onClick={() => setGames(true)}
-          title="Games played with this deck, and its lifetime record"
-        >
-          Games
-          {record && record.games > 0 && <span className="record-chip">{formatRecord(record)}</span>}
-        </button>
+        {showGameLog && (
+          <button
+            className="btn secondary"
+            onClick={() => setGames(true)}
+            title="Games played with this deck, and its lifetime record"
+          >
+            Games
+            {record && record.games > 0 && <span className="record-chip">{formatRecord(record)}</span>}
+          </button>
+        )}
         <button className="btn secondary" onClick={() => setShopping(true)}>
           Shopping list
           {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
@@ -417,7 +422,7 @@ export function DeckBuilder({
         />
       )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
-      {games && (
+      {games && showGameLog && (
         <DeckGamesPanel
           deckId={deck.id}
           onChanged={loadRecord}

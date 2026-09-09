@@ -17,6 +17,14 @@ import type Database from 'better-sqlite3';
  * event second.
  */
 
+/**
+ * Setting key: when '1', the Games tab and the deck builder's Games button
+ * appear. Off by default — the feature is complete but parked, and hiding it
+ * is a UI decision only: the routes stay registered, and every event and game
+ * already recorded is still there when it is switched back on.
+ */
+export const SHOW_GAME_LOG = 'show_game_log';
+
 export type GameResult = 'win' | 'loss' | 'draw';
 export const GAME_RESULTS: GameResult[] = ['win', 'loss', 'draw'];
 

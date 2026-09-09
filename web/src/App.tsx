@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchStatus, fetchWantItemsForOracle,
-  fetchWantList, fetchWantLists, imageUrl, removeWantItem, searchCards,
-  type CardSummary, type FormatRecord, type NamedList, type SetRecord, type StatusResponse,
-  type StorageLocation,
+  addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchSettings, fetchStatus,
+  fetchWantItemsForOracle, fetchWantList, fetchWantLists, imageUrl, removeWantItem, searchCards,
+  type AppSettings, type CardSummary, type FormatRecord, type NamedList, type SetRecord,
+  type StatusResponse, type StorageLocation,
 } from './api.ts';
 import { EMPTY_FILTERS, FilterPanel, filtersAreActive, type Filters } from './components/FilterPanel.tsx';
 import { CardDetailPane } from './components/CardDetailPane.tsx';
@@ -109,6 +109,9 @@ export default function App() {
   const [densityPrefs, setDensityPrefs] = useState(loadDensity);
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
   const [wantLists, setWantLists] = useState<NamedList[]>([]);
+  // Only for the settings that decide what the shell shows. Every page that
+  // needs more of them still fetches its own copy.
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   // Overrides the "wanted" state a search result or card detail carries from
   // its own fetch, so an add/remove reflects immediately without waiting on
   // a refetch. Value is the item's id in the default want list once added
@@ -171,13 +174,25 @@ export default function App() {
 
   useEffect(loadStatus, [loadStatus]);
 
+  const loadSettings = useCallback(() => {
+    fetchSettings().then(setSettings).catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!status?.library.hasCardData) return;
     fetchSets().then(setSets).catch(() => undefined);
     fetchFormats().then(setFormats).catch(() => undefined);
     fetchLocations().then(setLocations).catch(() => undefined);
     fetchWantLists().then(setWantLists).catch(() => undefined);
-  }, [status?.library.hasCardData]);
+    loadSettings();
+  }, [status?.library.hasCardData, loadSettings]);
+
+  // Parked features hide their tab. Switching one off while looking at it would
+  // otherwise leave the page on screen with no way back to it.
+  const showGameLog = Boolean(settings?.showGameLog);
+  useEffect(() => {
+    if (!showGameLog && view.name === 'games') setView({ name: 'collection' });
+  }, [showGameLog, view.name]);
 
   const defaultWantListId = wantLists.find((l) => l.is_default)?.id ?? wantLists[0]?.id;
 
@@ -305,10 +320,12 @@ export default function App() {
             className={view.name === 'trades' ? 'on' : ''}
             onClick={() => setView({ name: 'trades' })}
           >Trade</button>
-          <button
-            className={view.name === 'games' ? 'on' : ''}
-            onClick={() => setView({ name: 'games' })}
-          >Games</button>
+          {showGameLog && (
+            <button
+              className={view.name === 'games' ? 'on' : ''}
+              onClick={() => setView({ name: 'games' })}
+            >Games</button>
+          )}
           <button
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => setView({ name: 'data' })}
@@ -398,12 +415,13 @@ export default function App() {
         <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
       )}
 
-      {view.name === 'games' && <GamesPage formats={formats} />}
+      {view.name === 'games' && showGameLog && <GamesPage formats={formats} />}
 
       {view.name === 'data' && (
         <DataPage
           locations={locations}
           onCollectionChanged={() => { setDataEpoch((n) => n + 1); loadStatus(); }}
+          onSettingsChanged={loadSettings}
           theme={theme}
           onTheme={setTheme}
           onSync={() => setShowSync(true)}
