@@ -6,6 +6,8 @@ import {
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { UndoToast } from './UndoToast.tsx';
+import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const PRIORITY = ['—', 'Low', 'Medium', 'High'];
@@ -19,6 +21,10 @@ export function WantListsPage() {
   const [lists, setLists] = useState<NamedList[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [list, setList] = useState<WantList | null>(null);
+  // Same as the trade list beside it: a want removed by a misplaced tap was
+  // gone for good.
+  const undoStack = useUndoStack();
+  useUndoShortcuts(undoStack);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -51,6 +57,40 @@ export function WantListsPage() {
     if (!name?.trim()) return;
     try { await renameWantList(activeId, name.trim()); loadLists(); reload(); }
     catch (e: any) { setError(e.message); }
+  };
+
+  /**
+   * Removes a want, and remembers how to put it back. Re-adding makes a new
+   * row, so redo follows whatever id the add returned.
+   */
+  const removeItem = async (item: WantListItem) => {
+    if (activeId === null) return;
+    const listId = activeId;
+    setError(null);
+    try {
+      const without = await removeWantItem(listId, item.id);
+      setList(without);
+      loadLists();
+
+      const remaining = new Set(without.items.map((i) => i.id));
+      let id = item.id;
+      const fields = {
+        quantity: item.quantity, targetPriceUsd: item.targetPriceUsd,
+        priority: item.priority, notes: item.notes,
+      };
+      undoStack.record({
+        label: `Removed ${item.name}`,
+        undo: async () => {
+          const next = await addWantItem(listId, item.oracleId, fields);
+          id = next.items.find((i) => !remaining.has(i.id))?.id ?? id;
+          setList(next);
+          loadLists();
+        },
+        redo: async () => { setList(await removeWantItem(listId, id)); loadLists(); },
+      });
+    } catch (e: any) {
+      setError(e.message);
+    }
   };
 
   const remove = async () => {
@@ -152,7 +192,7 @@ export function WantListsPage() {
                     onChange={(e) => patch(item, { targetPriceUsd: e.target.value === '' ? null : Number(e.target.value) })} />
                 </label>
                 <div className="want-price">{money(item.priceUsd)}</div>
-                <button className="row-remove" onClick={async () => { if (activeId != null) { setList(await removeWantItem(activeId, item.id)); loadLists(); } }}
+                <button className="row-remove" onClick={() => removeItem(item)}
                   aria-label={`Remove ${item.name}`}>×</button>
               </div>
             ))}
@@ -172,6 +212,7 @@ export function WantListsPage() {
         </div>
       )}
 
+      <UndoToast stack={undoStack} />
       <BackToTop label="Back to the top of the list" />
     </div>
   );

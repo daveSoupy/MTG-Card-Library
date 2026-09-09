@@ -6,6 +6,8 @@ import {
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { UndoToast } from './UndoToast.tsx';
+import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 
@@ -18,6 +20,10 @@ export function TradeListsPage() {
   const [lists, setLists] = useState<NamedList[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [list, setList] = useState<TradeList | null>(null);
+  // Taking a copy off the list used to be final, and this is a list you prune
+  // while someone is waiting on an answer.
+  const undoStack = useUndoStack();
+  useUndoShortcuts(undoStack);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [lots, setLots] = useState<{ name: string; lots: CollectionLot[] } | null>(null);
@@ -53,6 +59,42 @@ export function TradeListsPage() {
     if (activeId == null || !confirm(`Delete "${list?.name}"?`)) return;
     try { await deleteTradeList(activeId); setActiveId(null); loadLists(); }
     catch (e: any) { setError(e.message); }
+  };
+
+  /**
+   * Takes a copy off the list, and remembers how to put it back.
+   *
+   * Re-adding makes a new row rather than restoring the old one, so redo
+   * follows whatever id the add returned — read from that response rather
+   * than from `list`, which is whatever this render captured.
+   */
+  const removeItem = async (item: TradeList['items'][number]) => {
+    if (activeId === null) return;
+    const listId = activeId;
+    setError(null);
+    try {
+      const without = await removeTradeListItem(listId, item.id);
+      setList(without);
+      loadLists();
+
+      const remaining = new Set(without.items.map((i) => i.id));
+      let id = item.id;
+      const fields = {
+        quantity: item.quantity, askingPriceUsd: item.askingPriceUsd, notes: item.notes,
+      };
+      undoStack.record({
+        label: `Removed ${item.name}`,
+        undo: async () => {
+          const next = await addTradeListItem(listId, item.collectionItemId, fields);
+          id = next.items.find((i) => !remaining.has(i.id))?.id ?? id;
+          setList(next);
+          loadLists();
+        },
+        redo: async () => { setList(await removeTradeListItem(listId, id)); loadLists(); },
+      });
+    } catch (e: any) {
+      setError(e.message);
+    }
   };
 
   const pickCard = async (oracleId: string, name: string) => {
@@ -146,7 +188,7 @@ export function TradeListsPage() {
                   <input type="number" step="0.01" placeholder={money(item.marketUsd)} value={item.askingPriceUsd ?? ''}
                     onChange={async (e) => { if (activeId != null) setList(await updateTradeListItem(activeId, item.id, { askingPriceUsd: e.target.value === '' ? null : Number(e.target.value) })); }} />
                 </label>
-                <button className="row-remove" onClick={async () => { if (activeId != null) { setList(await removeTradeListItem(activeId, item.id)); loadLists(); } }}
+                <button className="row-remove" onClick={() => removeItem(item)}
                   aria-label={`Remove ${item.name}`}>×</button>
               </div>
             ))}
@@ -154,6 +196,7 @@ export function TradeListsPage() {
         </div>
       )}
 
+      <UndoToast stack={undoStack} />
       <BackToTop label="Back to the top of the list" />
     </div>
   );
