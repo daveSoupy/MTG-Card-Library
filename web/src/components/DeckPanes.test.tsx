@@ -55,10 +55,9 @@ describe('DeckPanes', () => {
         problemFor={() => null}
         requiresCommander={false}
         identity={null}
-        view="list"
         cardSort="type"
-        setView={vi.fn()}
-        density="full"
+        // Ultra-compact is the text list the "List" view mode used to be.
+        density="ultra"
         onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
@@ -85,9 +84,7 @@ describe('DeckPanes', () => {
         problemFor={() => null}
         requiresCommander={false}
         identity={null}
-        view="list"
         cardSort="type"
-        setView={vi.fn()}
         density="full"
         onDensity={vi.fn()}
         setCardSort={vi.fn()}
@@ -125,9 +122,7 @@ describe('DeckPanes', () => {
         problemFor={() => null}
         requiresCommander={false}
         identity={null}
-        view="list"
         cardSort="type"
-        setView={vi.fn()}
         density="full"
         onDensity={vi.fn()}
         setCardSort={vi.fn()}

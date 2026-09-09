@@ -84,7 +84,7 @@ const picker = (): DeckPickerState => ({
   preview: null, setPreview: noop, coverNote: null, setCoverNote: noop,
 });
 
-function renderPanes(cards: DeckCard[], density: Density, view: 'list' | 'cards' = 'cards') {
+function renderPanes(cards: DeckCard[], density: Density) {
   return render(
     <DeckPanes
       deck={deckWith(cards)}
@@ -92,9 +92,7 @@ function renderPanes(cards: DeckCard[], density: Density, view: 'list' | 'cards'
       problemFor={() => null}
       requiresCommander={false}
       identity={null}
-      view={view}
       cardSort="type"
-      setView={noop}
       setCardSort={noop}
       density={density}
       onDensity={noop}
@@ -114,20 +112,6 @@ function renderPanes(cards: DeckCard[], density: Density, view: 'list' | 'cards'
 describe('Ultra-compact leaves the art out of the DOM', () => {
   // Not "hidden by CSS": at collection scale the point is that no thumbnail is
   // requested at all, which only holds if the element is never rendered.
-  it('on a deck tile', () => {
-    const { container, rerender } = render(
-      <DeckTile card={deckCard()} problem={null} onQuantity={noop} onArt={noop} onRemove={noop} />,
-    );
-    expect(container.querySelector('img')).not.toBeNull();
-
-    rerender(
-      <DeckTile card={deckCard()} problem={null} density="ultra"
-                onQuantity={noop} onArt={noop} onRemove={noop} />,
-    );
-    expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByText('Sol Ring')).toBeInTheDocument();
-  });
-
   it('on a collection lot tile', () => {
     const { container, rerender } = render(
       <OwnedGrid cards={[collectionCard]} selected={null} onSelect={noop} />,
@@ -155,9 +139,14 @@ describe('Ultra-compact leaves the art out of the DOM', () => {
     expect(screen.getByText('Black Lotus')).toBeInTheDocument();
   });
 
-  it('on the deck grid as a whole', () => {
+  it('on the decklist, which drops to text rows entirely', () => {
     const { container } = renderPanes([deckCard()], 'ultra');
-    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('.decklist img')).toBeNull();
+    // Ultra-compact *is* the old List view, so the row keeps the board,
+    // category and collection controls a tile never had.
+    expect(container.querySelectorAll('.decklist .deck-tile').length).toBe(0);
+    expect(container.querySelectorAll('.decklist .deck-row').length).toBe(1);
+    expect(screen.getByLabelText('Move Sol Ring')).toBeInTheDocument();
   });
 });
 
@@ -194,7 +183,7 @@ describe('Lined-up', () => {
     const { container } = render(
       <DeckPanes
         deck={deckWith(cards)} apply={noop} problemFor={() => null} requiresCommander={false}
-        identity={null} view="cards" cardSort="name" setView={noop} setCardSort={noop}
+        identity={null} cardSort="name" setCardSort={noop}
         density="lined" onDensity={noop} listRef={createRef()} picker={picker()}
         setArtFor={noop} setError={noop} jumpToCard={noop} onFilterShortfall={noop}
         showTemplates={false}
@@ -245,31 +234,41 @@ describe('Lined-up', () => {
   });
 });
 
-describe('list view', () => {
+describe('the decklist toolbar', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('renders identically at every density', () => {
-    // List view renders DeckRow, which has no art to size — so the four levels
-    // have nothing to act on there.
-    const cards = [deckCard({ id: 1, name: 'Alpha' }), deckCard({ id: 2, name: 'Beta' })];
-    const densities: Density[] = ['full', 'lined', 'compact', 'ultra'];
-    const rendered = densities.map((density) => {
-      const { container, unmount } = renderPanes(cards, density, 'list');
-      // The cards themselves, not the toolbar — the Size control naturally
-      // shows which level is picked; what it would act on does not change.
-      const html = [...container.querySelectorAll('.board')].map((b) => b.innerHTML).join('');
-      unmount();
-      return html;
-    });
-    for (const html of rendered.slice(1)) expect(html).toBe(rendered[0]);
+  it('offers the four levels as the view modes, and nothing else', () => {
+    // The List/Cards pair is gone: those two were the same choice this control
+    // already makes, so there is one segmented control rather than two.
+    const { container } = renderPanes([deckCard()], 'full');
+    const tabs = container.querySelector('.deck-toolbar .tabs.small')!;
+    expect([...tabs.querySelectorAll('button')].map((b) => b.textContent))
+      .toEqual(['Full', 'Lined-up', 'Compact', 'Ultra-compact']);
+    expect(container.querySelectorAll('.deck-toolbar .tabs').length).toBe(1);
+    expect(tabs.querySelector('.on')!.textContent).toBe('Full');
   });
 
-  it('tints each row by colour identity', () => {
+  it('reports the level that was picked', () => {
+    const onDensity = vi.fn();
+    render(
+      <DeckPanes
+        deck={deckWith([deckCard()])} apply={noop} problemFor={() => null}
+        requiresCommander={false} identity={null} cardSort="type" setCardSort={noop}
+        density="full" onDensity={onDensity} listRef={createRef()} picker={picker()}
+        setArtFor={noop} setError={noop} jumpToCard={noop} onFilterShortfall={noop}
+        showTemplates={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Lined-up' }));
+    expect(onDensity).toHaveBeenCalledWith('lined');
+  });
+
+  it('tints each text row by colour identity', () => {
     const { container } = renderPanes([
       deckCard({ id: 1, colorIdentity: 'G' }),
       deckCard({ id: 2, colorIdentity: 'WU' }),
       deckCard({ id: 3, colorIdentity: '' }),
-    ], 'full', 'list');
+    ], 'ultra');
     expect([...container.querySelectorAll('.deck-row')].map((r) => r.getAttribute('data-identity')))
       .toEqual(['G', 'M', 'C']);
   });

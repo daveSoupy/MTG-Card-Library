@@ -2,9 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { imageUrl, type DeckCard } from '../api.ts';
 import type { Density } from '../density.ts';
 
-const money = (value: number | null | undefined) =>
-  value == null ? '—' : `$${Number(value).toFixed(2)}`;
-
 export function DeckTile({
   card,
   problem,
@@ -21,9 +18,11 @@ export function DeckTile({
   onQuantity: (delta: number) => void;
   onArt: () => void;
   onRemove: () => void;
+  /** Only Lined-up changes a tile: Full and Compact size the grid around it,
+   *  and Ultra-compact renders `DeckRow` instead of any tile at all. */
   density?: Density;
   /** Lined-up covers all but a name strip, so hovering one shows it whole —
-   *  the same callback `DeckRow` already uses in list view. */
+   *  the same callback `DeckRow` already uses in the text list. */
   onPreview?: () => void;
   /** Touch has no hover, so in Lined-up a tap shows the card instead of the
    *  controls. A deliberate exception to Phase 9's tap-to-reveal pattern. */
@@ -67,38 +66,22 @@ export function DeckTile({
         setOpen((current) => !current);
       }}
     >
-      {/* Ultra-compact has no art element at all — not a hidden one. The row
-          carries what the art was standing in for. */}
-      {density === 'ultra' ? (
-        <div className="text-row">
-          <span className="tr-qty">×{card.quantity}</span>
-          <span className="tr-name">{card.name}</span>
-          <span className="tr-set">
-            {card.manaCost ?? ''}
-            {card.setCode ? ` · ${card.setCode.toUpperCase()}` : ''}
-          </span>
-          <span className="tr-price">{money(card.priceUsd)}</span>
-        </div>
+      {card.printingId && card.imageSmall ? (
+        <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
       ) : (
-        <>
-          {card.printingId && card.imageSmall ? (
-            <img src={imageUrl(card.printingId, 'small')} alt={card.name} loading="lazy" decoding="async" />
-          ) : (
-            <div className="placeholder">{card.name}</div>
-          )}
+        <div className="placeholder">{card.name}</div>
+      )}
 
-          <span className="tile-qty">{card.quantity}</span>
-          {card.quantityFromCollection > 0 && (
-            <span className="tile-owned" title="Claimed from your collection">
-              {card.quantityFromCollection}
-            </span>
-          )}
-          {/* Lined-up leaves only the card's own printed name/cost strip
-              showing. A placeholder has no printed name, so it gets one. */}
-          {lined && !(card.printingId && card.imageSmall) && (
-            <span className="cascade-strip">{card.name}</span>
-          )}
-        </>
+      <span className="tile-qty">{card.quantity}</span>
+      {card.quantityFromCollection > 0 && (
+        <span className="tile-owned" title="Claimed from your collection">
+          {card.quantityFromCollection}
+        </span>
+      )}
+      {/* Lined-up leaves only the card's own printed name/cost strip showing.
+          A placeholder has no printed name, so it gets one. */}
+      {lined && !(card.printingId && card.imageSmall) && (
+        <span className="cascade-strip">{card.name}</span>
       )}
 
       {/* Controls sit over the art on hover — or after a tap — so the grid
