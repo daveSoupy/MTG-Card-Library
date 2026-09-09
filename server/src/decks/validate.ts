@@ -1,4 +1,4 @@
-import { colorsFromMask, normalizeName } from '../model/mtg.ts';
+import { colorsFromMask, normalizeName, UNLIMITED_COPIES } from '../model/mtg.ts';
 import type { DeckCard, DeckIssue, DeckValidation, FormatRules } from './types.ts';
 
 /**
@@ -109,10 +109,35 @@ function checkSideboard(issues: DeckIssue[], rules: FormatRules, sideboardCount:
 }
 
 /**
+ * How many copies of one card this deck may hold, counting main, sideboard and
+ * command zone together.
+ *
+ * Precedence, strongest first:
+ *
+ *  1. Restricted — a format's ban list capping a card at 1 outranks anything
+ *     the card says about itself. No printed card is both, but the ban list is
+ *     the format's word and wins on principle.
+ *  2. The card's own deck-construction clause, read from its rules text at sync
+ *     (`deck_copy_limit`). This is what lets a Relentless Rats deck run 30 of
+ *     them, and it beats the singleton rule too: rule 903.5b exempts these
+ *     cards from Commander's one-of-each restriction by name-checking exactly
+ *     that sentence.
+ *  3. The format's own `max_copies`.
+ *
+ * Returns Infinity for "any number", so callers compare rather than branch.
+ */
+function copyLimitFor(card: DeckCard, rules: FormatRules): number {
+  if (card.legality === 'restricted') return 1;
+  if (card.deckCopyLimit === UNLIMITED_COPIES) return Number.POSITIVE_INFINITY;
+  if (card.deckCopyLimit !== null && card.deckCopyLimit > 0) return card.deckCopyLimit;
+  return rules.maxCopies;
+}
+
+/**
  * Copy limits count main and sideboard together, which is the actual rule —
  * four Lightning Bolts maindeck plus one in the sideboard is five, not "four
  * and one". Basic lands are exempt, and so are cards whose text overrides the
- * limit (Relentless Rats and friends).
+ * limit (Relentless Rats and friends) — see copyLimitFor.
  */
 function checkCopyLimits(issues: DeckIssue[], rules: FormatRules, cards: DeckCard[]): void {
   const counted = cards.filter((c) => c.board === 'main' || c.board === 'side' || c.board === 'command');
@@ -126,11 +151,24 @@ function checkCopyLimits(issues: DeckIssue[], rules: FormatRules, cards: DeckCar
 
   for (const { card, quantity } of totals.values()) {
     if (rules.basicsExempt && card.isBasicLand) continue;
-    // A restricted card is capped at 1 regardless of the format's usual limit.
-    const limit = card.legality === 'restricted' ? 1 : rules.maxCopies;
+    const limit = copyLimitFor(card, rules);
     if (quantity <= limit) continue;
 
-    if (card.legality === 'restricted') {
+    // A card carrying its own cap gets its own message: saying "Commander is
+    // singleton" about Seven Dwarves would be wrong twice over, since the
+    // deck may have seven of them and the limit is the card's, not the format's.
+    const cardImposedLimit =
+      card.legality !== 'restricted' && card.deckCopyLimit !== null && card.deckCopyLimit > 0;
+
+    if (cardImposedLimit) {
+      issues.push({
+        severity: 'error',
+        code: 'card_copy_limit',
+        message: `${card.name} allows at most ${limit} cop${limit === 1 ? 'y' : 'ies'} per deck, this deck has ${quantity}.`,
+        oracleId: card.oracleId,
+        cardName: card.name,
+      });
+    } else if (card.legality === 'restricted') {
       issues.push({
         severity: 'error',
         code: 'restricted',

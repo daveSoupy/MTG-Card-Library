@@ -144,6 +144,14 @@ function isFragment(value: string): Fragment | null {
     case 'reserved':   return { sql: 'o.is_reserved = 1', params: [] };
     case 'background': return { sql: 'o.can_be_background = 1', params: [] };
     case 'partner':    return { sql: 'o.can_be_partner = 1', params: [] };
+    // "A deck can have any number of cards named ..." — the Relentless Rats
+    // family. Answers "which cards are exempt from the 4-of rule right now"
+    // without anyone maintaining a list of names.
+    case 'anynumber': case 'unlimited':
+      return { sql: 'o.deck_copy_limit = -1', params: [] };
+    // Those plus the ones with a printed cap of their own (Nazgûl, Seven Dwarves).
+    case 'copylimit':
+      return { sql: 'o.deck_copy_limit IS NOT NULL', params: [] };
     case 'land':       return { sql: `o.type_line LIKE '%Land%'`, params: [] };
     case 'creature':   return { sql: `o.type_line LIKE '%Creature%'`, params: [] };
     case 'digital':    return { sql: 'dp.is_digital = 1', params: [] };

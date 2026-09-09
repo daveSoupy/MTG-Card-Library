@@ -45,7 +45,7 @@ function card(overrides: Partial<DeckCard> = {}): DeckCard {
     colorIdentity: 'G', colorIdentityMask: 16, colorsMask: 16,
     isBasicLand: false, isLegendary: false, canBeCommander: false, hasUncommonPrinting: false,
     partnerKind: null, partnerWith: null,
-    legality: 'legal', ownedQuantity: 0, availableQuantity: 0,
+    legality: 'legal', deckCopyLimit: null, ownedQuantity: 0, availableQuantity: 0,
     printingId: null, setCode: null, rarity: 'common', imageSmall: null, priceUsd: null,
     ...overrides,
   };
@@ -137,6 +137,82 @@ test('singleton formats report a singleton violation, not a generic copy limit',
   const issue = result.issues.find((i) => i.code === 'singleton');
   assert.ok(issue, 'expected a singleton issue');
   assert.match(issue!.message, /only 1 copy of Sol Ring/i);
+});
+
+test('a card saying "any number" ignores the format copy limit', () => {
+  const rats = () => card({
+    oracleId: 'rats', name: 'Relentless Rats', quantity: 30, deckCopyLimit: -1,
+  });
+  const modern = validateDeck([rats(), ...filler(30)], MODERN);
+  assert.equal(codes(modern.issues).includes('copy_limit'), false);
+  assert.equal(modern.isLegal, true);
+
+  // Rule 903.5b exempts these cards from the singleton rule too, so a
+  // Commander deck may run 30 of them.
+  const commander = validateDeck(
+    [card({ board: 'command', quantity: 1, canBeCommander: true, isLegendary: true, colorIdentityMask: 0, colorIdentity: '' }),
+     rats(), ...filler(69, { colorIdentityMask: 0, colorIdentity: '' })],
+    COMMANDER,
+  );
+  assert.equal(codes(commander.issues).includes('singleton'), false);
+});
+
+test('a card with its own printed cap is held to it, over and under', () => {
+  const dwarves = (quantity: number) => card({
+    oracleId: 'dwarves', name: 'Seven Dwarves', quantity, deckCopyLimit: 7,
+  });
+
+  const legal = validateDeck([dwarves(7), ...filler(53)], MODERN);
+  assert.equal(codes(legal.issues).includes('card_copy_limit'), false);
+  assert.equal(legal.isLegal, true);
+
+  const tooMany = validateDeck([dwarves(8), ...filler(52)], MODERN);
+  const issue = tooMany.issues.find((i) => i.code === 'card_copy_limit');
+  assert.ok(issue, 'expected a card_copy_limit issue');
+  assert.match(issue.message, /Seven Dwarves allows at most 7 copies per deck, this deck has 8\./);
+  // The cap is the card's, so neither the format's limit nor singleton is cited.
+  assert.equal(codes(tooMany.issues).includes('copy_limit'), false);
+});
+
+test('a printed cap beats the singleton rule but still binds', () => {
+  const nazgul = (quantity: number) => card({
+    oracleId: 'nazgul', name: 'Nazgûl', quantity, deckCopyLimit: 9,
+    colorIdentityMask: 0, colorIdentity: '',
+  });
+  const commanderDeck = (quantity: number) => [
+    card({ board: 'command', quantity: 1, canBeCommander: true, isLegendary: true, colorIdentityMask: 0, colorIdentity: '' }),
+    nazgul(quantity),
+    ...filler(99 - quantity, { colorIdentityMask: 0, colorIdentity: '' }),
+  ];
+
+  assert.equal(codes(validateDeck(commanderDeck(9), COMMANDER).issues).includes('singleton'), false);
+
+  const tooMany = validateDeck(commanderDeck(10), COMMANDER);
+  assert.equal(codes(tooMany.issues).includes('card_copy_limit'), true);
+  assert.equal(codes(tooMany.issues).includes('singleton'), false);
+});
+
+test('restriction outranks a copy limit printed on the card', () => {
+  const result = validateDeck(
+    [card({ oracleId: 'x', name: 'Hypothetical Rat', quantity: 2, deckCopyLimit: -1, legality: 'restricted' }),
+     ...filler(58)],
+    VINTAGE,
+  );
+  assert.equal(codes(result.issues).includes('restricted'), true);
+  assert.equal(codes(result.issues).includes('card_copy_limit'), false);
+});
+
+test('copies of an unlimited card still count across main and sideboard', () => {
+  // Not a limit check — the point is that the exemption does not accidentally
+  // drop the card out of the deck-size and sideboard totals.
+  const result = validateDeck(
+    [card({ oracleId: 'rats', name: 'Relentless Rats', quantity: 40 }),
+     card({ oracleId: 'rats2', name: 'Rat Colony', board: 'side', quantity: 4, deckCopyLimit: -1 }),
+     ...filler(20)],
+    MODERN,
+  );
+  assert.equal(result.mainCount, 60);
+  assert.equal(result.sideboardCount, 4);
 });
 
 test('restricted cards are capped at 1 even where the format allows 4', () => {

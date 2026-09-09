@@ -370,4 +370,47 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_card_rulings_oracle ON card_rulings(oracle_id);
     `,
   },
+  {
+    version: 15,
+    description: 'Per-card deck copy limits (Relentless Rats and friends)',
+    sql: `
+      ALTER TABLE oracle_cards ADD COLUMN deck_copy_limit INTEGER;
+
+      -- Backfilled here rather than left to the next sync, so an existing
+      -- database enforces the exemption immediately. The patterns mirror
+      -- parseDeckCopyLimit() in src/model/mtg.ts; keep the two in step.
+      UPDATE oracle_cards SET deck_copy_limit = -1
+       WHERE oracle_text_all LIKE '%deck can have any number of cards named%';
+
+      -- "up to nine cards named Nazgul", "only one card named 1996 World
+      -- Champion". Joined against a word list so the spelling-to-number
+      -- mapping is written once instead of once per number.
+      UPDATE oracle_cards SET deck_copy_limit = w.n
+        FROM (SELECT 'one' AS word, 1 AS n
+              UNION ALL SELECT 'two', 2       UNION ALL SELECT 'three', 3
+              UNION ALL SELECT 'four', 4      UNION ALL SELECT 'five', 5
+              UNION ALL SELECT 'six', 6       UNION ALL SELECT 'seven', 7
+              UNION ALL SELECT 'eight', 8     UNION ALL SELECT 'nine', 9
+              UNION ALL SELECT 'ten', 10      UNION ALL SELECT 'eleven', 11
+              UNION ALL SELECT 'twelve', 12   UNION ALL SELECT 'thirteen', 13
+              UNION ALL SELECT 'fourteen', 14 UNION ALL SELECT 'fifteen', 15
+              UNION ALL SELECT 'sixteen', 16  UNION ALL SELECT 'seventeen', 17
+              UNION ALL SELECT 'eighteen', 18 UNION ALL SELECT 'nineteen', 19
+              UNION ALL SELECT 'twenty', 20) AS w
+       WHERE oracle_cards.deck_copy_limit IS NULL
+         AND (oracle_cards.oracle_text_all
+                LIKE '%deck can have up to ' || w.word || ' card%'
+           OR oracle_cards.oracle_text_all
+                LIKE '%deck can have only ' || w.word || ' card%');
+
+      -- Same fallback as the parser: a clause whose number the word list does
+      -- not cover still overrides the format, we just cannot read by how much.
+      UPDATE oracle_cards SET deck_copy_limit = -1
+       WHERE deck_copy_limit IS NULL
+         AND (oracle_text_all LIKE '%deck can have up to %cards named%'
+           OR oracle_text_all LIKE '%deck can have only %cards named%'
+           OR oracle_text_all LIKE '%deck can have up to %card named%'
+           OR oracle_text_all LIKE '%deck can have only %card named%');
+    `,
+  },
 ];
