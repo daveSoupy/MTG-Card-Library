@@ -459,4 +459,60 @@ export const MIGRATIONS: Migration[] = [
           ('sealed', 'Sealed', 40, NULL, 99, 0, NULL, 0, 0, 1, 240);
     `,
   },
+  {
+    version: 17,
+    description: 'Games outlive the deck they were played with (Phase 11)',
+    sql: `
+      -- Stamped as the deck is deleted; NULL for as long as the deck exists,
+      -- which is the only copy of its name worth reading until then.
+      ALTER TABLE games ADD COLUMN deck_name TEXT;
+
+      -- deck_id has to become nullable, with ON DELETE SET NULL in place of
+      -- CASCADE, and SQLite can change neither in place — so the table is
+      -- rebuilt. Safe inside the runner's transaction: games is a child of
+      -- decks and events, no view reads it, and nothing else references it, so
+      -- nothing cascades and no reference needs rewriting.
+      --
+      -- The trigger below is the exception, and it goes first: SQLite
+      -- validates every trigger body whenever the schema is re-read, so
+      -- dropping games out from under one that writes to it fails the whole
+      -- migration. Same reason v10 dropped its views before rebuilding
+      -- deck_cards. Harmless on the upgrade path, where it does not exist yet.
+      DROP TRIGGER IF EXISTS trg_games_keep_deck_name;
+      DROP INDEX IF EXISTS idx_games_deck;
+      DROP INDEX IF EXISTS idx_games_event;
+
+      CREATE TABLE games_new (
+          id           INTEGER PRIMARY KEY,
+          event_id     INTEGER REFERENCES events(id) ON DELETE SET NULL,
+          deck_id      INTEGER REFERENCES decks(id) ON DELETE SET NULL,
+          deck_name    TEXT,
+          played_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+          opponents    TEXT,
+          result       TEXT    NOT NULL CHECK (result IN ('win','loss','draw')),
+          games_won    INTEGER,
+          games_lost   INTEGER,
+          games_drawn  INTEGER,
+          round_number INTEGER,
+          notes        TEXT
+      );
+
+      INSERT INTO games_new
+        SELECT id, event_id, deck_id, deck_name, played_at, opponents, result,
+               games_won, games_lost, games_drawn, round_number, notes
+        FROM games;
+
+      DROP TABLE games;
+      ALTER TABLE games_new RENAME TO games;
+
+      CREATE INDEX idx_games_deck  ON games(deck_id, played_at DESC);
+      CREATE INDEX idx_games_event ON games(event_id, round_number);
+
+      -- The other half of SET NULL: without this a detached game would keep no
+      -- record of what it was played with.
+      CREATE TRIGGER trg_games_keep_deck_name BEFORE DELETE ON decks BEGIN
+          UPDATE games SET deck_name = OLD.name WHERE deck_id = OLD.id;
+      END;
+    `,
+  },
 ];

@@ -1264,8 +1264,11 @@ export interface Game {
   id: number;
   eventId: number | null;
   eventName: string | null;
-  deckId: number;
-  deckName: string;
+  /** Null once the deck has been deleted — the game itself survives. */
+  deckId: number | null;
+  /** The live deck's name, or the one kept from it when it was deleted. */
+  deckName: string | null;
+  /** Null for a detached game: the format lived on the deck. */
   formatCode: string | null;
   playedAt: string;
   opponents: string | null;

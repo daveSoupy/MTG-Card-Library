@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 16;
+PRAGMA user_version = 17;
 
 
 -- =====================================================================
@@ -1018,13 +1018,21 @@ CREATE INDEX idx_events_batch ON events(import_batch_id);
 -- counterparties: no accounts, no second entity.
 --
 -- Most games belong to no event at all (a constructed game at the kitchen
--- table), so event_id is nullable; deck_id is not, because a game with no
--- deck is not a record of anything. games_won/lost/drawn are the optional
--- Bo3 breakdown beneath `result`, which is always the match outcome.
+-- table), so event_id is nullable. So is deck_id: a game that was played
+-- stays played after the deck is dismantled, so deleting a deck detaches its
+-- games rather than erasing them, and deck_name below keeps the answer to
+-- "what was this played with". games_won/lost/drawn are the optional Bo3
+-- breakdown beneath `result`, which is always the match outcome.
+--
+-- deck_name is NULL for as long as the deck exists, because while it does the
+-- deck row is the one true copy of its name — renames included. The BEFORE
+-- DELETE trigger below stamps it on the way out, which is the only moment the
+-- name would otherwise be lost.
 CREATE TABLE games (
     id           INTEGER PRIMARY KEY,
     event_id     INTEGER REFERENCES events(id) ON DELETE SET NULL,
-    deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    deck_id      INTEGER REFERENCES decks(id) ON DELETE SET NULL,
+    deck_name    TEXT,
     played_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     opponents    TEXT,
     result       TEXT    NOT NULL CHECK (result IN ('win','loss','draw')),
@@ -1036,6 +1044,14 @@ CREATE TABLE games (
 );
 CREATE INDEX idx_games_deck  ON games(deck_id, played_at DESC);
 CREATE INDEX idx_games_event ON games(event_id, round_number);
+
+-- Keeps the deck's name on its games as the deck is deleted. A trigger rather
+-- than a step in DeckStore.delete() because the guarantee belongs with the
+-- ON DELETE SET NULL that makes it necessary: the two have to happen together
+-- or a game ends up with neither an id nor a name, whatever deleted the deck.
+CREATE TRIGGER trg_games_keep_deck_name BEFORE DELETE ON decks BEGIN
+    UPDATE games SET deck_name = OLD.name WHERE deck_id = OLD.id;
+END;
 
 
 -- =====================================================================

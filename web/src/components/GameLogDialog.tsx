@@ -73,12 +73,20 @@ export function GameLogDialog({
     fetchEvents().then(setEvents).catch(() => undefined);
   }, [lockDeck]);
 
+  // Editing a game whose deck has since been deleted. There is no deck to
+  // re-select, and forcing one would rewrite history to say it was played with
+  // something it was not — so the rest of the game stays editable and the deck
+  // is simply left as it is.
+  const detached = Boolean(game && game.deckId == null);
+
   const save = async () => {
-    if (deck === '') { setError('Which deck did you play?'); return; }
+    if (deck === '' && !detached) { setError('Which deck did you play?'); return; }
     setSaving(true);
     setError(null);
     const fields = {
-      deckId: Number(deck),
+      // Omitted rather than nulled for a detached game: absent means "leave it
+      // alone", where null would clear a deck that was just re-picked.
+      ...(deck === '' ? {} : { deckId: Number(deck) }),
       eventId: event === '' ? null : Number(event),
       result,
       opponents: opponents.trim() || null,
@@ -90,8 +98,10 @@ export function GameLogDialog({
       notes: notes.trim() || null,
     };
     try {
+      // A new game always has a deck — only an existing one can have lost its
+      // deck, and the guard above refuses anything else without one.
       if (game) await updateGame(game.id, fields);
-      else await logGame(fields);
+      else await logGame({ ...fields, deckId: Number(deck), result });
       onSaved();
       onClose();
     } catch (e) {
@@ -114,13 +124,20 @@ export function GameLogDialog({
           <label className="field">
             <span>Deck</span>
             <select value={deck} onChange={(e) => setDeck(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">Choose a deck…</option>
+              <option value="">
+                {detached ? `${game?.deckName ?? 'That deck'} — deleted` : 'Choose a deck…'}
+              </option>
               {decks.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}{d.formatName ? ` · ${d.formatName}` : ''}
                 </option>
               ))}
             </select>
+            {detached && (
+              <span className="hint">
+                This game outlived its deck. Pick another only if you want to move it.
+              </span>
+            )}
           </label>
         )}
 
