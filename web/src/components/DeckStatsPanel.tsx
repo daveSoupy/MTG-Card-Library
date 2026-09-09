@@ -103,9 +103,11 @@ function ManaBasePanel({ manaBase }: { manaBase: ManaBase }) {
 function TemplatePanel({
   progress,
   onFilterShortfall,
+  onResolveCategories,
 }: {
   progress: TemplateProgress;
   onFilterShortfall: (category: string) => void;
+  onResolveCategories: () => void;
 }) {
   return (
     <>
@@ -113,6 +115,19 @@ function TemplatePanel({
         {progress.templateName} — a starting point, not a rule. Categories overlap, so
         rows do not add up to the {progress.countedTotal}-card total.
       </p>
+      {/* Without this, every tag-derived row reads zero and looks like a
+          verdict on the deck rather than on the missing data. */}
+      {!progress.tagDataAvailable && (
+        <div className="tmpl-nodata">
+          <span>
+            Scryfall's card categories have not been resolved yet, so only categories you
+            set by hand are counted.
+          </span>
+          <button className="btn secondary small" onClick={onResolveCategories}>
+            Resolve now
+          </button>
+        </div>
+      )}
       {progress.rows.map((row) => (
         <div className={`tmpl-row${row.isShort ? ' short' : ''}`} key={row.category}>
           <span className="tmpl-name">{row.label}</span>
@@ -149,6 +164,7 @@ export function DeckStatsPanel({
   manaBase,
   templateProgress,
   showTemplates,
+  onResolveCategories,
   onJumpToCard,
   onFilterShortfall,
   floating = false,
@@ -160,6 +176,7 @@ export function DeckStatsPanel({
   templateProgress: TemplateProgress | null;
   /** The showDeckTemplates global setting — off hides the section entirely. */
   showTemplates: boolean;
+  onResolveCategories: () => void;
   onJumpToCard: (oracleId: string) => void;
   onFilterShortfall: (category: string) => void;
   /** Below 1200px the pane is not a column; it opens as an overlay instead of
@@ -247,7 +264,11 @@ export function DeckStatsPanel({
       {showTemplates && templateProgress && (
         <div className="fgroup">
           <h3>Template</h3>
-          <TemplatePanel progress={templateProgress} onFilterShortfall={onFilterShortfall} />
+          <TemplatePanel
+            progress={templateProgress}
+            onFilterShortfall={onFilterShortfall}
+            onResolveCategories={onResolveCategories}
+          />
         </div>
       )}
 

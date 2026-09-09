@@ -95,6 +95,7 @@ export function DeckPanes({
   jumpToCard,
   onFilterShortfall,
   showTemplates,
+  onResolveCategories,
   pickerFloating = false,
   statsFloating = false,
   onRequestPicker,
@@ -123,6 +124,8 @@ export function DeckPanes({
   jumpToCard: (oracleId: string) => void;
   onFilterShortfall: (category: string) => void;
   showTemplates: boolean;
+  /** Kicks off the tag resolution the Template panel offers when it has none. */
+  onResolveCategories: () => void;
   /** Narrow widths render the picker and the stats pane as overlays instead of
    *  columns — the same treatment CardDetailPane already gets. */
   pickerFloating?: boolean;
@@ -554,6 +557,7 @@ export function DeckPanes({
         manaBase={deck.manaBase}
         templateProgress={deck.templateProgress}
         showTemplates={showTemplates}
+        onResolveCategories={onResolveCategories}
         onJumpToCard={jumpToCard}
         onFilterShortfall={onFilterShortfall}
         floating={statsFloating}

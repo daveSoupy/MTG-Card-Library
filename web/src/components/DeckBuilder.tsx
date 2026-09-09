@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  addRecommendedLands, fetchDeck, fetchSettings, fetchTemplates, imageUrl, searchCards, updateDeck,
+  addRecommendedLands, fetchDeck, fetchSettings, fetchTemplates, imageUrl, resolveCategories,
+  searchCards, updateDeck,
   type AppSettings, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
@@ -410,6 +411,14 @@ export function DeckBuilder({
         jumpToCard={jumpToCard}
         onFilterShortfall={filterPickerByCategory}
         showTemplates={Boolean(settings?.showDeckTemplates)}
+        onResolveCategories={() => {
+          // Fire and re-read: resolution runs in the sync worker, so the deck
+          // is refetched once it has had time to write.
+          setError(null);
+          resolveCategories()
+            .then(() => setTimeout(load, 4000))
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+        }}
         pickerFloating={pickerFloating && pickerOpen}
         statsFloating={statsFloating && statsOpen}
         onRequestPicker={() => pickerFloating && setPickerOpen(true)}

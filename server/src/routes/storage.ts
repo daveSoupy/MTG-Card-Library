@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { statSync } from 'node:fs';
-import { libraryStatus, setSetting } from '../db/index.ts';
+import { getSetting, libraryStatus, setSetting } from '../db/index.ts';
 import { cacheSizeBytes, cacheLimitBytes } from '../images/cache.ts';
 import { CacheLimitError, type DownloadScope, type ImageDownloadManager } from '../images/downloadManager.ts';
 import { body as bodySchema } from './schema.ts';
@@ -44,6 +44,19 @@ export function registerStorageRoutes(
         oracleCards: library.oracleCards,
         printings: library.printings,
         sets: library.sets,
+      },
+      /**
+       * Phase 7's tag-derived categories. Reported because an empty
+       * card_categories is invisible everywhere else: the template tracker
+       * just reads "0 removal", which is indistinguishable from a deck that
+       * genuinely has none.
+       */
+      categories: {
+        cards: (db.prepare('SELECT COUNT(DISTINCT oracle_id) AS n FROM card_categories')
+          .get() as { n: number }).n,
+        rows: (db.prepare('SELECT COUNT(*) AS n FROM card_categories').get() as { n: number }).n,
+        syncedAt: getSetting(db, 'last_category_sync_at') || null,
+        error: getSetting(db, 'last_category_sync_error') || null,
       },
       coverage: downloads.referencedCoverage(),
       fullEstimateBytes: downloads.estimateFullBytes(),

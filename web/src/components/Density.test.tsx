@@ -103,6 +103,7 @@ function renderPanes(cards: DeckCard[], density: Density) {
       jumpToCard={noop}
       onFilterShortfall={noop}
       showTemplates={false}
+      onResolveCategories={noop}
     />,
   );
 }
@@ -186,7 +187,7 @@ describe('Lined-up', () => {
         identity={null} cardSort="name" setCardSort={noop}
         density="lined" onDensity={noop} listRef={createRef()} picker={picker()}
         setArtFor={noop} setError={noop} jumpToCard={noop} onFilterShortfall={noop}
-        showTemplates={false}
+        showTemplates={false} onResolveCategories={noop}
       />,
     );
     expect(container.querySelectorAll('.cascade-col').length).toBe(1);
@@ -258,7 +259,7 @@ describe('the decklist toolbar', () => {
         requiresCommander={false} identity={null} cardSort="type" setCardSort={noop}
         density="full" onDensity={onDensity} listRef={createRef()} picker={picker()}
         setArtFor={noop} setError={noop} jumpToCard={noop} onFilterShortfall={noop}
-        showTemplates={false}
+        showTemplates={false} onResolveCategories={noop}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Lined-up' }));

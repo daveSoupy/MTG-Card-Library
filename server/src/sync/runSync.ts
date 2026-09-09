@@ -56,6 +56,30 @@ const BATCH_SIZE = 2000;
  * full import takes tens of seconds, which would otherwise block every HTTP
  * request for the duration.
  */
+/**
+ * The bulk files that ride alongside the card import: Phase 7's category tags
+ * and Phase 8's rulings. Each is a separate fetch from a separate file on its
+ * own publishing schedule, and each swallows its own failures — a card sync
+ * that otherwise succeeded must never be reported as failed over either.
+ *
+ * Run on the "already up to date" path as well as the success path. They used
+ * to sit only after the short-circuit, which meant a database whose card data
+ * had not changed since these features shipped could never acquire either —
+ * exactly how card_categories stayed empty from Phase 7 onward. Each step
+ * gates on its own file's updated_at, so running them here is a listing fetch
+ * and nothing more when there is genuinely nothing to do.
+ */
+export async function runSideloads(
+  db: Database.Database,
+  { force = false, report }: { force?: boolean; report: (progress: SyncProgress) => void },
+): Promise<void> {
+  report({ phase: 'finalizing', message: 'Resolving card categories…', fraction: 0.99 });
+  await syncCardCategories(db, { force });
+
+  report({ phase: 'finalizing', message: 'Fetching rulings…', fraction: 0.99 });
+  await syncCardRulings(db, { force });
+}
+
 export async function runSync(
   db: Database.Database,
   { bulkType, force = false, onProgress }: SyncOptions = {},
@@ -72,6 +96,10 @@ export async function runSync(
   const hasCards = (db.prepare('SELECT count(*) AS n FROM oracle_cards').get() as { n: number }).n > 0;
 
   if (!force && hasCards && sameType && alreadyLoaded === entry.updatedAt) {
+    // The card file has nothing new, but the tag and rulings files are
+    // published on their own schedules — and on a database that predates
+    // either feature there is nothing to skip past yet.
+    await runSideloads(db, { report });
     report({ phase: 'skipped', message: 'Card data is already up to date.', fraction: 1 });
     return {
       status: 'skipped',
@@ -154,16 +182,7 @@ export async function runSync(
     // Now that prices are current, act on any want-list target prices.
     checkPriceTargets(db);
 
-    // Phase 7 category tags, a separate fetch from a separate (if now
-    // official) bulk file. Never lets a failure here fail a card sync that
-    // otherwise succeeded — templates just degrade to manual categories.
-    report({ phase: 'finalizing', message: 'Resolving card categories…', fraction: 0.99 });
-    await syncCardCategories(db);
-
-    // Phase 8 rulings, another independent bulk fetch. Same rule: a card sync
-    // that otherwise succeeded must not be reported as failed over this.
-    report({ phase: 'finalizing', message: 'Fetching rulings…', fraction: 0.99 });
-    await syncCardRulings(db);
+    await runSideloads(db, { report });
     if (pricePoints > 0) {
       report({
         phase: 'finalizing',

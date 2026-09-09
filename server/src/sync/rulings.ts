@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { getSetting, setSetting } from '../db/index.ts';
 import { USER_AGENT } from './scryfall.ts';
 
 /**
@@ -29,7 +30,7 @@ function normalizeRuling(raw: any): RulingRecord | null {
 }
 
 /** Looks up the rulings bulk entry, same listing as the card bulk files. */
-async function fetchRulingsEntry(): Promise<{ downloadUrl: string }> {
+async function fetchRulingsEntry(): Promise<{ downloadUrl: string; updatedAt: string }> {
   const response = await fetch('https://api.scryfall.com/bulk-data', {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
   });
@@ -43,16 +44,16 @@ async function fetchRulingsEntry(): Promise<{ downloadUrl: string }> {
   // plain download_uri for this bulk type, unlike the card files.
   const downloadUrl = entry.jsonl_download_uri ?? entry.download_uri;
   if (!downloadUrl) throw new Error('The "rulings" bulk entry had no download URI.');
-  return { downloadUrl };
+  return { downloadUrl, updatedAt: String(entry.updated_at ?? '') };
 }
 
 /**
  * Streams and parses every ruling from the bulk file — same one-object-per-line
  * gzipped format as the card bulk files, read the same way streamBulkCards does.
  */
-export async function fetchRulings(): Promise<RulingRecord[]> {
-  const entry = await fetchRulingsEntry();
-  const response = await fetch(entry.downloadUrl, { headers: { 'User-Agent': USER_AGENT } });
+export async function fetchRulings(entry?: { downloadUrl: string }): Promise<RulingRecord[]> {
+  const resolved = entry ?? await fetchRulingsEntry();
+  const response = await fetch(resolved.downloadUrl, { headers: { 'User-Agent': USER_AGENT } });
   if (!response.ok || !response.body) {
     throw new Error(`Downloading the rulings file failed with HTTP ${response.status}.`);
   }
@@ -110,21 +111,39 @@ export function writeCardRulings(
   })();
 }
 
+const LOADED_RULINGS_KEY = 'loaded_rulings_updated_at';
+
 /**
  * Fetches and writes Phase 8's card rulings. Never throws — a card sync that
  * otherwise succeeded must not be reported as failed because the rulings
  * file 404s or times out. Logs its own row to sync_log, independent of the
  * card sync's row, so the skipped count has somewhere to live.
+ *
+ * Skipped when the published file is the one already loaded and there are
+ * rulings to show for it. This became load-bearing when the side-loads
+ * started running on the card sync's "already up to date" path too: without
+ * it, every no-op sync re-downloaded and rewrote all ~79,000 rulings.
  */
-export async function syncCardRulings(db: Database.Database): Promise<boolean> {
+export async function syncCardRulings(
+  db: Database.Database,
+  { force = false }: { force?: boolean } = {},
+): Promise<boolean> {
   const startedAt = new Date().toISOString();
   try {
-    const rulings = await fetchRulings();
+    const entry = await fetchRulingsEntry();
+    const hasRulings =
+      (db.prepare('SELECT EXISTS(SELECT 1 FROM card_rulings) AS n').get() as { n: number }).n === 1;
+    if (!force && entry.updatedAt !== '' && getSetting(db, LOADED_RULINGS_KEY) === entry.updatedAt
+        && hasRulings) {
+      return true;
+    }
+    const rulings = await fetchRulings(entry);
     const { written, skipped } = writeCardRulings(db, rulings);
     db.prepare(`
       INSERT INTO sync_log (bulk_type, started_at, finished_at, status, printings_upserted, error_message)
       VALUES ('rulings', ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'), 'success', ?, ?)`)
       .run(startedAt, written, skipped > 0 ? `Skipped ${skipped} ruling(s) for unknown oracle_id.` : null);
+    setSetting(db, LOADED_RULINGS_KEY, entry.updatedAt);
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

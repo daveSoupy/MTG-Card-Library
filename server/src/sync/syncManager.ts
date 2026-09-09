@@ -51,7 +51,7 @@ export class SyncManager extends EventEmitter {
     return this.state.running;
   }
 
-  start(options: { bulkType?: BulkType; force?: boolean } = {}): SyncState {
+  start(options: { task?: 'cards' | 'categories'; bulkType?: BulkType; force?: boolean } = {}): SyncState {
     if (this.state.running) return this.current;
 
     // tsx and node --experimental-strip-types both load .ts directly; a built
@@ -61,7 +61,11 @@ export class SyncManager extends EventEmitter {
 
     this.state = {
       running: true,
-      progress: { phase: 'checking', message: 'Starting sync…', fraction: null },
+      progress: {
+        phase: 'checking',
+        message: options.task === 'categories' ? 'Resolving card categories…' : 'Starting sync…',
+        fraction: null,
+      },
       lastResult: null,
       lastError: null,
       startedAt: new Date().toISOString(),
@@ -70,7 +74,12 @@ export class SyncManager extends EventEmitter {
     this.emit('progress', this.state.progress);
 
     const worker = new Worker(entry, {
-      workerData: { dataDir: this.dataDir, bulkType: options.bulkType, force: options.force },
+      workerData: {
+        dataDir: this.dataDir,
+        task: options.task,
+        bulkType: options.bulkType,
+        force: options.force,
+      },
       // Lets the worker load .ts sources under a dev run.
       execArgv: isTypeScript ? ['--experimental-strip-types', '--no-warnings'] : [],
     });
