@@ -68,6 +68,13 @@ export interface DeckCard {
   /** Legality in *this deck's* format; null when the deck has no format set. */
   legality: string | null;
 
+  /**
+   * The card's own copy limit from its rules text, overriding the format's:
+   * UNLIMITED_COPIES for "any number of cards named ...", a positive cap for
+   * Nazgûl and Seven Dwarves, null when the card says nothing.
+   */
+  deckCopyLimit: number | null;
+
   ownedQuantity: number;
   /** Copies free across the whole collection, before this deck's own claim. */
   availableQuantity: number;
@@ -106,6 +113,8 @@ export interface DeckIssue {
     | 'deck_size_min'
     | 'sideboard_size'
     | 'copy_limit'
+    /** The cap is printed on the card itself: Nazgûl, Seven Dwarves. */
+    | 'card_copy_limit'
     | 'singleton'
     | 'banned'
     | 'restricted'

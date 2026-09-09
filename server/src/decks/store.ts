@@ -166,7 +166,7 @@ export class DeckStore {
              o.name, o.cmc, o.type_line, o.mana_cost, o.color_identity,
              o.color_identity_mask, o.colors_mask, o.is_basic_land, o.is_legendary,
              o.can_be_commander, o.partner_kind, o.partner_with, o.produced_mana,
-             o.has_uncommon_printing,
+             o.has_uncommon_printing, o.deck_copy_limit,
              cl.legality,
              COALESCE(owned.qty, 0) AS owned_qty,
              COALESCE(owned.qty, 0)
@@ -232,6 +232,7 @@ export class DeckStore {
       partnerKind: row.partner_kind,
       partnerWith: row.partner_with,
       legality: row.legality ?? null,
+      deckCopyLimit: row.deck_copy_limit ?? null,
       ownedQuantity: row.owned_qty,
       availableQuantity: row.available_qty,
       printingId: row.printing_id,

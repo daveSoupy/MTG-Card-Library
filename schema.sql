@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 14;
+PRAGMA user_version = 15;
 
 
 -- =====================================================================
@@ -222,7 +222,8 @@ CREATE TABLE oracle_cards (
 
     partner_kind        TEXT,
     partner_with        TEXT,
-    has_uncommon_printing INTEGER NOT NULL DEFAULT 0
+    has_uncommon_printing INTEGER NOT NULL DEFAULT 0,
+    deck_copy_limit     INTEGER   -- the card's own per-deck cap; see parseDeckCopyLimit()
 );
 CREATE INDEX idx_oracle_name        ON oracle_cards(name_normalized);
 CREATE INDEX idx_oracle_cmc         ON oracle_cards(cmc);

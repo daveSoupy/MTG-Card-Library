@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   colorMask, canonicalColors, colorsFromMask, parseColors,
   normalizeName, splitCollectorNumber, manaSymbols, expandRarity,
+  parseDeckCopyLimit, UNLIMITED_COPIES,
 } from './mtg.ts';
 
 test('colour masks use WUBRG bit order', () => {
@@ -77,4 +78,65 @@ test('rarity shorthand expands', () => {
   assert.equal(expandRarity('m'), 'mythic');
   assert.equal(expandRarity('R'), 'rare');
   assert.equal(expandRarity('uncommon'), 'uncommon');
+});
+
+/**
+ * Rules text as Scryfall actually publishes it, so the regex is tested against
+ * the sentence on the card rather than a paraphrase of it. Every member of the
+ * "any number" family says the same thing, which is exactly why detection can
+ * be text-based and does not need a maintained list of names.
+ */
+test('cards allowing any number of copies are detected from their rules text', () => {
+  const anyNumber = [
+    ['Relentless Rats', 'Relentless Rats gets +1/+1 for each other creature on the battlefield named Relentless Rats.\nA deck can have any number of cards named Relentless Rats.'],
+    ['Rat Colony', 'Rat Colony gets +1/+0 for each other Rat you control.\nA deck can have any number of cards named Rat Colony.'],
+    ['Shadowborn Apostle', 'A deck can have any number of cards named Shadowborn Apostle.\n{6}, Sacrifice six Creatures named Shadowborn Apostle: Search your library for a Demon creature card, put it onto the battlefield, then shuffle.'],
+    ['Persistent Petitioners', '{1}, {T}: Target player mills a card.\nTap four untapped Advisors you control: Target player mills twelve cards.\nA deck can have any number of cards named Persistent Petitioners.'],
+    ["Dragon's Approach", "Dragon's Approach deals 3 damage to each opponent. Put Dragon's Approach into its owner's graveyard.\nA deck can have any number of cards named Dragon's Approach."],
+    ['Slime Against Humanity', 'A deck can have any number of cards named Slime Against Humanity.'],
+    ['Hare Apparent', 'When this creature enters, create a 1/1 white Rabbit creature token for each other creature you control named Hare Apparent.\nA deck can have any number of cards named Hare Apparent.'],
+    ['Tempest Hawk', 'Flying\nA deck can have any number of cards named Tempest Hawk.'],
+    ['Templar Knight', 'A deck can have any number of cards named Templar Knight.'],
+  ];
+  for (const [name, text] of anyNumber) {
+    assert.equal(parseDeckCopyLimit(text), UNLIMITED_COPIES, name);
+  }
+});
+
+test('cards with a finite printed cap yield that number', () => {
+  assert.equal(
+    parseDeckCopyLimit('Amass Orcs 1.\nA deck can have up to nine cards named Nazgûl.'),
+    9,
+  );
+  assert.equal(
+    parseDeckCopyLimit('A deck can have up to seven cards named Seven Dwarves.'),
+    7,
+  );
+  // The one card in the family that *tightens* the limit rather than loosening it.
+  assert.equal(
+    parseDeckCopyLimit('A deck can have only one card named 1996 World Champion.'),
+    1,
+  );
+});
+
+test('cards saying nothing about deck construction fall back to the format', () => {
+  assert.equal(parseDeckCopyLimit('Flying, first strike'), null);
+  assert.equal(parseDeckCopyLimit(null), null);
+  assert.equal(parseDeckCopyLimit(''), null);
+  // Mentions both "any number" and "named" but is not a deck-construction clause.
+  assert.equal(
+    parseDeckCopyLimit('Search your library for any number of cards named Wish and reveal them.'),
+    null,
+  );
+});
+
+test('an unreadable quantity still exempts the card rather than failing it', () => {
+  // A future wording we have no word for is definitely an exception; allowing
+  // too many beats reporting a card as illegal when it is not.
+  assert.equal(
+    parseDeckCopyLimit('A deck can have up to seventeen thousand cards named Hypothetical Rat.'),
+    UNLIMITED_COPIES,
+  );
+  // Digits, should Wizards ever print them.
+  assert.equal(parseDeckCopyLimit('A deck can have up to 9 cards named Nazgûl.'), 9);
 });

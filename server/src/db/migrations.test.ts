@@ -156,6 +156,46 @@ test('the runner never replays a migration the database already has', () => {
   assert.ok(applied.every((v) => v > from));
 });
 
+/**
+ * The v15 backfill is a SQL restatement of parseDeckCopyLimit(), so it can
+ * drift from the parser in a way the structural check above cannot see. This
+ * runs it over the real rules text and checks it lands on the same answers.
+ */
+test('the copy-limit backfill reads existing cards without a re-sync', () => {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA_SQL);
+  // Rewind to just before v15: the column is what the migration adds.
+  db.exec('ALTER TABLE oracle_cards DROP COLUMN deck_copy_limit');
+  db.pragma('user_version = 14');
+
+  const insert = db.prepare(`
+    INSERT INTO oracle_cards (oracle_id, name, name_normalized, oracle_text_all)
+    VALUES (?, ?, ?, ?)`);
+  const cards: Array<[id: string, name: string, text: string, limit: number | null]> = [
+    ['rats', 'Relentless Rats',
+     'A deck can have any number of cards named Relentless Rats.', -1],
+    ['apostle', 'Shadowborn Apostle',
+     'A deck can have any number of cards named Shadowborn Apostle.\n{6}, Sacrifice six Creatures named Shadowborn Apostle: Search your library for a Demon creature card.', -1],
+    ['nazgul', 'Nazgûl', 'Amass Orcs 1.\nA deck can have up to nine cards named Nazgûl.', 9],
+    ['dwarves', 'Seven Dwarves', 'A deck can have up to seven cards named Seven Dwarves.', 7],
+    ['champ', '1996 World Champion',
+     'A deck can have only one card named 1996 World Champion.', 1],
+    ['bolt', 'Lightning Bolt', 'Lightning Bolt deals 3 damage to any target.', null],
+  ];
+  for (const [id, name, text] of cards) insert.run(id, name, name.toLowerCase(), text);
+
+  const v15 = MIGRATIONS.find((m) => m.version === 15);
+  assert.ok(v15, 'expected a v15 migration');
+  db.exec(v15.sql);
+
+  const read = db.prepare('SELECT deck_copy_limit AS limit_ FROM oracle_cards WHERE oracle_id = ?');
+  for (const [id, name, , expected] of cards) {
+    const row = read.get(id) as { limit_: number | null };
+    assert.equal(row.limit_, expected, `${name} should back-fill to ${expected}`);
+  }
+  db.close();
+});
+
 test('filter_presets enforces unique names case-insensitively', () => {
   const db = new Database(':memory:');
   db.exec(SCHEMA_SQL);

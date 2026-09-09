@@ -150,3 +150,62 @@ export function expandRarity(value: string): string {
  * answer here; do not collapse them.
  */
 export const EXTRA_LAYOUTS = ['art_series', 'token', 'double_faced_token', 'emblem', 'front_card'];
+
+/**
+ * Value stored in `oracle_cards.deck_copy_limit` for cards whose text reads
+ * "A deck can have any number of cards named …" — Relentless Rats, Rat Colony,
+ * Shadowborn Apostle, Persistent Petitioners, Dragon's Approach, Slime Against
+ * Humanity, Hare Apparent, Tempest Hawk, Templar Knight, and whatever gets
+ * printed next. A sentinel rather than a large number so nothing has to guess
+ * how big "any" is.
+ */
+export const UNLIMITED_COPIES = -1;
+
+/**
+ * Written-out numbers as they appear on cards. Magic spells quantities in
+ * words in deck-construction text ("up to nine cards named Nazgûl"), never in
+ * digits, but digits are accepted anyway since parsing them costs nothing.
+ */
+const QUANTITY_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+  nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+};
+
+/**
+ * The deck-construction clause a card may carry about its own copy count.
+ *
+ * Reading the rules text is what keeps this list current: every card in the
+ * family says the same sentence, so a new one is detected by the next sync
+ * rather than by editing a hardcoded list of names. Three shapes exist:
+ *
+ *   "A deck can have any number of cards named Relentless Rats."  → UNLIMITED_COPIES
+ *   "A deck can have up to nine cards named Nazgûl."              → 9
+ *   "A deck can have only one card named 1996 World Champion."    → 1
+ *
+ * Returns null when the card says nothing, meaning the format's own limit
+ * applies. Pass the all-faces text so a clause on the back of a double-faced
+ * card is still found.
+ */
+export function parseDeckCopyLimit(oracleText: string | null | undefined): number | null {
+  if (!oracleText) return null;
+
+  // The quantity is captured as a phrase rather than a single token so a
+  // multi-word number ("twenty-one", or something absurd like "seventeen
+  // thousand") is still recognised as a clause and handled below, instead of
+  // silently not matching and reverting to the format's limit.
+  const match = /a deck can have (?:(any number of)|(?:up to|only) ([a-z0-9][a-z0-9 -]*?)) cards? named/i
+    .exec(oracleText);
+  if (!match) return null;
+
+  const [, anyNumber, quantity] = match;
+  if (anyNumber) return UNLIMITED_COPIES;
+
+  const word = quantity.toLowerCase();
+  if (/^\d+$/.test(word)) return Number.parseInt(word, 10);
+  // An unrecognised quantity still means the card overrides the format's
+  // limit — we just cannot read by how much. Allowing too many beats raising a
+  // false illegality on a card that is definitely an exception, and matches the
+  // rest of the validator's "flag, never block" stance.
+  return QUANTITY_WORDS[word] ?? UNLIMITED_COPIES;
+}

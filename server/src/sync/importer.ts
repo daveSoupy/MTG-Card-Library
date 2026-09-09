@@ -1,6 +1,8 @@
 import type Database from 'better-sqlite3';
 import type { SetRecord } from './scryfall.ts';
-import { canonicalColors, colorMask, normalizeName, splitCollectorNumber } from '../model/mtg.ts';
+import {
+  canonicalColors, colorMask, normalizeName, parseDeckCopyLimit, splitCollectorNumber,
+} from '../model/mtg.ts';
 
 export type PartnerKind =
   | 'partner'
@@ -119,8 +121,9 @@ export class CardImporter {
          colors_mask, color_identity_mask, colors, color_identity, color_identity_count,
          keywords, produced_mana, is_reserved, is_basic_land, is_legendary,
          can_be_commander, can_be_partner, can_be_background, edhrec_rank,
-         game_changer, partner_kind, partner_with, scryfall_updated_at, synced_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+         game_changer, partner_kind, partner_with, deck_copy_limit,
+         scryfall_updated_at, synced_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
               strftime('%Y-%m-%dT%H:%M:%SZ','now'))
       ON CONFLICT(oracle_id) DO UPDATE SET
         name=excluded.name, name_normalized=excluded.name_normalized,
@@ -137,6 +140,7 @@ export class CardImporter {
         can_be_background=excluded.can_be_background, edhrec_rank=excluded.edhrec_rank,
         game_changer=excluded.game_changer, partner_kind=excluded.partner_kind,
         partner_with=excluded.partner_with,
+        deck_copy_limit=excluded.deck_copy_limit,
         scryfall_updated_at=excluded.scryfall_updated_at,
         synced_at=excluded.synced_at`);
 
@@ -323,6 +327,10 @@ export class CardImporter {
       bit(card.game_changer),
       pairing.kind,
       pairing.partnerWith,
+      // Read from the card, not from a list of names, so a newly printed
+      // "a deck can have any number of cards named ..." card is exempt from
+      // the format's copy limit the moment it syncs.
+      parseDeckCopyLimit(allText),
       text(card.released_at),
     );
 

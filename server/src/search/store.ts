@@ -366,6 +366,7 @@ export class CardSearchStore {
       SELECT o.oracle_id, o.name, o.mana_cost, o.cmc, o.type_line, o.power, o.toughness,
              o.loyalty, o.colors, o.color_identity, o.oracle_text, o.keywords,
              o.is_reserved, o.can_be_commander, o.edhrec_rank, o.layout,
+             o.deck_copy_limit,
              dp.id AS printing_id, dp.set_code, dp.collector_number, dp.rarity,
              COALESCE(dp.image_small, ff.image_small) AS image_small,
              COALESCE(dp.image_normal, ff.image_normal) AS image_normal,
@@ -438,6 +439,8 @@ export class CardSearchStore {
       keywords: parseJsonArray(row.keywords),
       isReserved: Boolean(row.is_reserved),
       canBeCommander: Boolean(row.can_be_commander),
+      /** The card's own copy cap; -1 means any number. Null for ordinary cards. */
+      deckCopyLimit: row.deck_copy_limit ?? null,
       /** True when this art was chosen rather than picked by the sync. */
       artIsPinned: Boolean(row.art_is_pinned),
       edhrecRank: row.edhrec_rank,

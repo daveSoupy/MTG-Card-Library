@@ -163,6 +163,12 @@ export function CardDetailPane({
           <div className="kv"><span>Colour identity</span><span>{card.colorIdentity || 'Colourless'}</span></div>
           {card.artist && <div className="kv"><span>Artist</span><span>{card.artist}</span></div>}
           {card.isReserved && <div className="kv"><span>Reserved list</span><span>Yes</span></div>}
+          {card.deckCopyLimit !== null && (
+            <div className="kv">
+              <span>Copies per deck</span>
+              <span>{card.deckCopyLimit === -1 ? 'Any number' : card.deckCopyLimit}</span>
+            </div>
+          )}
           {card.ownedQuantity > 0 && (
             <div className="kv"><span>In your collection</span><span>{card.ownedQuantity}</span></div>
           )}

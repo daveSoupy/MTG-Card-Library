@@ -81,6 +81,12 @@ export interface CardDetail extends CardSummary {
   keywords: string[];
   isReserved: boolean;
   canBeCommander: boolean;
+  /**
+   * The card's own per-deck copy cap, from its rules text: -1 for "a deck can
+   * have any number of cards named ...", a positive number for printed caps
+   * like Nazgûl's nine, null for ordinary cards bound by the format's limit.
+   */
+  deckCopyLimit: number | null;
   /** True when the art was chosen by hand rather than picked by the sync. */
   artIsPinned?: boolean;
   edhrecRank: number | null;

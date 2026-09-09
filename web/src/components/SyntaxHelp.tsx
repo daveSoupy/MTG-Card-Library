@@ -81,6 +81,8 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
       { syntax: 'is:partner  ·  is:background', meaning: 'Can pair as a commander' },
       { syntax: 'is:digital  ·  is:paper', meaning: 'Alchemy and Arena-only cards are hidden by default' },
       { syntax: 'is:hybrid', meaning: 'Hybrid mana in the cost' },
+      { syntax: 'is:anynumber  ·  is:copylimit',
+        meaning: 'A deck can have any number of them; that plus printed caps like Nazgûl' },
       { syntax: 'is:ub  ·  -is:ub',
         meaning: 'Universes Beyond crossovers; shown unless you exclude them' },
     ],
