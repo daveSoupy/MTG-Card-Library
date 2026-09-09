@@ -307,12 +307,6 @@ export function effectiveCategories(card: DeckCard, labels: Record<string, strin
   return [...card.categories].sort().map((key) => labels[key] ?? key);
 }
 
-/** The label of the one category group a card belongs to — the same
- *  resolution the headings use, for anywhere that wants to show it per card. */
-export function categoryLabelFor(card: DeckCard, options: DeckGroupOptions = {}): string {
-  return categoryBucket(card, options).label;
-}
-
 /** Groups a deck's cards for display. Returns groups in their display order. */
 export function groupCards(
   cards: DeckCard[],

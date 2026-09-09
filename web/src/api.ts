@@ -87,9 +87,6 @@ export interface CardDetail extends CardSummary {
   frontImage: string | null;
   backImage: string | null;
   faces: CardFace[];
-  /** Phase 7 tag categories this card resolves into; empty when the tags have
-   *  never been resolved, which the Data page reports. */
-  categories: string[];
   printings: CardPrinting[];
   legalities: CardLegality[];
   rulings: CardRuling[];

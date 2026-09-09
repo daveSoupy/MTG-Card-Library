@@ -11,8 +11,7 @@ import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { PaneDivider } from './PaneDivider.tsx';
 import {
-  categoryLabelFor, DECK_SORTS, groupByField, groupCards,
-  type DeckSort, type GroupBy,
+  DECK_SORTS, groupByField, groupCards, type DeckSort, type GroupBy,
 } from '../deckView.ts';
 import {
   DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density,
@@ -216,9 +215,6 @@ export function DeckPanes({
             templateCategories: deck.templateProgress?.rows.map((r) => r.category),
           };
           const groups = groupCards(cards, cardSort, groupOptions);
-          // The same resolution the headings use, so a tile never disagrees
-          // with the group it is sitting in.
-          const categoryOf = (card: DeckCard) => categoryLabelFor(card, groupOptions);
 
           return (
             <section className="board" key={board}>
@@ -329,7 +325,6 @@ export function DeckPanes({
                           card={card}
                           problem={problemFor(card)}
                           density={density}
-                          categoryLabel={categoryOf(card)}
                           onQuantity={(delta) =>
                             apply(
                               () => updateDeckCard(deck.id, card.id, { quantity: card.quantity + delta }),

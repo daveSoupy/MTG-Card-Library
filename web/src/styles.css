@@ -1812,23 +1812,6 @@ input[type='number'] { width: 72px; }
 }
 .hint.bad { color: var(--bad); display: block; }
 
-/* Category chips on the card detail pane, and the resolved bucket under a
-   deck tile — the two places a category is visible away from the deck row,
-   which only exists at Ultra-compact density. */
-.cat-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; }
-.cat-chip {
-  font-size: 10.5px; letter-spacing: .02em;
-  padding: 2px 7px; border-radius: 999px;
-  background: var(--accent-dim); color: var(--text-2);
-  border: 1px solid var(--line-strong);
-}
-.tile-category {
-  margin-top: 3px; font-size: 10px; color: var(--text-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* Compact tiles are ~84px wide — a label there would crowd out the art it is
-   describing, so it only appears once there is room for it. */
-[data-density='compact'] .tile-category { display: none; }
 
 /* The Template panel's "N short" link filters the picker by category. That
    filter used to be invisible and unclearable — it survived every later
