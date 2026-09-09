@@ -538,6 +538,8 @@ export interface AppSettings {
   autoMaintainLands: boolean;
   /** Global on/off for Phase 7 deck templates, alongside the per-deck picker. */
   showDeckTemplates: boolean;
+  /** Global on/off for the Phase 11 game log: the Games tab and deck button. */
+  showGameLog: boolean;
   /** Cost basis assumed when adding cards without a typed-in price. */
   defaultCostMethod: Exclude<CostMethod, 'box'>;
   defaultCostFixedUsd: number;

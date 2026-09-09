@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { getSetting, setSetting } from '../db/index.ts';
 import { AUTO_MAINTAIN_LANDS } from '../decks/store.ts';
 import { SHOW_DECK_TEMPLATES } from '../decks/templates.ts';
+import { SHOW_GAME_LOG } from '../events/store.ts';
 import { COST_METHODS } from '../collection/store.ts';
 import { FLAG, MONEY } from './schema.ts';
 
@@ -22,6 +23,7 @@ interface NumberSetting { key: string; default: number; }
 const BOOLEAN_SETTINGS: Record<string, BooleanSetting> = {
   autoMaintainLands: { key: AUTO_MAINTAIN_LANDS, default: false },
   showDeckTemplates: { key: SHOW_DECK_TEMPLATES, default: false },
+  showGameLog: { key: SHOW_GAME_LOG, default: false },
 };
 
 export const DEFAULT_COST_METHOD = 'default_cost_method';

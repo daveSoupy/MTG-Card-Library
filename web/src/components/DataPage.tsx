@@ -21,9 +21,13 @@ const formatWhen = (iso: string) => new Date(iso).toLocaleString();
  * Restoring is the only genuinely destructive thing in the app, so it is behind
  * an explicit confirmation that names what is about to be replaced.
  */
-export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSync }: {
+export function DataPage({
+  locations, onCollectionChanged, onSettingsChanged, theme, onTheme, onSync,
+}: {
   locations: StorageLocation[];
   onCollectionChanged: () => void;
+  /** Some settings decide what the app shell shows, so App re-reads them. */
+  onSettingsChanged?: () => void;
   /** Per device, so it is App's state rather than an app_settings row. */
   theme: Theme;
   onTheme: (theme: Theme) => void;
@@ -116,6 +120,7 @@ export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSyn
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
     try {
       setSettings(await updateSettings({ [key]: value }));
+      onSettingsChanged?.();
     } catch (cause: any) {
       setError(cause.message);
       reload();
@@ -354,6 +359,23 @@ export function DataPage({ locations, onCollectionChanged, theme, onTheme, onSyn
           stats pane, tracking the deck against a shape like “38 lands, 10 ramp, 10 draw” —
           a starting point, not a rule. Off hides the control entirely rather than
           resetting each deck’s choice; turn it back on and prior choices come back.
+        </p>
+
+        {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.showGameLog}
+              onChange={(e) => saveSetting('showGameLog', e.target.checked)}
+            />
+            Show the game log
+          </label>
+        )}
+        <p className="hint">
+          Adds the Games tab — events (a draft night’s spend, the deck built from it and
+          its rounds) and the match log, plus a Games button on every deck. Off hides all
+          of it; nothing already logged is deleted, and switching it back on brings every
+          event and game back exactly as they were.
         </p>
 
         {settings && (
