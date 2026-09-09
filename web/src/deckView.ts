@@ -294,6 +294,12 @@ function categoryBucket(card: DeckCard, options: DeckGroupOptions): Bucket {
   return { key: 'zzz-uncategorised', label: 'Uncategorised', rank: 4 };
 }
 
+/** The label of the one category group a card belongs to — the same
+ *  resolution the headings use, for anywhere that wants to show it per card. */
+export function categoryLabelFor(card: DeckCard, options: DeckGroupOptions = {}): string {
+  return categoryBucket(card, options).label;
+}
+
 /** Groups a deck's cards for display. Returns groups in their display order. */
 export function groupCards(
   cards: DeckCard[],

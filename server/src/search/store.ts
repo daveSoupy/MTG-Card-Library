@@ -438,6 +438,13 @@ export class CardSearchStore {
       keywords: parseJsonArray(row.keywords),
       isReserved: Boolean(row.is_reserved),
       canBeCommander: Boolean(row.can_be_commander),
+      // Phase 7's tag categories. Here rather than only on a deck slot: the
+      // detail pane is the one card surface reachable from Browse and at
+      // every display density, so it is where "why is this not counted as
+      // removal?" can actually be answered.
+      categories: (this.db.prepare(
+        'SELECT category FROM card_categories WHERE oracle_id = ? ORDER BY category')
+        .pluck().all(oracleId) as string[]),
       /** True when this art was chosen rather than picked by the sync. */
       artIsPinned: Boolean(row.art_is_pinned),
       edhrecRank: row.edhrec_rank,

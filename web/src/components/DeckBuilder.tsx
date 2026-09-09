@@ -436,6 +436,8 @@ export function DeckBuilder({
           pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
           results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
           preview, setPreview, coverNote, setCoverNote,
+          pickerCategory, clearPickerCategory: () => setPickerCategory(null),
+          categoryLabels,
         }}
       />
     </div>

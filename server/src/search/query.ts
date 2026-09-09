@@ -31,7 +31,7 @@ const KNOWN_KEYS = new Set([
   'identity', 'id', 'ci', 'commander', 'cmc', 'mv', 'manavalue',
   'set', 's', 'e', 'edition', 'rarity', 'r', 'power', 'pow', 'toughness', 'tou',
   'loyalty', 'loy', 'artist', 'a', 'legal', 'f', 'format', 'banned', 'restricted',
-  'is', 'not', 'layout', 'year', 'lang',
+  'is', 'not', 'layout', 'year', 'lang', 'category', 'cat',
 ]);
 
 /** Longest operators first so ">=" is not read as ">". */
@@ -233,6 +233,12 @@ function clauseFor(term: Term): Fragment | null {
     case 'artist': case 'a':
       return { sql: `EXISTS (SELECT 1 FROM card_printings ap WHERE ap.oracle_id = o.oracle_id
                              AND ap.artist LIKE ?)`, params: [`%${term.value}%`] };
+    // Phase 7's functional tags. An unrecognised value simply matches nothing,
+    // the same as set:zzz — dropping the term instead would return the whole
+    // library and read as though the filter had been applied.
+    case 'category': case 'cat':
+      return { sql: `EXISTS (SELECT 1 FROM card_categories cc WHERE cc.oracle_id = o.oracle_id
+                             AND cc.category = ?)`, params: [term.value.toLowerCase()] };
     case 'layout':
       return { sql: 'o.layout = ?', params: [term.value.toLowerCase()] };
 
