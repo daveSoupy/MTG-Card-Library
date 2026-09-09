@@ -25,6 +25,15 @@ export type UndoStack = ReturnType<typeof useUndoStack>;
 export function useUndoStack() {
   const [past, setPast] = useState<UndoEntry[]>([]);
   const [future, setFuture] = useState<UndoEntry[]>([]);
+  /**
+   * The step just recorded, for anything that wants to react to one — the
+   * undo toast, which is the only undo a phone has.
+   *
+   * Carries a sequence number as well as the label so that doing the same
+   * thing twice still reads as two events rather than as no change at all.
+   */
+  const [recorded, setRecorded] = useState<{ label: string; seq: number } | null>(null);
+  const seq = useRef(0);
   // A ref rather than the busy flag alone: two fast clicks would otherwise
   // both read the pre-render value and replay the same entry twice.
   const running = useRef(false);
@@ -33,9 +42,11 @@ export function useUndoStack() {
   const record = useCallback((entry: UndoEntry) => {
     setPast((stack) => [...stack, entry].slice(-LIMIT));
     setFuture([]);
+    seq.current += 1;
+    setRecorded({ label: entry.label, seq: seq.current });
   }, []);
 
-  const clear = useCallback(() => { setPast([]); setFuture([]); }, []);
+  const clear = useCallback(() => { setPast([]); setFuture([]); setRecorded(null); }, []);
 
   const step = useCallback(async (direction: 'undo' | 'redo') => {
     if (running.current) return;
@@ -47,6 +58,8 @@ export function useUndoStack() {
     setBusy(true);
     try {
       await entry[direction]();
+      // Undoing is not itself something to offer an undo for.
+      setRecorded(null);
       // Only on success: a failed replay leaves the stack where it was, so the
       // same step can be retried once whatever blocked it is dealt with.
       if (direction === 'undo') {
@@ -66,6 +79,7 @@ export function useUndoStack() {
     record,
     clear,
     busy,
+    recorded,
     undo: () => step('undo'),
     redo: () => step('redo'),
     canUndo: past.length > 0,
