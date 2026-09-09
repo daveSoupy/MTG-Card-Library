@@ -4,7 +4,7 @@ This file is auto-loaded by Claude Code at the start of every session. Keep it l
 
 ## Where the project stands
 
-Phases 1–6 are built and shipped. `schema.sql` is the complete schema at `PRAGMA user_version = 16`, designed up front against the full Data Model below — so most tables later phases need (`collection_disposals`, `printing_price_history`, `scan_sessions`, `alerts`, …) already exist. New phases extend the schema through migrations; they do not redesign it. Before assuming a table or column is missing, grep `schema.sql`.
+Phases 1–6 are built and shipped. `schema.sql` is the complete schema at `PRAGMA user_version = 17`, designed up front against the full Data Model below — so most tables later phases need (`collection_disposals`, `printing_price_history`, `scan_sessions`, `alerts`, …) already exist. New phases extend the schema through migrations; they do not redesign it. Before assuming a table or column is missing, grep `schema.sql`.
 
 ## How to Build This
 

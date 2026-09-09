@@ -76,16 +76,50 @@ test('editing the linked pool moves the event with it', () => {
 test('deleting a linked deck detaches it and leaves the event and its games', () => {
   const { db, events, deckId } = fixture();
   const id = events.create({ name: 'Draft night', deckId });
-  events.logGame({ deckId, eventId: id, result: 'win' });
+  events.logGame({ deckId, eventId: id, result: 'win', opponents: 'Sam' });
 
   db.prepare('DELETE FROM decks WHERE id = ?').run(deckId);
 
   const event = events.get(id)!;
   assert.equal(event.deckId, null, 'the link is cleared, not cascaded');
   assert.equal(event.name, 'Draft night');
-  // The games went with the deck — they are that deck's record — but the
-  // event itself is still a queryable row.
-  assert.equal(event.record.games, 0);
+  assert.equal(event.record.games, 1, 'the night still has its record');
+
+  const [game] = event.games;
+  assert.equal(game.deckId, null);
+  assert.equal(game.deckName, 'FDN Pool', 'what it was played with, kept as the deck went');
+  assert.equal(game.opponents, 'Sam');
+  db.close();
+});
+
+test('a detached game keeps its name, and its result, in the overall record', () => {
+  const { db, events, deckId, otherDeck } = fixture();
+  events.logGame({ deckId, result: 'win' });
+  events.logGame({ deckId: otherDeck, result: 'loss' });
+  db.prepare('DELETE FROM decks WHERE id = ?').run(deckId);
+
+  assert.deepEqual(events.record(), { wins: 1, losses: 1, draws: 0, games: 2 },
+    'a game played is a game played, deck or no deck');
+  // Narrowing by deck or format asks a question a detached game can no longer
+  // answer, so it falls out of those views rather than being miscounted.
+  assert.equal(events.record({ deckId }).games, 0);
+  assert.equal(events.record({ formatCode: 'draft' }).games, 0);
+  assert.equal(events.record({ formatCode: 'commander' }).games, 1);
+
+  const detached = events.games().find((g) => g.deckId === null)!;
+  assert.equal(detached.deckName, 'FDN Pool');
+  assert.equal(detached.formatCode, null);
+  db.close();
+});
+
+test('renaming a live deck moves the games with it; deleting freezes the name', () => {
+  const { db, events, deckId } = fixture();
+  const id = events.logGame({ deckId, result: 'win' });
+  db.prepare('UPDATE decks SET name = ? WHERE id = ?').run('Rebuilt Pool', deckId);
+  assert.equal(events.getGame(id)!.deckName, 'Rebuilt Pool', 'the deck row is the live copy');
+
+  db.prepare('DELETE FROM decks WHERE id = ?').run(deckId);
+  assert.equal(events.getGame(id)!.deckName, 'Rebuilt Pool', 'the name it had when it went');
   db.close();
 });
 

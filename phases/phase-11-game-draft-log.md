@@ -36,7 +36,8 @@ Total spend and card list are derivable through these links; nothing is duplicat
 
 The match log. Most games won't belong to an event.
 
-- `id`, `event_id` (nullable FK, `ON DELETE SET NULL`), `deck_id` (FK to `decks`, `ON DELETE CASCADE`), `played_at`
+- `id`, `event_id` (nullable FK, `ON DELETE SET NULL`), `deck_id` (nullable FK to `decks`, `ON DELETE SET NULL`), `deck_name`, `played_at`
+  - **Built as `SET NULL`, not `CASCADE`.** A game that was played stays played after the deck is dismantled, which is also what Verification 4 below asks for. `deck_name` is NULL while the deck exists — the deck row is the live copy of its name, renames included — and a `BEFORE DELETE` trigger on `decks` stamps it on the way out, so a detached game still says what it was played with. A detached game has no format, so it drops out of deck- and format-narrowed record views while still counting in the overall one.
 - `opponents` — freeform text, comma-separated for a multiplayer pod. One row per game from the tracked deck's perspective, not per opponent. Same convention as trade counterparties.
 - `result` ('win' / 'loss' / 'draw')
 - `games_won` / `games_lost` / `games_drawn` (nullable ints, for a Bo3 breakdown)
@@ -80,7 +81,7 @@ A record view filterable by format / deck / event / date range. A lifetime recor
 1. A deck with `format_code = 'draft'` and arbitrary card contents passes validation with zero legality errors.
 2. Reopening a closed cost pool restores both `OPEN_COST_POOL_ID` and `OPEN_COST_POOL_SET`; a card added immediately after is scoped to the original session's set filter and tagged with the reopened batch id.
 3. Adding a non-basic card to a `draft`-format deck creates a `collection_items` row and an allocated from-collection slot; adding a basic land creates the slot only. Adding a card to a `commander` deck creates no collection row (unchanged behavior).
-4. Deleting a deck linked to an event sets `events.deck_id` to NULL; the event and its games remain queryable.
+4. Deleting a deck linked to an event sets `events.deck_id` to NULL; the event and its games remain queryable, each game keeping the deleted deck's name.
 5. Logging a multiplayer game with three opponents produces exactly one `games` row.
 6. A game logged with no `event_id` appears on its deck's lifetime record alongside event games.
 7. `migrations.test.ts` passes.

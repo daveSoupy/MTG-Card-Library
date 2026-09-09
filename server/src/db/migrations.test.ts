@@ -45,11 +45,17 @@ function databaseAtVersion(version: number): Database.Database {
   db.exec(SCHEMA_SQL);
   // Rewind past every later migration. Each kind a migration can take has an
   // inverse: a created table is dropped, an added column is dropped, a created
-  // index is dropped. A kind with no inverse here would silently leave the
+  // index or trigger is dropped. A kind with no inverse here would silently leave the
   // "old" database identical to a fresh one, and the drift check below would
   // pass without ever comparing anything — so the assertion that the fixture
   // really is missing something is what keeps this list honest.
   for (const migration of [...MIGRATIONS].reverse().filter((m) => m.version > version)) {
+    // Triggers first: SQLite re-validates every trigger body whenever the
+    // schema is re-read, so a trigger left behind pointing at a table the next
+    // line drops fails everything after it.
+    for (const name of createdTriggers(migration.sql)) {
+      db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+    }
     for (const name of createdTables(migration.sql)) {
       db.exec(`DROP TABLE IF EXISTS ${name}`);
     }
@@ -66,6 +72,10 @@ function databaseAtVersion(version: number): Database.Database {
 
 function createdTables(sql: string): string[] {
   return [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+}
+
+function createdTriggers(sql: string): string[] {
+  return [...sql.matchAll(/CREATE TRIGGER (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function createdIndexes(sql: string): string[] {

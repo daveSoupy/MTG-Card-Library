@@ -72,8 +72,11 @@ export interface GameRow {
   id: number;
   eventId: number | null;
   eventName: string | null;
-  deckId: number;
-  deckName: string;
+  /** Null once the deck has been deleted; the game itself survives. */
+  deckId: number | null;
+  /** The live deck's name, or the one kept from it when it was deleted. */
+  deckName: string | null;
+  /** Null for a detached game — the format lived on the deck. */
   formatCode: string | null;
   playedAt: string;
   opponents: string | null;
@@ -104,7 +107,11 @@ export type GameUpdate = Partial<Omit<GameInput, 'deckId'>> & { deckId?: number 
 export interface GameFilters {
   deckId?: number;
   eventId?: number;
-  /** The *deck's* format, which every game has — an event's is optional. */
+  /**
+   * The deck's format. A game whose deck has been deleted has no format to
+   * match any more, so it drops out of a format-narrowed view while still
+   * counting in the unnarrowed one.
+   */
   formatCode?: string;
   /** 'YYYY-MM-DD', inclusive, compared against the date part of played_at. */
   from?: string;
@@ -193,9 +200,13 @@ export class EventStore {
     return (this.db.prepare(`
       SELECT g.id, g.event_id, g.deck_id, g.played_at, g.opponents, g.result,
              g.games_won, g.games_lost, g.games_drawn, g.round_number, g.notes,
-             d.name AS deck_name, d.format_code, e.name AS event_name
+             -- The deck's own name while it has one, the copy kept on the game
+             -- once it does not. Reading it in this order is what makes a
+             -- rename show up on games already logged.
+             COALESCE(d.name, g.deck_name) AS deck_name,
+             d.format_code, e.name AS event_name
       FROM games g
-      JOIN decks d       ON d.id = g.deck_id
+      LEFT JOIN decks d  ON d.id = g.deck_id
       LEFT JOIN events e ON e.id = g.event_id
       ${where}
       ${order}
@@ -207,9 +218,10 @@ export class EventStore {
     const row = this.db.prepare(`
       SELECT g.id, g.event_id, g.deck_id, g.played_at, g.opponents, g.result,
              g.games_won, g.games_lost, g.games_drawn, g.round_number, g.notes,
-             d.name AS deck_name, d.format_code, e.name AS event_name
+             COALESCE(d.name, g.deck_name) AS deck_name,
+             d.format_code, e.name AS event_name
       FROM games g
-      JOIN decks d       ON d.id = g.deck_id
+      LEFT JOIN decks d  ON d.id = g.deck_id
       LEFT JOIN events e ON e.id = g.event_id
       WHERE g.id = ?`).get(id) as any;
     return row ? toGameRow(row) : null;
@@ -224,7 +236,7 @@ export class EventStore {
              SUM(g.result = 'draw') AS draws,
              COUNT(*)               AS games
       FROM games g
-      JOIN decks d ON d.id = g.deck_id
+      LEFT JOIN decks d ON d.id = g.deck_id
       ${where}`).get(...params) as any;
 
     return row?.games
@@ -342,8 +354,8 @@ function toGameRow(row: any): GameRow {
     id: row.id,
     eventId: row.event_id ?? null,
     eventName: row.event_name ?? null,
-    deckId: row.deck_id,
-    deckName: row.deck_name,
+    deckId: row.deck_id ?? null,
+    deckName: row.deck_name ?? null,
     formatCode: row.format_code ?? null,
     playedAt: row.played_at,
     opponents: row.opponents ?? null,

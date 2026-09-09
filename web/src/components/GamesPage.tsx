@@ -518,7 +518,14 @@ export function GameRows({
                 {game.gamesDrawn ? `–${game.gamesDrawn}` : ''}
               </span>
             )}
-            {showDeck && <span className="dim">{game.deckName}</span>}
+            {showDeck && (
+              // A deleted deck leaves the name it had behind, and says so —
+              // otherwise the row reads as though the deck were still around.
+              <span className="dim">
+                {game.deckName ?? 'Unknown deck'}
+                {game.deckId == null && <span className="deck-gone"> (deleted)</span>}
+              </span>
+            )}
             {game.roundNumber != null && <span className="dim">round {game.roundNumber}</span>}
             {showEvent && game.eventName && (
               onOpenEvent
