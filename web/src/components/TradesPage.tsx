@@ -7,6 +7,8 @@ import {
 import { CardPicker } from './CardPicker.tsx';
 import { TradeItemDialog } from './TradeItemDialog.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { UndoToast } from './UndoToast.tsx';
+import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const sumValue = (items: Trade['items'], dir: 'out' | 'in') =>
@@ -84,8 +86,55 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const [confirm, setConfirm] = useState<CompleteTradeResult | null>(null);
   const [done, setDone] = useState<CompleteTradeResult | null>(null);
   const [editingItem, setEditingItem] = useState<Trade['items'][number] | null>(null);
+  // Taking a card back off a trade used to be final. One stack per open
+  // trade, reached by ⌘Z and — the only undo a phone has — the toast.
+  const undoStack = useUndoStack();
+  useUndoShortcuts(undoStack);
 
   useEffect(() => { fetchTrade(tradeId).then(setTrade).catch((e) => setError(e.message)); }, [tradeId]);
+  // A step recorded against one trade must never be replayed into another.
+  useEffect(() => { undoStack.clear(); }, [tradeId, undoStack.clear]);
+
+  /**
+   * Removes an item, and remembers how to put it back.
+   *
+   * Re-adding makes a new row rather than restoring the old one, so a later
+   * redo has to remove whatever id that add returned — the same reason the
+   * collection's lot undo follows its own id from there on.
+   */
+  const removeItem = async (item: Trade['items'][number]) => {
+    setError(null);
+    try {
+      const withoutIt = await removeTradeItem(tradeId, item.id);
+      setTrade(withoutIt);
+
+      // What the trade held once it was gone. The row that is not in this set
+      // after a re-add is the restored one, whatever id the server gave it —
+      // read from the response rather than from `trade`, which is whatever
+      // this render captured and may be several steps stale by then.
+      const remaining = new Set(withoutIt.items.map((i) => i.id));
+      let id = item.id;
+      const fields = {
+        direction: item.direction, printingId: item.printingId, quantity: item.quantity,
+        finish: item.finish, condition: item.condition, language: item.language,
+        sourceCollectionItemId: item.sourceCollectionItemId,
+        destinationLocationId: item.destinationLocationId,
+        unitValueUsd: item.unitValueUsd, notes: item.notes,
+      };
+
+      undoStack.record({
+        label: `Removed ${item.name}`,
+        undo: async () => {
+          const next = await addTradeItem(tradeId, fields);
+          id = next.items.find((i) => !remaining.has(i.id))?.id ?? id;
+          setTrade(next);
+        },
+        redo: async () => { setTrade(await removeTradeItem(tradeId, id)); },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   useEffect(() => { fetchLocations().then(setLocations).catch(() => {}); }, []);
 
   const readOnly = trade?.status !== 'draft';
@@ -177,7 +226,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                 <span className="dim"> own {item.ownedQuantity}</span>
               </span>
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
-              {!readOnly && <button className="row-remove" onClick={async () => setTrade(await removeTradeItem(tradeId, item.id))}>×</button>}
+              {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
             </div>
           ))}
           {!readOnly && (addingOut
@@ -215,7 +264,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                 </select>
               ) : <span className="dim">{item.condition}</span>}
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
-              {!readOnly && <button className="row-remove" onClick={async () => setTrade(await removeTradeItem(tradeId, item.id))}>×</button>}
+              {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
             </div>
           ))}
           {!readOnly && (addingIn
@@ -262,6 +311,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
         />
       )}
 
+      <UndoToast stack={undoStack} />
       <BackToTop label="Back to the top of the trade" />
     </div>
   );

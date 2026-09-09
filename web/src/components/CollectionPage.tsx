@@ -14,6 +14,7 @@ import { CollectionValuePanel } from './CollectionValuePanel.tsx';
 import { AddBySetTab } from './AddBySetTab.tsx';
 import { OwnedGrid, type OwnedGridSelection } from './OwnedGrid.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { UndoToast } from './UndoToast.tsx';
 import { CustomizeView } from './CustomizeView.tsx';
 import { groupByField, type GroupBy } from '../deckView.ts';
 import type { Density, DensityPage } from '../density.ts';
@@ -577,6 +578,8 @@ export function CollectionPage({
 
       {tab === 'wants' && <WantListsPage />}
       {tab === 'tradelists' && <TradeListsPage />}
+
+      <UndoToast stack={undoStack} />
 
       {adding && (
         <AddCardsDialog
