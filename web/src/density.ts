@@ -11,7 +11,7 @@
 export type Density = 'full' | 'lined' | 'compact' | 'ultra';
 
 /** The pages that own a density of their own. Add-by-set is a collection tab. */
-export type DensityPage = 'browse' | 'collection' | 'deck';
+export type DensityPage = 'browse' | 'collection' | 'deck' | 'wants';
 
 export const DENSITY_LABEL: Record<Density, string> = {
   full: 'Full',
@@ -37,6 +37,9 @@ export const DENSITIES_FOR: Record<DensityPage, Density[]> = {
   browse: ['full', 'compact', 'ultra'],
   collection: ['full', 'compact', 'ultra'],
   deck: ['ultra', 'compact', 'lined', 'full'],
+  // A want row has no art in Compact, and no meaningful mid-point between a
+  // full card and a bare text line — Compact and Lined-up don't apply.
+  wants: ['full', 'ultra'],
 };
 
 const ALL_DENSITIES: Density[] = ['full', 'lined', 'compact', 'ultra'];
@@ -67,9 +70,10 @@ const PAGE_KEY: Record<DensityPage, string> = {
   browse: 'mtg.density.browse',
   collection: 'mtg.density.collection',
   deck: 'mtg.density.deck',
+  wants: 'mtg.density.wants',
 };
 
-const PAGES: DensityPage[] = ['browse', 'collection', 'deck'];
+const PAGES: DensityPage[] = ['browse', 'collection', 'deck', 'wants'];
 
 /**
  * Per device, like the theme and the pane widths — a phone in a card shop wants

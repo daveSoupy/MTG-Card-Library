@@ -145,7 +145,7 @@ export function TradeListsPage() {
           {adding && (
             <div className="add-panel">
               {!lots
-                ? <CardPicker placeholder="Find an owned card to list…" onPick={(c) => pickCard(c.oracleId, c.name)} />
+                ? <CardPicker ownedOnly placeholder="Find an owned card to list…" onPick={(c) => pickCard(c.oracleId, c.name)} />
                 : (
                   <div className="lot-choices">
                     <div className="lot-choices-head">Which copies of {lots.name}?</div>

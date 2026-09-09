@@ -289,12 +289,20 @@ export function CollectionPage({
   onDensity,
   densityOverridden,
   onResetDensity,
+  wantsDensity,
 }: {
   page: DensityPage;
   density: Density;
   onDensity: (density: Density) => void;
   densityOverridden: boolean;
   onResetDensity: () => void;
+  wantsDensity: {
+    page: DensityPage;
+    density: Density;
+    onDensity: (density: Density) => void;
+    densityOverridden: boolean;
+    onResetDensity: () => void;
+  };
 }) {
   const [tab, setTab] = useState<Tab>('browse');
   const [locations, setLocations] = useState<StorageLocation[]>([]);
@@ -576,7 +584,7 @@ export function CollectionPage({
 
       {tab === 'value' && <CollectionValuePanel value={value} />}
 
-      {tab === 'wants' && <WantListsPage />}
+      {tab === 'wants' && <WantListsPage {...wantsDensity} />}
       {tab === 'tradelists' && <TradeListsPage />}
 
       <UndoToast stack={undoStack} />
