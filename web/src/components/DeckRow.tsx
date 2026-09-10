@@ -1,6 +1,7 @@
-import type { Board, DeckCard } from '../api.ts';
+import type { Board, BuildabilityRow, DeckCard } from '../api.ts';
 import { effectiveCategories, identityKey } from '../deckView.ts';
 import { ownedChip } from '../deckSlot.ts';
+import { coverageChip } from '../buildability.ts';
 
 export function DeckRow({
   card,
@@ -13,6 +14,7 @@ export function DeckRow({
   onPreview,
   onArt,
   categoryLabels,
+  coverage,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -26,8 +28,14 @@ export function DeckRow({
   onArt: () => void;
   /** Category key → display name, from /api/v1/status. */
   categoryLabels: Record<string, string>;
+  /** Phase 24's coverage for this card, when the deck's figures are loaded. */
+  coverage?: BuildabilityRow | null;
 }) {
   const chip = ownedChip(card);
+  // Distinct from the owned chip beside it, which is what this slot *claims*.
+  // This one is what the collection could actually supply, and it only appears
+  // when the answer is "not enough" — including where the rest are.
+  const short = coverage ? coverageChip(coverage) : null;
   const categories = effectiveCategories(card, categoryLabels);
   const proxyRoom = card.quantity - card.quantityFromCollection - card.quantityProxied;
 
@@ -76,6 +84,10 @@ export function DeckRow({
             >
               {chip.label}
             </button>
+
+            {short && (
+              <span className="slot-short" title={short.title}>{short.text}</span>
+            )}
 
             <div className="proxy-step" title={chip.title}>
               <button

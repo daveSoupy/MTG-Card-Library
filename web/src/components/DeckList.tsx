@@ -3,10 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addDeckTag, removeDeckTag, imageUrl,
   createDeck, deleteDeck, duplicateDeck, fetchDecks,
+  BUILDABILITY_SORTS, BUILDABILITY_SORT_LABEL,
   DECK_STATUSES, DECK_STATUS_HINT, DECK_STATUS_LABEL,
-  type DeckStatus, type DeckSummary, type FormatRecord,
+  type BuildabilitySort, type DeckStatus, type DeckSummary, type FormatRecord,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
+import { BuildabilityBar } from './Buildability.tsx';
 
 const COLOR_PIP: Record<string, string> = { W: 'W', U: 'U', B: 'B', R: 'R', G: 'G' };
 
@@ -37,6 +39,9 @@ export function DeckList({
   const [statuses, setStatuses] = useState<DeckStatus[]>(
     () => DECK_STATUSES.filter((status) => status !== 'disassembled'),
   );
+  // Resolved server-side, so the order matches the numbers on the rows. Null is
+  // the store's own ordering — the one the rest of the app shows decks in.
+  const [sort, setSort] = useState<BuildabilitySort | null>(null);
 
   // The tag list is derived from the decks rather than fetched separately —
   // one source of truth, and it stays right after an add or a remove.
@@ -68,8 +73,8 @@ export function DeckList({
   const [confirming, setConfirming] = useState<number | null>(null);
 
   const load = useCallback(() => {
-    fetchDecks().then(setDecks).catch((e) => setError(e.message));
-  }, []);
+    fetchDecks({ buildability: true, sort }).then(setDecks).catch((e) => setError(e.message));
+  }, [sort]);
 
   useEffect(load, [load]);
 
@@ -155,6 +160,22 @@ export function DeckList({
         </div>
       )}
 
+      {decks !== null && decks.length > 1 && (
+        <div className="deck-sort">
+          <label htmlFor="deck-sort">Sort</label>
+          <select
+            id="deck-sort"
+            value={sort ?? ''}
+            onChange={(e) => setSort((e.target.value || null) as BuildabilitySort | null)}
+          >
+            <option value="">Recently edited</option>
+            {BUILDABILITY_SORTS.map((option) => (
+              <option key={option} value={option}>{BUILDABILITY_SORT_LABEL[option]}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {allTags.length > 0 && (
         <div className="deck-tag-filter">
           {allTags.map(({ tag, deckCount }) => (
@@ -209,6 +230,7 @@ export function DeckList({
                 <div className="deck-card-meta commander">{deck.commanderNames.join(' & ')}</div>
               )}
               <div className="deck-card-meta subtle">Edited {relativeDate(deck.updatedAt)}</div>
+              <BuildabilityBar figures={deck.buildability} />
             </button>
 
             {deck.tags.length > 0 && (

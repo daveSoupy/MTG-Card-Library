@@ -508,7 +508,64 @@ export interface DeckSummary {
   tags: string[];
   /** Chosen if you picked one, otherwise worked out from the deck's contents. */
   coverPrintingId: string | null;
+  /** Only when the list was asked for `include=buildability`. */
+  buildability?: DeckBuildability | null;
 }
+
+/**
+ * Could this deck go on the table tonight, and what would finishing it cost?
+ *
+ * Computed by the server against the same allocation rules everything else
+ * uses. The client renders these numbers and never derives one: a percentage
+ * the client worked out for itself is a percentage that can disagree with the
+ * deck it describes.
+ */
+export interface DeckBuildability {
+  deckId: number;
+  /** Null when the deck has nothing to count — read it as "empty", not 100%. */
+  buildablePct: number | null;
+  requiredCards: number;
+  coveredCards: number;
+  missingCards: number;
+  costToCompleteUsd: number;
+  /** Missing cards with no price at all, so "$23 + 2 unpriced" can be said. */
+  unpricedCount: number;
+  /** Missing cards another reserving deck is holding copies of. */
+  contestedCount: number;
+}
+
+/** One card's story inside a deck's buildability breakdown. */
+export interface BuildabilityRow {
+  oracleId: string;
+  name: string;
+  required: number;
+  owned: number;
+  available: number;
+  tradeListed: number;
+  proxied: number;
+  covered: number;
+  missing: number;
+  unitPriceUsd: number | null;
+  extendedUsd: number | null;
+  contested: boolean;
+  holdingDecks: Array<{ deckId: number; deckName: string; status: DeckStatus; quantity: number }>;
+}
+
+export interface BuildabilityDetail {
+  deckId: number;
+  deckName: string;
+  summary: DeckBuildability;
+  rows: BuildabilityRow[];
+}
+
+export const BUILDABILITY_SORTS = ['buildable_desc', 'cost_to_complete_asc', 'missing_asc'] as const;
+export type BuildabilitySort = (typeof BUILDABILITY_SORTS)[number];
+
+export const BUILDABILITY_SORT_LABEL: Record<BuildabilitySort, string> = {
+  buildable_desc: 'Closest to buildable',
+  cost_to_complete_asc: 'Cheapest to finish',
+  missing_asc: 'Fewest cards missing',
+};
 
 async function send<T>(url: string, method: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -523,8 +580,33 @@ async function send<T>(url: string, method: string, body?: unknown): Promise<T> 
   return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);
 }
 
-export const fetchDecks = (signal?: AbortSignal) =>
-  getJson<{ decks: DeckSummary[] }>('/api/v1/decks', signal).then((r) => r.decks);
+/**
+ * The deck list.
+ *
+ * Buildability is opt-in: it is a real computation over the whole collection,
+ * and the callers that only want deck names (the picker, the import dialog)
+ * should not pay for it. Sorting by it implies asking for it.
+ */
+export const fetchDecks = (
+  options: { buildability?: boolean; sort?: BuildabilitySort | null } = {},
+  signal?: AbortSignal,
+) => {
+  const params = new URLSearchParams();
+  if (options.buildability || options.sort) params.set('include', 'buildability');
+  if (options.sort) params.set('sort', options.sort);
+  const query = params.toString();
+  return getJson<{ decks: DeckSummary[] }>(
+    `/api/v1/decks${query ? `?${query}` : ''}`, signal,
+  ).then((r) => r.decks);
+};
+
+export const fetchBuildability = (deckId: number, signal?: AbortSignal) =>
+  getJson<BuildabilityDetail>(`/api/v1/decks/${deckId}/buildability`, signal);
+
+/** Everything the collection could not cover, onto a want list. */
+export const pushMissingToWantList = (deckId: number, wantListId?: number) =>
+  send<{ added: number; updated: number; listName: string }>(
+    `/api/v1/decks/${deckId}/buildability/want`, 'POST', { wantListId });
 
 export const fetchDeck = (id: number, signal?: AbortSignal) =>
   getJson<{ deck: Deck }>(`/api/v1/decks/${id}`, signal).then((r) => r.deck);
