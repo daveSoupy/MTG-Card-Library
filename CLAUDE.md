@@ -16,6 +16,7 @@ Phases 1–6 are built and shipped. `schema.sql` is the complete schema at `PRAG
 6. **Stop and wait for confirmation after each phase** rather than continuing to the next one unprompted.
 7. **Commit at the end of each completed phase.**
 8. Phase 0 is prep on shipped code and must precede Phase 9. Phases 7 and 8 are unsequenced and can be built at any point. Phase 16 (OCR-assisted entry) is optional — build it only if explicitly requested. Phase 20 (native iOS app) is a separate codebase against the same API.
+9. **Phase 22 comes before 23–27.** It rewrites how "available" is computed and puts that computation in one place (`server/src/decks/allocation.ts`). Phases 23–27 all call it rather than re-deriving the formula, and any phase built on the old rule produces numbers that are confidently wrong rather than visibly broken. Within that set, 24 precedes 25 and 26; 27 is last.
 
 ## Repo Layout
 
@@ -47,6 +48,13 @@ Phases 1–6 are built and shipped. `schema.sql` is the complete schema at `PRAG
 - `phases/phase-19-pwa-install-flow.md`
 - `phases/phase-20-native-companion-app.md` (native iOS client for OCR scanning and offline trade/sale/want recording — see the architecture notes below on what this means for the "no offline mode" rule)
 - `phases/phase-21-known-players.md` (capstone — after every other phase. A lighter alternative to full multi-user: friends' collections and want lists as read-only imported snapshots, no accounts, no `user_id` on any existing table)
+- `phases/phase-22-allocation-honesty.md` (deck status lifecycle, basic-land exemption, proxy counts, trade-list subtraction — establishes `server/src/decks/allocation.ts` as the single source of truth for "available". Build before 23–27)
+- `phases/phase-23-owned-aware-search.md` (`owned:` / `available:` / `loc:` / `indeck:` search predicates)
+- `phases/phase-24-deck-buildability.md` (buildable %, missing count, cost to complete, deck-list sorting)
+- `phases/phase-25-assembly-pull-sheets.md` (resolves allocations to real lots at assembly time; pull sheets grouped by storage location, and disassembly that puts cards back)
+- `phases/phase-26-allocation-contention.md` (which decks are fighting over which copies, reassignment, teardown simulation)
+- `phases/phase-27-owned-substitutes.md` (cards you already own that could fill a slot you're short on — depends on `card_categories` from Phase 7 **and** on that data source actually existing; verify both before starting)
+
 
 ## Overview
 
@@ -88,17 +96,21 @@ Seven distinct concepts — keep them separate; don't conflate them:
 4. **Storage Locations** (`storage_locations`) — user-defined physical places cards live: binders, boxes, deck boxes. Every Collection row references one, and a Deck can optionally have a `home_location_id` so allocated copies resolve to a real place, not just "in a deck."
 5. **Trades** (`trades`, `trade_items`) — records of cards exchanged with another person. Completing a trade automatically moves cards into and out of the Collection rather than requiring manual edits on both ends. Counterparties are freeform text, not accounts.
 6. **Want List** (`want_lists`, `want_list_items`) — cards you're actively looking to acquire, independent of what you currently own.
-7. **Trade List** (`trade_lists`, `trade_list_items`) — specific owned copies flagged as available to trade away, tracked as their own quantity — separate from total owned and separate from deck-allocated copies.
+7. **Trade List** (`trade_lists`, `trade_list_items`) — specific owned copies flagged as available to trade away, tracked as their own quantity, separate from total owned and from deck-allocated copies. A copy promised to someone else is not a copy you can build with, so trade-listed quantity is subtracted from **available** alongside deck allocation (Phase 22).
 
 ### Allocation tracking (Collection ↔ Decks)
 
 A physical card can only be in one deck at a time, so the app tracks not just *how many* of a card you own, but *how many are currently claimed by decks*:
 
-- For each owned card: **owned qty**, **allocated qty** (sum of copies marked "from collection" across all decks that use it), and **available qty** (owned − allocated).
+- For each owned card: **owned qty**, **allocated qty** (sum of copies marked "from collection" across decks in a *reserving* status), **trade-listed qty**, and **available qty** (owned − allocated − trade-listed).
+- **Only decks in a reserving status consume allocation** (Phase 22). A deck's `status` is one of `brew`, `building`, `assembled`, `disassembled`; the middle two reserve, the outer two don't. A brew holds a card list without laying claim to physical copies, so half-formed ideas stop starving decks you actually intend to build. `is_archived` is orthogonal and still only controls visibility.
+- **Basic lands are exempt** from allocation, availability, shortfall and want lists while `allocation_ignores_basics` is on. **Proxied copies** (`deck_cards.quantity_proxied`) satisfy a slot without being owned or needing to be bought.
+- **The computation lives in exactly one place:** `server/src/decks/allocation.ts`. Never re-derive "available" in a store, a route, or a client — call it. Phases 23–27 all depend on this holding.
 - When adding a card to a deck, show whether you own enough available copies and let the slot be marked "from my collection" (draws from allocation) vs. "need to buy" (doesn't touch the collection). Default to "from my collection" when enough is available.
 - If a deck wants more copies than are available (other decks already claim them), flag it visually rather than blocking — you may be planning decks you don't intend to assemble simultaneously.
 - From a card's detail view or the Collection view, show which decks currently use this card, how many copies, and where the rest physically live — e.g. "Deck A ×2 (home: Blue Tackle Box), Binder 3 ×2 available."
 - **Deleting a deck releases its allocation** immediately, with no manual fix-up step.
+- **Phases 7–21 were written before Phase 22 and their allocation references are stale.** Anything in those files that computes availability, excludes basic lands, or assumes every deck reserves its copies must be reworked to call `allocation.ts` instead. The draft/sealed "add-and-allocate" mode in Phase 11 is the sharpest case — it carries its own basic-land rule that would silently disagree. If Phase 22 is already built when you pick up one of those phases, treat this file's rules as authoritative over that phase file's wording.
 
 ## Non-Functional Requirements
 
