@@ -325,13 +325,6 @@ export function DeckPanes({
                                 ? 0
                                 : card.quantity - card.quantityProxied,
                             }), `changing what ${card.name} draws from`)}
-                          onProxy={(delta) =>
-                            apply(() => updateDeckCard(deck.id, card.id, {
-                              quantityProxied: Math.max(0, Math.min(
-                                card.quantity - card.quantityFromCollection,
-                                card.quantityProxied + delta,
-                              )),
-                            }), `${delta > 0 ? 'proxying' : 'un-proxying'} ${card.name}`)}
                           onPreview={() =>
                             card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
                           onArt={() => setArtFor(card)}

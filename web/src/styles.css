@@ -671,8 +671,11 @@ input[type='number'] { width: 72px; }
 
 .deck-row {
   display: grid;
-  /* qty / name+tags / mana / owned+proxy / board / art / remove */
-  grid-template-columns: 78px minmax(0, 1fr) auto 152px 108px 24px 24px;
+  /* qty / name+tags / mana / owned+shortfall / board / art / remove */
+  /* The allocation column was 152px when it also held the proxy stepper. Now
+     it carries the owned chip plus the shortfall chip: "13 owned" + "need 13"
+     is the realistic worst case, at ~122px. */
+  grid-template-columns: 78px minmax(0, 1fr) auto 132px 108px 24px 24px;
   align-items: center; gap: 8px;
   padding: 2px 4px; border-radius: 6px; border-left: 3px solid transparent;
 }
@@ -716,23 +719,9 @@ input[type='number'] { width: 72px; }
   border-style: dashed; color: var(--text-3); cursor: default;
 }
 
-/* The owned badge and the proxy stepper share one column, so a basic land —
+/* The owned badge and the shortfall chip share one column, so a basic land —
    which shows neither — leaves the columns after it exactly where they were. */
 .slot-alloc { display: flex; align-items: center; gap: 6px; min-width: 0; }
-
-/* Proxy stepper: the same shape as the quantity stepper so the two read as the
-   same kind of control, but muted until a slot actually has proxies in it. */
-.proxy-step {
-  display: inline-flex; align-items: center; gap: 2px;
-  font-size: 11px; color: var(--text-3); white-space: nowrap;
-}
-.proxy-step button {
-  background: none; border: 0; color: var(--text-3);
-  font-size: 13px; line-height: 1; padding: 0 3px; cursor: pointer;
-}
-.proxy-step button:hover:not(:disabled) { color: var(--accent); }
-.proxy-step button:disabled { opacity: 0.3; cursor: default; }
-.proxy-step span.on { color: var(--accent); }
 
 .board-select { font-size: 11.5px; padding: 3px 5px; }
 .row-remove {

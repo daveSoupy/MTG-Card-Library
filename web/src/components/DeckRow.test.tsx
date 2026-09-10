@@ -19,7 +19,6 @@ const card: DeckCard = {
 function row(
   overrides: Partial<DeckCard> = {},
   onQuantity = vi.fn(),
-  onProxy = vi.fn(),
 ) {
   const view = render(
     <DeckRow
@@ -29,13 +28,12 @@ function row(
       onBoard={() => {}}
       onRemove={() => {}}
       onToggleOwned={() => {}}
-      onProxy={onProxy}
       onPreview={() => {}}
       onArt={() => {}}
       categoryLabels={labels}
     />,
   );
-  return { ...view, onQuantity, onProxy };
+  return { ...view, onQuantity };
 }
 
 describe('DeckRow', () => {
@@ -64,25 +62,21 @@ describe('DeckRow', () => {
     expect(container.querySelector('.deck-name-tags')).toBeNull();
   });
 
-  it('steps the proxy count, and stops at what the slot has room for', () => {
-    const { onProxy } = row({ quantity: 4, quantityFromCollection: 1, quantityProxied: 2 });
-    expect(screen.getByText('2 proxy')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('One more proxy of Sol Ring'));
-    expect(onProxy).toHaveBeenCalledWith(1);
-
-    // 1 owned + 2 proxied fills 3 of 4; a full slot offers no fourth proxy.
-    row({ quantity: 3, quantityFromCollection: 1, quantityProxied: 2 });
-    expect(screen.getAllByLabelText('One more proxy of Sol Ring').at(-1)).toBeDisabled();
+  // The proxy stepper is parked, not deleted: `quantity_proxied` still rides
+  // through the API and still counts as covered. See CLAUDE.md.
+  it('offers no proxy control', () => {
+    const { container } = row({ quantity: 4, quantityFromCollection: 1 });
+    expect(container.querySelector('.proxy-step')).toBeNull();
+    expect(screen.queryByLabelText('One more proxy of Sol Ring')).toBeNull();
   });
 
-  it('renders an exempt basic land with no owned badge and no proxy stepper', () => {
+  it('renders an exempt basic land with no owned badge at all', () => {
     // A blank badge beats a wrong one: basics are outside allocation entirely.
     const { container } = row({
       name: 'Sol Ring', isBasicLand: true, allocationTracked: false,
       quantity: 38, quantityFromCollection: 0, ownedQuantity: 0, availableQuantity: 0,
     });
     expect(container.querySelector('.owned-chip.untracked')?.textContent).toBe('basic');
-    expect(container.querySelector('.proxy-step')).toBeNull();
   });
 
   it('says why a card you own is not available, rather than just that it is not', () => {
