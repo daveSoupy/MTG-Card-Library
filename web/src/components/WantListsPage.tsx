@@ -11,6 +11,7 @@ import { BackToTop } from './BackToTop.tsx';
 import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import type { Density, DensityPage } from '../density.ts';
+import { useNarrow } from '../viewport.ts';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const PRIORITY = ['—', 'Low', 'Medium', 'High'];
@@ -30,6 +31,14 @@ export function WantListsPage({
   onResetDensity: () => void;
 }) {
   const ultra = density === 'ultra';
+  // Mirrors the 620px breakpoint in styles.css. A Full row on a phone splits
+  // its toolbar in two: the price and the remove ✕ move up onto the name line,
+  // which leaves quantity, priority and the alert bell fitting on exactly one
+  // line beneath it. Keeping all five together needed 265px of a 227px column,
+  // so something had to move — and the price and ✕ are the two that read as
+  // belonging to the card rather than to the fields. Ultra rows are one line
+  // already and are left alone.
+  const compactRow = useNarrow(620) && !ultra;
   const [lists, setLists] = useState<NamedList[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [list, setList] = useState<WantList | null>(null);
@@ -285,6 +294,10 @@ export function WantListsPage({
                   }}
                 >⠿</button>
               );
+              const removeButton = (
+                <button className="row-remove" onClick={() => removeItem(item)}
+                  aria-label={`Remove ${item.name}`}>×</button>
+              );
               const controls = (
                 <div className="want-controls">
                   <div className="want-controls-group">
@@ -301,7 +314,7 @@ export function WantListsPage({
                     </label>
                   </div>
                   <div className="want-controls-group">
-                    <div className="want-price">{money(item.priceUsd)}</div>
+                    {!compactRow && <div className="want-price">{money(item.priceUsd)}</div>}
                     <button
                       type="button"
                       className={`want-alert-toggle${item.targetPriceUsd != null ? ' active' : ''}`}
@@ -319,8 +332,7 @@ export function WantListsPage({
                           onChange={(e) => patch(item, { targetPriceUsd: e.target.value === '' ? null : Number(e.target.value) })} />
                       </label>
                     )}
-                    <button className="row-remove" onClick={() => removeItem(item)}
-                      aria-label={`Remove ${item.name}`}>×</button>
+                    {!compactRow && removeButton}
                   </div>
                 </div>
               );
@@ -362,10 +374,16 @@ export function WantListsPage({
                           : <div className="want-thumb placeholder" />}
                       </div>
                       <div className="want-main">
-                        <button type="button" className="want-name" onClick={() => setDetailId(item.id)}>
-                          {item.name}
-                          {item.ownedQuantity > 0 && <span className="tag ok">own {item.ownedQuantity}</span>}
-                        </button>
+                        {/* Name and price are one line: the two things a glance
+                            down this list is actually reading. */}
+                        <div className="want-headline">
+                          <button type="button" className="want-name" onClick={() => setDetailId(item.id)}>
+                            {item.name}
+                            {item.ownedQuantity > 0 && <span className="tag ok">own {item.ownedQuantity}</span>}
+                          </button>
+                          {compactRow && <div className="want-price">{money(item.priceUsd)}</div>}
+                          {compactRow && removeButton}
+                        </div>
                         {controls}
                       </div>
                       {/* Outside `.want-main` deliberately — `.want-row` centers the

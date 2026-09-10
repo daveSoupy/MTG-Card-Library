@@ -1466,6 +1466,13 @@ input[type='number'] { width: 72px; }
   display: block; flex: none; background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
 }
 .want-open .want-thumb { width: 84px; height: 117px; border-radius: 6px; }
+/* Name and (on a phone) price, as one line. On a wide screen it holds only
+   the name and so behaves exactly as the bare name used to. */
+.want-headline {
+  flex: 1 1 160px; min-width: 0;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.want-headline .want-name { flex: 1 1 auto; }
 /* The name itself is the other tap target into the full card view — plain
    text size elsewhere in the row, blown up here since it's the one thing a
    glance at this list needs to read instantly. */
@@ -1613,12 +1620,60 @@ input[type='number'] { width: 72px; }
   .results { padding: 10px; }
   .list-page { padding: 10px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }
-  .want-field input, .want-field select { width: 54px; }
-  /* At phone width the toolbar is nearly as wide as the row already, so
-     pinning it right (the desktop fix for a toolbar stranded alone under
-     "needed for…" text) just opens an odd gap next to the name — left-aligned
-     under the name/tags reads cleaner here. */
-  .want-controls { margin-left: 0; }
+  /* A Full want row on a phone: grip, card, and one text column.
+  
+     As a wrapping flex row it could not work — the name+controls block asks for
+     240px and an 84px portrait plus the grip leaves about 240 of a 390px
+     screen, so the block wrapped *under* the art. That is what put a huge
+     portrait on its own line above a 21px name with the controls below it, one
+     row to a screenful. A grid instead: the art spans however many text lines
+     there are, and everything textual lines up in the column beside it. */
+  .want-row:not(.ultra) {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    column-gap: 10px; row-gap: 5px; padding: 10px;
+  }
+  .want-row:not(.ultra) > .want-drag { grid-column: 1; grid-row: 1 / -1; }
+  /* 1 / -1 rather than a fixed span: "needed for" and notes are each present
+     only sometimes, so the number of text rows varies per card. */
+  .want-row:not(.ultra) > .want-open { grid-column: 2; grid-row: 1 / -1; }
+  .want-row:not(.ultra) > .want-main,
+  .want-row:not(.ultra) > .needed-for,
+  .want-row:not(.ultra) > .want-notes { grid-column: 3; }
+  /* Big enough to recognise the card by, small enough that the row is about a
+     sixth of the screen rather than half of it. */
+  .want-row:not(.ultra) .want-open .want-thumb { width: 56px; height: 78px; }
+  /* 21px was sized for a name sitting alone on a wide row. Here it shares a
+     line with the price and has a column, not a page, to fit in. */
+  .want-row:not(.ultra) .want-name { font-size: 16px; }
+  /* The ✕ is a button among text, so the line centers rather than sits on a
+     shared baseline. */
+  .want-row:not(.ultra) .want-headline { flex: 1 1 100%; align-items: center; gap: 8px; }
+  .want-row:not(.ultra) .want-headline .row-remove { flex: none; padding: 2px 0 2px 2px; }
+  .want-row:not(.ultra) .want-price { font-size: 15px; min-width: 0; }
+  .want-row:not(.ultra) .needed-for,
+  .want-row:not(.ultra) .want-notes { flex-basis: auto; }
+
+  /* Controls get the row under the name. Quantity and priority cannot share a
+     line with the alert and remove buttons here — iOS forces every field to
+     16px to avoid zooming on focus, and the two groups then want 265px of a
+     227px column — so the second group wraps. `margin-left: auto` is what makes
+     that read as deliberate: wrapped or not, it sits at the right edge, under
+     the price, rather than stranded at the left. */
+  /* 8px, not the desktop 16: with the priority select sized to fit "Medium",
+     the fields and the bell come to within a few pixels of the column width,
+     and a wider gap is the difference between one line and two. */
+  .want-controls { margin-left: 0; width: 100%; gap: 6px 8px; }
+  /* Right edge whether it shares the line with the fields or, with the alert
+     target open, wraps below them. */
+  .want-row:not(.ultra) .want-controls-group:last-child { margin-left: auto; }
+  /* Label beside the field rather than above it — the same information in half
+     the height, which is what buys the row back. */
+  .want-field { flex-direction: row; align-items: center; gap: 5px; }
+  .want-row:not(.ultra) .want-controls-group { gap: 6px 8px; }
+  .want-field input { width: 44px; }
+  /* Wide enough for "Medium", which was being cut to "Me" at a fixed 54px. */
+  .want-field select { width: auto; min-width: 74px; }
   /* On a phone the add-by-set settings scroll away with the page rather than
      staying pinned over the cards. */
   .entry-bar { position: static; }
