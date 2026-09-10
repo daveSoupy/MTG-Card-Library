@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { DeckNotFoundError, type DeckStore } from '../decks/store.ts';
+import { DECK_STATUSES, SlotOverfilledError, type DeckStatus } from '../decks/allocation.ts';
 import { BOARDS, type Board, type CommanderRole } from '../decks/types.ts';
 import {
   takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
@@ -12,18 +13,24 @@ const COMMANDER_ROLES: CommanderRole[] = [
 ];
 
 const BOARD = { type: 'string', enum: BOARDS } as const;
+const STATUS = { type: 'string', enum: [...DECK_STATUSES] } as const;
 
 export function registerDeckRoutes(
   app: FastifyInstance,
   decks: DeckStore,
   db: Database.Database,
 ): void {
-  /** Turns a missing deck into a 404 rather than a 500. */
+  /**
+   * Turns a missing deck into a 404 and an impossible slot into a 400, rather
+   * than either into a 500. An over-filled slot is rejected outright — clamping
+   * it would leave the client showing a number the user never asked for.
+   */
   const guard = async <T>(reply: any, run: () => T) => {
     try {
       return run();
     } catch (error) {
       if (error instanceof DeckNotFoundError) return reply.status(404).send({ error: error.message });
+      if (error instanceof SlotOverfilledError) return reply.status(400).send({ error: error.message });
       throw error;
     }
   };
@@ -58,6 +65,7 @@ export function registerDeckRoutes(
     Body: {
       name?: string; formatCode?: string | null; description?: string | null;
       notes?: string | null; isArchived?: boolean; templateId?: number | null;
+      status?: DeckStatus;
     };
   }>(
     '/api/v1/decks/:id',
@@ -67,12 +75,18 @@ export function registerDeckRoutes(
         body: body({
           name: NAME, formatCode: TEXT_OR_NULL, description: TEXT_OR_NULL,
           notes: TEXT_OR_NULL, isArchived: FLAG, templateId: ID_OR_NULL,
+          // Whether the deck reserves its copies. The store stamps
+          // status_changed_at and leaves every slot's claim untouched, so
+          // assembled → brew → assembled is lossless.
+          status: STATUS,
         }),
       },
     },
     async (request, reply) => guard(reply, () => {
-      const { name, formatCode, description, notes, isArchived, templateId } = request.body;
-      decks.update(request.params.id, { name, formatCode, description, notes, isArchived, templateId });
+      const { name, formatCode, description, notes, isArchived, templateId, status } = request.body;
+      decks.update(request.params.id, {
+        name, formatCode, description, notes, isArchived, templateId, status,
+      });
       return { deck: decks.get(request.params.id) };
     }),
   );
@@ -151,7 +165,7 @@ export function registerDeckRoutes(
   app.patch<{
     Params: { id: number; cardId: number };
     Body: {
-      quantity?: number; fromCollection?: number; board?: Board;
+      quantity?: number; fromCollection?: number; quantityProxied?: number; board?: Board;
       commanderRole?: CommanderRole | null;
       category?: string | null; preferredPrintingId?: string | null;
     };
@@ -161,7 +175,7 @@ export function registerDeckRoutes(
       schema: {
         params: idParams('id', 'cardId'),
         body: body({
-          quantity: COUNT, fromCollection: COUNT, board: BOARD,
+          quantity: COUNT, fromCollection: COUNT, quantityProxied: COUNT, board: BOARD,
           commanderRole: enumOrNull(COMMANDER_ROLES),
           category: CATEGORY_LIST, preferredPrintingId: TEXT_OR_NULL,
         }),
@@ -169,7 +183,9 @@ export function registerDeckRoutes(
     },
     async (request, reply) => {
       const { id, cardId } = request.params;
-      const { quantity, fromCollection, board, category, preferredPrintingId } = request.body;
+      const {
+        quantity, fromCollection, quantityProxied, board, category, preferredPrintingId,
+      } = request.body;
 
       // Captured before the edit: a quantity of 0 removes the slot, after which
       // its oracle id can no longer be looked up.
@@ -180,7 +196,17 @@ export function registerDeckRoutes(
         decks.setPreferredPrinting(id, cardId, preferredPrintingId || null);
       }
       if (quantity !== undefined) decks.setQuantity(id, cardId, quantity);
-      if (fromCollection !== undefined) decks.setFromCollection(id, cardId, fromCollection);
+      // Both allocation fields go in one call, so swapping two proxies for two
+      // owned copies is never judged against a half-applied state that only
+      // existed between two writes.
+      if (fromCollection !== undefined || quantityProxied !== undefined) {
+        try {
+          decks.setSlotAllocation(id, cardId, { fromCollection, proxied: quantityProxied });
+        } catch (error) {
+          if (!(error instanceof SlotOverfilledError)) throw error;
+          return reply.status(400).send({ error: error.message });
+        }
+      }
       if (board !== undefined) decks.setBoard(id, cardId, board, request.body.commanderRole ?? null);
 
       // A quantity or board change alters the mana base; rebalance basics if on.

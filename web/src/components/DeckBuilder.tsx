@@ -14,6 +14,7 @@ import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import { DeckGamesPanel } from './DeckGamesPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
+import { DeckStatusPill } from './DeckStatusPill.tsx';
 import { UndoRedo } from './UndoRedo.tsx';
 import {
   loadPaneWidths, loadSortPreference, savePaneWidth, saveSortPreference,
@@ -319,6 +320,15 @@ export function DeckBuilder({
             {deck.name}
           </button>
         )}
+
+        <DeckStatusPill
+          status={deck.status}
+          disabled={busy}
+          // No undo label: undo replays card slots, and a status change edits
+          // none of them. Putting it on the stack would make Undo look like it
+          // had done nothing.
+          onChange={(status) => apply(() => updateDeck(deck.id, { status }))}
+        />
 
         <select
           value={deck.formatCode ?? ''}

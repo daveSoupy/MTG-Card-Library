@@ -10,6 +10,10 @@ import { CollectionStore } from '../collection/store.ts';
 import { hasCardCategories } from '../sync/categories.ts';
 import { normalizeCategoryInput, parseCategoryList } from './categories.ts';
 import { isLimitedFormat } from '../model/mtg.ts';
+import {
+  allocationForMany, allocationSettings, assertSlotFits, availableFor,
+  DECK_STATUSES, type DeckStatus,
+} from './allocation.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -174,20 +178,15 @@ export class DeckStore {
     // rather than a missing row that later reads as "not legal here".
     const legalityFormat = isLimitedFormat(formatCode) ? null : formatCode;
 
-    // availableQuantity deliberately excludes this deck's own claim, so the
-    // number reads as "copies other decks are not already using".
     const rows = this.db.prepare(`
       SELECT dc.id, dc.oracle_id, dc.board, dc.quantity, dc.quantity_from_collection,
+             dc.quantity_proxied,
              dc.commander_role, dc.category, dc.sort_order,
              o.name, o.cmc, o.type_line, o.mana_cost, o.color_identity,
              o.color_identity_mask, o.colors_mask, o.is_basic_land, o.is_legendary,
              o.can_be_commander, o.partner_kind, o.partner_with, o.produced_mana,
              o.has_uncommon_printing, o.deck_copy_limit,
              cl.legality,
-             COALESCE(owned.qty, 0) AS owned_qty,
-             COALESCE(owned.qty, 0)
-               - COALESCE(claimed.qty, 0)
-               + COALESCE(mine.qty, 0) AS available_qty,
              dp.id AS printing_id, dp.set_code, dp.rarity, dp.price_usd,
              COALESCE(dp.image_small, ff.image_small) AS image_small
       FROM deck_cards dc
@@ -195,19 +194,6 @@ export class DeckStore {
       LEFT JOIN card_printings dp ON dp.id = COALESCE(dc.preferred_printing_id, o.default_printing_id)
       LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
       LEFT JOIN card_legalities cl ON cl.oracle_id = dc.oracle_id AND cl.format_code = ?
-      LEFT JOIN (
-          SELECT p.oracle_id, SUM(ci.quantity) AS qty
-          FROM collection_items ci JOIN card_printings p ON p.id = ci.printing_id
-          GROUP BY p.oracle_id
-      ) owned ON owned.oracle_id = dc.oracle_id
-      LEFT JOIN (
-          SELECT oracle_id, SUM(quantity_from_collection) AS qty FROM deck_cards
-          WHERE board IN ('main','side','command') GROUP BY oracle_id
-      ) claimed ON claimed.oracle_id = dc.oracle_id
-      LEFT JOIN (
-          SELECT oracle_id, SUM(quantity_from_collection) AS qty FROM deck_cards
-          WHERE deck_id = ? AND board IN ('main','side','command') GROUP BY oracle_id
-      ) mine ON mine.oracle_id = dc.oracle_id
       WHERE dc.deck_id = ?
       -- Inside the command zone the leader comes first and Oathbreaker's
       -- signature spell last; elsewhere commander_role is NULL, so every card
@@ -219,9 +205,16 @@ export class DeckStore {
                  WHEN 'background' THEN 1
                  WHEN 'signature_spell' THEN 2
                  ELSE 3 END,
-               o.cmc, o.name COLLATE NOCASE`).all(legalityFormat, deckId, deckId) as any[];
+               o.cmc, o.name COLLATE NOCASE`).all(legalityFormat, deckId) as any[];
 
     const categories = this.categoriesByOracle(rows.map((r) => r.oracle_id));
+    // The owned / available / trade-listed triple comes from allocation.ts and
+    // nowhere else — deck status, the basic-land exemption and the trade-list
+    // rule all live there. excludeDeckId keeps a deck from reporting itself as
+    // competing with itself.
+    const allocation = allocationForMany(
+      this.db, rows.map((r) => r.oracle_id), { excludeDeckId: deckId },
+    );
 
     return rows.map((row) => ({
       id: row.id,
@@ -230,6 +223,7 @@ export class DeckStore {
       board: row.board as Board,
       quantity: row.quantity,
       quantityFromCollection: row.quantity_from_collection,
+      quantityProxied: row.quantity_proxied,
       commanderRole: row.commander_role as CommanderRole | null,
       category: row.category,
       categories: categories.get(row.oracle_id) ?? [],
@@ -249,8 +243,10 @@ export class DeckStore {
       partnerWith: row.partner_with,
       legality: row.legality ?? null,
       deckCopyLimit: row.deck_copy_limit ?? null,
-      ownedQuantity: row.owned_qty,
-      availableQuantity: row.available_qty,
+      ownedQuantity: allocation.get(row.oracle_id)!.owned,
+      availableQuantity: allocation.get(row.oracle_id)!.available,
+      tradeListedQuantity: allocation.get(row.oracle_id)!.tradeListed,
+      allocationTracked: allocation.get(row.oracle_id)!.tracked,
       printingId: row.printing_id,
       setCode: row.set_code,
       rarity: row.rarity,
@@ -388,10 +384,11 @@ export class DeckStore {
     id: number,
     changes: {
       name?: string; formatCode?: string | null; description?: string | null; notes?: string | null;
-      isArchived?: boolean; templateId?: number | null;
+      isArchived?: boolean; templateId?: number | null; status?: DeckStatus;
     },
   ): void {
-    const existing = this.db.prepare('SELECT id FROM decks WHERE id = ?').get(id);
+    const existing = this.db.prepare('SELECT id, status FROM decks WHERE id = ?').get(id) as
+      | { id: number; status: DeckStatus } | undefined;
     if (!existing) throw new DeckNotFoundError(id);
 
     const sets: string[] = [];
@@ -404,13 +401,32 @@ export class DeckStore {
     // decks.template_id is ON DELETE SET NULL, so an explicit null here is
     // indistinguishable from "template was deleted" — both mean off.
     if (changes.templateId !== undefined) { sets.push('template_id = ?'); params.push(changes.templateId); }
+    // Status changes what a deck's claims *count for*; it deliberately does not
+    // touch quantity_from_collection on any slot. The declared allocation is
+    // the user's intent and survives the deck going cold, so assembled → brew →
+    // assembled is lossless. Only a real move restamps status_changed_at.
+    if (changes.status !== undefined && changes.status !== existing.status) {
+      if (!DECK_STATUSES.includes(changes.status)) {
+        throw new TypeError(`Unknown deck status "${changes.status}".`);
+      }
+      sets.push('status = ?');
+      params.push(changes.status);
+      sets.push(`status_changed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
+    }
     if (sets.length === 0) return;
 
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
     this.db.prepare(`UPDATE decks SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
   }
 
-  /** Copies the deck and every slot, including how much each claims. */
+  /**
+   * Copies the deck and every slot, including how much each claims.
+   *
+   * The copy starts as a brew whatever the original was: duplicating an
+   * assembled deck does not conjure a second pile of cardboard, and a copy that
+   * reserved on creation would halve the availability of everything in it. The
+   * declared claims come across intact, so promoting it later costs one click.
+   */
   duplicate(id: number, newName?: string): number {
     const source = this.db.prepare('SELECT * FROM decks WHERE id = ?').get(id) as any;
     if (!source) throw new DeckNotFoundError(id);
@@ -426,9 +442,9 @@ export class DeckStore {
       this.db.prepare(`
         INSERT INTO deck_cards
           (deck_id, oracle_id, board, quantity, quantity_from_collection,
-           preferred_printing_id, commander_role, category, sort_order)
+           quantity_proxied, preferred_printing_id, commander_role, category, sort_order)
         SELECT ?, oracle_id, board, quantity, quantity_from_collection,
-               preferred_printing_id, commander_role, category, sort_order
+               quantity_proxied, preferred_printing_id, commander_role, category, sort_order
         FROM deck_cards WHERE deck_id = ?`).run(newId, id);
 
       return newId;
@@ -487,7 +503,8 @@ export class DeckStore {
 
     this.db.transaction(() => {
       const existing = this.db.prepare(
-        'SELECT id, quantity, quantity_from_collection FROM deck_cards WHERE deck_id = ? AND oracle_id = ? AND board = ?',
+        `SELECT id, quantity, quantity_from_collection, quantity_proxied
+           FROM deck_cards WHERE deck_id = ? AND oracle_id = ? AND board = ?`,
       ).get(deckId, oracleId, board) as any;
 
       // A limited deck is built out of cards you physically opened, so adding
@@ -500,16 +517,19 @@ export class DeckStore {
         this.acquireForLimitedDeck(deck, oracleId, quantity, options.printingId ?? null);
       }
 
-      const free = this.availableFor(oracleId, deckId);
+      const free = availableFor(this.db, oracleId, { excludeDeckId: deckId });
       const alreadyClaimed = existing?.quantity_from_collection ?? 0;
       const claimable = Math.max(0, Math.min(quantity, free - alreadyClaimed));
       const fromCollection = options.fromCollection ?? claimable;
 
       if (existing) {
+        // The slot grows, so the claim has room to grow with it — but never
+        // past what the proxies already occupy.
+        const grown = existing.quantity + quantity;
         this.db.prepare(
           'UPDATE deck_cards SET quantity = ?, quantity_from_collection = ? WHERE id = ?',
-        ).run(existing.quantity + quantity,
-              Math.min(existing.quantity + quantity, alreadyClaimed + fromCollection),
+        ).run(grown,
+              Math.min(grown - existing.quantity_proxied, alreadyClaimed + fromCollection),
               existing.id);
       } else {
         this.db.prepare(`
@@ -697,24 +717,67 @@ export class DeckStore {
       if (quantity <= 0) {
         this.db.prepare('DELETE FROM deck_cards WHERE id = ? AND deck_id = ?').run(cardId, deckId);
       } else {
-        // quantity_from_collection may never exceed quantity — the schema has a
-        // CHECK for it, so clamp rather than letting the write fail.
+        // Shrinking a slot is not an over-claim the user made, so both counts
+        // are clamped into the smaller slot rather than the write being
+        // rejected. Collection copies keep their place ahead of proxies: the
+        // real card is the one you would rather keep in the deck.
         this.db.prepare(`
           UPDATE deck_cards
              SET quantity = ?,
-                 quantity_from_collection = MIN(quantity_from_collection, ?)
-           WHERE id = ? AND deck_id = ?`).run(quantity, quantity, cardId, deckId);
+                 quantity_from_collection = MIN(quantity_from_collection, ?),
+                 quantity_proxied = MIN(quantity_proxied,
+                                        ? - MIN(quantity_from_collection, ?))
+           WHERE id = ? AND deck_id = ?`)
+          .run(quantity, quantity, quantity, quantity, cardId, deckId);
       }
       this.touch(deckId);
     })();
   }
 
   setFromCollection(deckId: number, cardId: number, fromCollection: number): void {
+    this.setSlotAllocation(deckId, cardId, { fromCollection });
+  }
+
+  setProxied(deckId: number, cardId: number, proxied: number): void {
+    this.setSlotAllocation(deckId, cardId, { proxied });
+  }
+
+  /**
+   * The one place `quantity_from_collection + quantity_proxied <= quantity` is
+   * enforced.
+   *
+   * Deliberately not a CHECK constraint: a cross-column CHECK added by ALTER
+   * TABLE lasts only until a later migration rebuilds the table, at which point
+   * schema.sql and migrations.ts quietly disagree. Here it is one function with
+   * a test, and it throws rather than clamping — silently keeping half of what
+   * was asked for is how a slot ends up showing a number nobody chose.
+   *
+   * Both fields move together when both are given, so a client swapping two
+   * proxies for two owned copies in one PATCH is never judged mid-swap against
+   * a state that only existed between two writes.
+   */
+  setSlotAllocation(
+    deckId: number,
+    cardId: number,
+    changes: { fromCollection?: number; proxied?: number },
+  ): void {
     this.db.transaction(() => {
+      const slot = this.db.prepare(
+        `SELECT quantity, quantity_from_collection, quantity_proxied
+           FROM deck_cards WHERE id = ? AND deck_id = ?`,
+      ).get(cardId, deckId) as
+        | { quantity: number; quantity_from_collection: number; quantity_proxied: number }
+        | undefined;
+      if (!slot) return;
+
+      const fromCollection = changes.fromCollection ?? slot.quantity_from_collection;
+      const proxied = changes.proxied ?? slot.quantity_proxied;
+      assertSlotFits(slot.quantity, fromCollection, proxied);
+
       this.db.prepare(`
         UPDATE deck_cards
-           SET quantity_from_collection = MAX(0, MIN(quantity, ?))
-         WHERE id = ? AND deck_id = ?`).run(fromCollection, cardId, deckId);
+           SET quantity_from_collection = ?, quantity_proxied = ?
+         WHERE id = ? AND deck_id = ?`).run(fromCollection, proxied, cardId, deckId);
       this.touch(deckId);
     })();
   }
@@ -768,19 +831,34 @@ export class DeckStore {
   setBoard(deckId: number, cardId: number, board: Board, commanderRole?: CommanderRole | null): void {
     this.db.transaction(() => {
       const card = this.db.prepare(
-        'SELECT oracle_id, quantity FROM deck_cards WHERE id = ? AND deck_id = ?',
+        `SELECT oracle_id, quantity, quantity_from_collection, quantity_proxied
+           FROM deck_cards WHERE id = ? AND deck_id = ?`,
       ).get(cardId, deckId) as any;
       if (!card) return;
 
       // A slot already on the target board would collide with the unique key,
       // so merge into it instead of failing.
       const collision = this.db.prepare(
-        'SELECT id, quantity FROM deck_cards WHERE deck_id = ? AND oracle_id = ? AND board = ? AND id <> ?',
+        `SELECT id, quantity, quantity_from_collection, quantity_proxied
+           FROM deck_cards WHERE deck_id = ? AND oracle_id = ? AND board = ? AND id <> ?`,
       ).get(deckId, card.oracle_id, board, cardId) as any;
 
       if (collision) {
-        this.db.prepare('UPDATE deck_cards SET quantity = ? WHERE id = ?')
-          .run(collision.quantity + card.quantity, collision.id);
+        // Both halves of the merged slot's allocation come across. They cannot
+        // exceed the merged quantity — each side already fitted its own — but
+        // the sum is clamped anyway so the invariant holds by construction
+        // rather than by argument.
+        const quantity = collision.quantity + card.quantity;
+        const fromCollection = Math.min(
+          quantity, collision.quantity_from_collection + card.quantity_from_collection,
+        );
+        const proxied = Math.min(
+          quantity - fromCollection, collision.quantity_proxied + card.quantity_proxied,
+        );
+        this.db.prepare(`
+          UPDATE deck_cards
+             SET quantity = ?, quantity_from_collection = ?, quantity_proxied = ?
+           WHERE id = ?`).run(quantity, fromCollection, proxied, collision.id);
         this.db.prepare('DELETE FROM deck_cards WHERE id = ?').run(cardId);
       } else {
         this.db.prepare('UPDATE deck_cards SET board = ?, commander_role = ? WHERE id = ?')
@@ -909,19 +987,6 @@ export class DeckStore {
     }
   }
 
-  /** Copies of a card no other deck is already claiming. */
-  private availableFor(oracleId: string, excludingDeckId: number): number {
-    const row = this.db.prepare(`
-      SELECT COALESCE((SELECT SUM(ci.quantity) FROM collection_items ci
-                       JOIN card_printings p ON p.id = ci.printing_id
-                       WHERE p.oracle_id = ?), 0)
-           - COALESCE((SELECT SUM(quantity_from_collection) FROM deck_cards
-                       WHERE oracle_id = ? AND deck_id <> ?
-                         AND board IN ('main','side','command')), 0) AS free`)
-      .get(oracleId, oracleId, excludingDeckId) as { free: number };
-    return Math.max(0, row.free);
-  }
-
   private touch(deckId: number): void {
     this.db.prepare(`UPDATE decks SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`)
       .run(deckId);
@@ -936,6 +1001,8 @@ function toDeck(row: any): Deck {
     homeLocationId: row.home_location_id,
     description: row.description,
     notes: row.notes,
+    status: (row.status ?? 'brew') as DeckStatus,
+    statusChangedAt: row.status_changed_at ?? null,
     isArchived: Boolean(row.is_archived),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

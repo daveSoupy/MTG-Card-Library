@@ -1,12 +1,19 @@
 import type Database from 'better-sqlite3';
+import { allocationForMany, allocationSettings, copiesToBuy } from '../decks/allocation.ts';
 
 /**
  * A deck's shopping list, and pushing it onto a want list.
  *
  * CLAUDE.md is explicit that this "falls out naturally from allocation tracking
- * rather than being a separate feature" — a slot's shortfall is simply
- * `quantity - quantity_from_collection`, which Phase 2 already maintains. There
- * is no separate shopping-list table, and nothing to keep in sync.
+ * rather than being a separate feature" — a slot's shortfall is what allocation
+ * already maintains. There is no separate shopping-list table, and nothing to
+ * keep in sync.
+ *
+ * Phase 22 moved the shortfall itself into `decks/allocation.ts`: it is
+ * `quantity - from_collection - proxied`, and it is zero for a basic land while
+ * `allocation_ignores_basics` is on. Nothing here re-derives it, which is why
+ * the v_deck_shopping_list view is gone — 38 Islands are not 38 missing cards,
+ * and a view could not know that.
  */
 
 export interface ShoppingListEntry {
@@ -37,39 +44,54 @@ export function shoppingList(db: Database.Database, deckId: number): ShoppingLis
     | { id: number; name: string } | undefined;
   if (!deck) return null;
 
-  const rows = db.prepare(`
-    SELECT s.oracle_id, s.card_name, s.qty_to_buy, s.unit_price_usd, s.est_cost_usd,
-           s.price_printing_id,
-           COALESCE(dp.image_small, ff.image_small) AS image_small,
-           dp.set_code,
-           COALESCE(free.qty, 0) AS available_elsewhere
-    FROM v_deck_shopping_list s
-    LEFT JOIN card_printings dp ON dp.id = s.price_printing_id
-    LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
-    LEFT JOIN (
-        SELECT p.oracle_id,
-               SUM(ci.quantity) - COALESCE((
-                   SELECT SUM(dc.quantity_from_collection) FROM deck_cards dc
-                   WHERE dc.oracle_id = p.oracle_id AND dc.board IN ('main','side','command')
-               ), 0) AS qty
-        FROM collection_items ci
-        JOIN card_printings p ON p.id = ci.printing_id
-        GROUP BY p.oracle_id
-    ) free ON free.oracle_id = s.oracle_id
-    WHERE s.deck_id = ?
-    ORDER BY s.est_cost_usd DESC, s.card_name COLLATE NOCASE`).all(deckId) as any[];
+  const settings = allocationSettings(db);
 
-  const entries: ShoppingListEntry[] = rows.map((row) => ({
-    oracleId: row.oracle_id,
-    name: row.card_name,
-    needed: row.qty_to_buy,
-    unitPriceUsd: row.unit_price_usd,
-    estimatedUsd: row.est_cost_usd,
-    printingId: row.price_printing_id,
-    imageSmall: row.image_small,
-    setCode: row.set_code,
-    availableElsewhere: Math.max(0, row.available_elsewhere),
-  }));
+  const slots = db.prepare(`
+    SELECT dc.oracle_id, dc.quantity, dc.quantity_from_collection, dc.quantity_proxied,
+           o.name AS card_name,
+           COALESCE(dc.preferred_printing_id, o.default_printing_id) AS price_printing_id,
+           COALESCE(pp.price_usd, dp.price_usd) AS unit_price_usd,
+           COALESCE(pp.image_small, dp.image_small, ffp.image_small, ffd.image_small) AS image_small,
+           COALESCE(pp.set_code, dp.set_code) AS set_code
+    FROM deck_cards dc
+    JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
+    LEFT JOIN card_printings pp ON pp.id = dc.preferred_printing_id
+    LEFT JOIN card_printings dp ON dp.id = o.default_printing_id
+    LEFT JOIN card_faces ffp ON ffp.printing_id = pp.id AND ffp.face_index = 0
+    LEFT JOIN card_faces ffd ON ffd.printing_id = dp.id AND ffd.face_index = 0
+    WHERE dc.deck_id = ? AND dc.board IN ('main','side','command')`).all(deckId) as any[];
+
+  // Copies free elsewhere excludes this deck's own claim, so a row reading
+  // "2 free in your collection" means two you could claim without taking them
+  // off another deck.
+  const allocation = allocationForMany(
+    db, slots.map((row) => row.oracle_id), { excludeDeckId: deckId, settings },
+  );
+
+  const entries: ShoppingListEntry[] = slots
+    .map((row) => {
+      const needed = copiesToBuy({
+        quantity: row.quantity,
+        quantityFromCollection: row.quantity_from_collection,
+        quantityProxied: row.quantity_proxied,
+        allocationTracked: allocation.get(row.oracle_id)!.tracked,
+      });
+      const unitPriceUsd = row.unit_price_usd ?? null;
+      return {
+        oracleId: row.oracle_id,
+        name: row.card_name,
+        needed,
+        unitPriceUsd,
+        estimatedUsd: needed * (unitPriceUsd ?? 0),
+        printingId: row.price_printing_id,
+        imageSmall: row.image_small,
+        setCode: row.set_code,
+        availableElsewhere: allocation.get(row.oracle_id)!.available,
+      };
+    })
+    .filter((entry) => entry.needed > 0)
+    .sort((a, b) => (b.estimatedUsd ?? 0) - (a.estimatedUsd ?? 0)
+      || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
   return {
     deckId: deck.id,

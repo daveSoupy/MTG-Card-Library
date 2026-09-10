@@ -144,7 +144,10 @@ test('trading away a deck-allocated card asks for confirmation, then clamps', ()
   collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
 
   // A deck claims the single owned Goyf.
-  db.prepare(`INSERT INTO decks (name, format_code) VALUES ('Jund','modern')`).run();
+  // Assembled, so the claim is on real cardboard: only a reserving deck can
+  // be in conflict with a trade (Phase 22).
+  db.prepare(`INSERT INTO decks (name, format_code, status)
+              VALUES ('Jund','modern','assembled')`).run();
   db.prepare(`INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
               VALUES (1,'goyf','main',1,1)`).run();
 
@@ -206,7 +209,10 @@ test("conflictMode 'alert' completes without touching the deck, and alerts inste
   collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
 
   // A deck claims the single owned Goyf.
-  db.prepare(`INSERT INTO decks (name, format_code) VALUES ('Jund','modern')`).run();
+  // Assembled, so the claim is on real cardboard: only a reserving deck can
+  // be in conflict with a trade (Phase 22).
+  db.prepare(`INSERT INTO decks (name, format_code, status)
+              VALUES ('Jund','modern','assembled')`).run();
   db.prepare(`INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
               VALUES (1,'goyf','main',1,1)`).run();
 
@@ -234,7 +240,10 @@ test("conflictMode 'alert' completes without touching the deck, and alerts inste
 test('an allocation alert resolves itself once availability catches up', () => {
   const { db, collection, alerts, trades } = fixture();
   collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
-  db.prepare(`INSERT INTO decks (name, format_code) VALUES ('Jund','modern')`).run();
+  // Assembled, so the claim is on real cardboard: only a reserving deck can
+  // be in conflict with a trade (Phase 22).
+  db.prepare(`INSERT INTO decks (name, format_code, status)
+              VALUES ('Jund','modern','assembled')`).run();
   db.prepare(`INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
               VALUES (1,'goyf','main',1,1)`).run();
 

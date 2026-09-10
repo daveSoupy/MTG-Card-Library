@@ -143,11 +143,16 @@ export const MIGRATIONS: Migration[] = [
       -- SQLite validates them whenever the schema is re-read — dropping the
       -- table underneath them fails the whole migration. Dropped innermost-last
       -- and recreated outermost-last, exactly as they stand at v10.
-      DROP VIEW v_trade_list_status;
-      DROP VIEW v_deck_shopping_list;
-      DROP VIEW v_card_deck_usage;
-      DROP VIEW v_card_availability;
-      DROP VIEW v_allocated_by_oracle;
+      --
+      -- IF EXISTS since v18: three of these five no longer exist in schema.sql,
+      -- and the migration-equivalence fixture rewinds by dropping what a later
+      -- migration created — so this step can now meet a database where v18's
+      -- views have already been taken away.
+      DROP VIEW IF EXISTS v_trade_list_status;
+      DROP VIEW IF EXISTS v_deck_shopping_list;
+      DROP VIEW IF EXISTS v_card_deck_usage;
+      DROP VIEW IF EXISTS v_card_availability;
+      DROP VIEW IF EXISTS v_allocated_by_oracle;
 
       CREATE TABLE deck_cards_new (
           id                      INTEGER PRIMARY KEY,
@@ -513,6 +518,75 @@ export const MIGRATIONS: Migration[] = [
       CREATE TRIGGER trg_games_keep_deck_name BEFORE DELETE ON decks BEGIN
           UPDATE games SET deck_name = OLD.name WHERE deck_id = OLD.id;
       END;
+    `,
+  },
+  {
+    version: 18,
+    description: 'Allocation honesty: deck status, proxies, and the end of the availability views (Phase 22)',
+    sql: `
+      ALTER TABLE decks ADD COLUMN status TEXT NOT NULL DEFAULT 'brew'
+          CHECK (status IN ('brew','building','assembled','disassembled'));
+      ALTER TABLE decks ADD COLUMN status_changed_at TEXT;
+      CREATE INDEX IF NOT EXISTS idx_decks_status ON decks(status);
+
+      -- Every existing deck reserves its copies today, and 'assembled' is the
+      -- status that keeps doing so. Taking the column default instead would
+      -- free hundreds of copies and change every number in the app during an
+      -- upgrade, which is not a thing a migration gets to do. New decks get
+      -- 'brew' from the default; these ones are stamped so status_changed_at
+      -- is never NULL for a deck that has a status.
+      UPDATE decks SET status = 'assembled',
+                       status_changed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now');
+
+      -- No cross-column CHECK: quantity_from_collection + quantity_proxied <=
+      -- quantity is enforced in DeckStore, in one place, with a test. See the
+      -- comment beside the column in schema.sql.
+      ALTER TABLE deck_cards ADD COLUMN quantity_proxied INTEGER NOT NULL DEFAULT 0
+          CHECK (quantity_proxied >= 0);
+      ALTER TABLE deck_snapshot_cards ADD COLUMN quantity_proxied INTEGER NOT NULL DEFAULT 0;
+
+      -- Availability is no longer expressible in SQL — it depends on deck
+      -- status and on three app_settings keys — so the views that encoded the
+      -- old \`owned - allocated\` rule go, rather than sitting beside
+      -- server/src/decks/allocation.ts telling a different story.
+      --
+      -- Dropped innermost-last, exactly as v10 did, because SQLite validates
+      -- every view whenever the schema is re-read. IF EXISTS because the
+      -- migration-equivalence fixture is built from the current schema.sql,
+      -- which no longer defines them.
+      DROP VIEW IF EXISTS v_trade_list_status;
+      DROP VIEW IF EXISTS v_deck_shopping_list;
+      DROP VIEW IF EXISTS v_card_deck_usage;
+      DROP VIEW IF EXISTS v_card_availability;
+      DROP VIEW IF EXISTS v_allocated_by_oracle;
+
+      CREATE VIEW v_card_deck_usage AS
+      SELECT dc.oracle_id,
+             d.id            AS deck_id,
+             d.name          AS deck_name,
+             dc.board,
+             dc.quantity     AS slot_quantity,
+             dc.quantity_from_collection AS qty_from_collection,
+             dc.quantity_proxied         AS qty_proxied,
+             d.status        AS deck_status,
+             d.home_location_id,
+             sl.name         AS deck_home_location
+      FROM deck_cards dc
+      JOIN decks d              ON d.id  = dc.deck_id
+      LEFT JOIN storage_locations sl ON sl.id = d.home_location_id
+      WHERE dc.quantity_from_collection > 0 OR dc.quantity_proxied > 0;
+
+      CREATE VIEW v_trade_list_status AS
+      SELECT tli.id                   AS trade_list_item_id,
+             tli.trade_list_id,
+             tli.quantity             AS listed_qty,
+             ci.id                    AS collection_item_id,
+             ci.quantity              AS owned_qty_this_row,
+             p.oracle_id,
+             (tli.quantity > ci.quantity)         AS exceeds_owned
+      FROM trade_list_items tli
+      JOIN collection_items ci ON ci.id = tli.collection_item_id
+      JOIN card_printings p    ON p.id  = ci.printing_id;
     `,
   },
 ];

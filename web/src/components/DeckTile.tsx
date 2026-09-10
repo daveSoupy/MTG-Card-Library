@@ -73,9 +73,16 @@ export function DeckTile({
       )}
 
       <span className="tile-qty">{card.quantity}</span>
-      {card.quantityFromCollection > 0 && (
+      {/* Nothing for a basic land under the exemption: it claims nothing, so a
+          count over its art would be inventing one. */}
+      {card.allocationTracked && card.quantityFromCollection > 0 && (
         <span className="tile-owned" title="Claimed from your collection">
           {card.quantityFromCollection}
+        </span>
+      )}
+      {card.quantityProxied > 0 && (
+        <span className="tile-proxied" title="Filled by a proxy — neither owned nor to buy">
+          {card.quantityProxied}p
         </span>
       )}
       {/* Lined-up leaves only the card's own printed name/cost strip showing.

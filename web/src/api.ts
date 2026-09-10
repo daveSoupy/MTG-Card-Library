@@ -286,6 +286,34 @@ export function subscribeToSync(
 
 export type Board = 'main' | 'side' | 'command' | 'maybe';
 
+/**
+ * Whether a deck lays claim to physical copies. Only 'building' and 'assembled'
+ * do — the server's `decks/allocation.ts` is the authority, and no client
+ * recomputes availability from this.
+ */
+export type DeckStatus = 'brew' | 'building' | 'assembled' | 'disassembled';
+
+export const DECK_STATUSES: DeckStatus[] = ['brew', 'building', 'assembled', 'disassembled'];
+
+export const DECK_STATUS_LABEL: Record<DeckStatus, string> = {
+  brew: 'Brew',
+  building: 'Building',
+  assembled: 'Assembled',
+  disassembled: 'Taken apart',
+};
+
+/** What the status means for your cards, shown under the picker. */
+export const DECK_STATUS_HINT: Record<DeckStatus, string> = {
+  brew: 'An idea. Holds a card list without claiming any copies.',
+  building: 'Being put together — its copies are spoken for.',
+  assembled: 'Sleeved and in a box. Its copies are spoken for.',
+  disassembled: 'The cards went back. Keeps its list.',
+};
+
+export const DECK_STATUS_RESERVES: Record<DeckStatus, boolean> = {
+  brew: false, building: true, assembled: true, disassembled: false,
+};
+
 export interface DeckCard {
   id: number;
   oracleId: string;
@@ -293,6 +321,8 @@ export interface DeckCard {
   board: Board;
   quantity: number;
   quantityFromCollection: number;
+  /** Copies filled by a proxy: neither owned nor to-buy. */
+  quantityProxied: number;
   commanderRole: string | null;
   cmc: number;
   typeLine: string;
@@ -308,6 +338,10 @@ export interface DeckCard {
   legality: string | null;
   ownedQuantity: number;
   availableQuantity: number;
+  /** Copies promised on a trade list — why a card you own can read as 0 free. */
+  tradeListedQuantity: number;
+  /** False for a basic land under the exemption: no owned/missing badge at all. */
+  allocationTracked: boolean;
   printingId: string | null;
   setCode: string | null;
   rarity: string | null;
@@ -371,6 +405,7 @@ export interface DeckStats {
   typeDistribution: Array<{ type: string; count: number }>;
   estimatedValueUsd: number | null;
   ownedCount: number;
+  proxiedCount: number;
   needToBuyCount: number;
 }
 
@@ -418,6 +453,8 @@ export interface Deck {
   formatCode: string | null;
   description: string | null;
   notes: string | null;
+  status: DeckStatus;
+  statusChangedAt: string | null;
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -438,6 +475,8 @@ export interface DeckSummary {
   uniqueCards: number;
   colorIdentity: string;
   commanderNames: string[];
+  status: DeckStatus;
+  statusChangedAt: string | null;
   isArchived: boolean;
   updatedAt: string;
   tags: string[];
@@ -467,7 +506,7 @@ export const fetchDeck = (id: number, signal?: AbortSignal) =>
 export const createDeck = (name: string, formatCode: string | null) =>
   send<{ deck: Deck }>('/api/v1/decks', 'POST', { name, formatCode }).then((r) => r.deck);
 
-export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived' | 'templateId'>>) =>
+export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived' | 'templateId' | 'status'>>) =>
   send<{ deck: Deck }>(`/api/v1/decks/${id}`, 'PATCH', changes).then((r) => r.deck);
 
 export const duplicateDeck = (id: number) =>
@@ -493,7 +532,7 @@ export const updateDeckCard = (
   deckId: number,
   cardId: number,
   changes: {
-    quantity?: number; fromCollection?: number; board?: Board;
+    quantity?: number; fromCollection?: number; quantityProxied?: number; board?: Board;
     commanderRole?: string | null;
     category?: string | null; preferredPrintingId?: string | null;
   },
@@ -540,6 +579,12 @@ export interface AppSettings {
   showDeckTemplates: boolean;
   /** Global on/off for the Phase 11 game log: the Games tab and deck button. */
   showGameLog: boolean;
+  /** Basic lands sit outside allocation entirely: never claimed, never missing. */
+  allocationIgnoresBasics: boolean;
+  /** Escape hatch: put brews back into the set of decks that reserve copies. */
+  brewsReserveCopies: boolean;
+  /** Subtract trade-listed copies from what is free to build with. */
+  tradelistReducesAvailable: boolean;
   /** Cost basis assumed when adding cards without a typed-in price. */
   defaultCostMethod: Exclude<CostMethod, 'box'>;
   defaultCostFixedUsd: number;
@@ -722,9 +767,19 @@ export interface CollectionCardDetail {
   lots: CollectionLot[];
   decks: Array<{
     deck_id: number; deck_name: string; board: string;
-    qty_from_collection: number; deck_home_location: string | null;
+    qty_from_collection: number; qty_proxied: number;
+    /** Only 'building' and 'assembled' actually hold the copies. */
+    deck_status: DeckStatus;
+    deck_home_location: string | null;
   }>;
-  availability: { owned_qty: number; allocated_qty: number; available_qty: number } | null;
+  availability: {
+    owned_qty: number;
+    allocated_qty: number;
+    available_qty: number;
+    trade_listed_qty: number;
+    is_tracked: boolean;
+    is_over_allocated: boolean;
+  } | null;
 }
 
 export interface CollectionValue {

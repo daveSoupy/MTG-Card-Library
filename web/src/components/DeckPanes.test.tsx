@@ -6,15 +6,17 @@ import type { Deck, DeckCard } from '../api.ts';
 
 const card: DeckCard = {
   id: 1, oracleId: 'ORACLE-1', name: 'Sol Ring', board: 'main', quantity: 1,
-  quantityFromCollection: 1, commanderRole: null, categories: [], cmc: 1, typeLine: 'Artifact',
+  quantityFromCollection: 1, quantityProxied: 0, commanderRole: null, categories: [],
+  cmc: 1, typeLine: 'Artifact',
   manaCost: '{1}', colorIdentity: '', isBasicLand: false, canBeCommander: false,
   category: null, producedMana: [], partnerKind: null, legality: null,
-  ownedQuantity: 1, availableQuantity: 1, printingId: null, setCode: 'cmr',
+  ownedQuantity: 1, availableQuantity: 1, tradeListedQuantity: 0, allocationTracked: true, printingId: null, setCode: 'cmr',
   rarity: 'uncommon', imageSmall: null, priceUsd: 2,
 };
 
 const deck: Deck = {
   id: 1, name: 'Test Deck', formatCode: null, description: null, notes: null,
+  status: 'brew', statusChangedAt: null,
   isArchived: false, createdAt: '', updatedAt: '', templateId: null, cards: [card],
   validation: {
     formatCode: null, formatName: null, commanderIdentity: null, countedTotal: 1,
@@ -25,7 +27,8 @@ const deck: Deck = {
   stats: {
     totalCards: 1, mainCount: 1, sideboardCount: 0, commandCount: 0, uniqueCards: 1,
     averageManaValue: 1, manaCurve: [], colorDistribution: [], colorIdentity: '',
-    typeDistribution: [], estimatedValueUsd: 2, ownedCount: 1, needToBuyCount: 0,
+    typeDistribution: [], estimatedValueUsd: 2, ownedCount: 1, proxiedCount: 0,
+    needToBuyCount: 0,
   },
   manaBase: {
     requirements: [], totalPips: 0, totalSources: 0, landCount: 0,

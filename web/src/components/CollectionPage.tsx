@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   addCollectionLot, addTradeListItem, createLocation, deleteLocation, fetchCollection,
   fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets,
-  fetchTradeLists, removeCollectionLot, updateCollectionLot,
+  fetchTradeLists, removeCollectionLot, updateCollectionLot, DECK_STATUS_HINT,
   type CollectionCard, type CollectionCardDetail, type CollectionLot, type CollectionValue,
   type SetRecord, type StorageLocation,
 } from '../api.ts';
@@ -159,8 +159,33 @@ function CardLots({
         <div className="fgroup">
           <h3>Availability</h3>
           <div className="kv"><span>Owned</span><span>{detail.availability.owned_qty}</span></div>
-          <div className="kv"><span>Claimed by decks</span><span>{detail.availability.allocated_qty}</span></div>
+          {/* Only decks that are building or assembled show up here — a brew
+              holds a card list without laying claim to cardboard. */}
+          <div className="kv">
+            <span>Claimed by decks</span><span>{detail.availability.allocated_qty}</span>
+          </div>
+          {detail.availability.trade_listed_qty > 0 && (
+            <div className="kv">
+              <span>On a trade list</span><span>{detail.availability.trade_listed_qty}</span>
+            </div>
+          )}
           <div className="kv"><span>Free</span><span>{detail.availability.available_qty}</span></div>
+          {/* The whole point of the row above being 0 on a card sitting in your
+              binder: say which of the two reasons it is. */}
+          {detail.availability.available_qty === 0 && detail.availability.owned_qty > 0 && (
+            <p className="hint">
+              {detail.availability.trade_listed_qty > 0 && detail.availability.allocated_qty > 0
+                ? 'Every copy is either in a deck or promised on a trade list.'
+                : detail.availability.trade_listed_qty > 0
+                  ? 'Every copy is promised on a trade list.'
+                  : 'Every copy is in a deck that is building or assembled.'}
+            </p>
+          )}
+          {!detail.availability.is_tracked && (
+            <p className="hint">
+              Basic lands are not tracked against decks — grab as many as you need.
+            </p>
+          )}
         </div>
       )}
 
@@ -169,7 +194,11 @@ function CardLots({
           <h3>In decks</h3>
           {detail.decks.map((deck) => (
             <div className="kv" key={`${deck.deck_id}-${deck.board}`}>
-              <span>{deck.deck_name}</span>
+              <span>
+                {deck.deck_name}
+                <span className="status-dot" data-status={deck.deck_status}
+                      title={DECK_STATUS_HINT[deck.deck_status]} />
+              </span>
               <span>
                 ×{deck.qty_from_collection}
                 {deck.deck_home_location && ` · ${deck.deck_home_location}`}

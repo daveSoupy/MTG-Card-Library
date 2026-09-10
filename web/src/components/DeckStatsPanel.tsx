@@ -303,6 +303,11 @@ export function DeckStatsPanel({
       <div className="fgroup">
         <h3>Collection</h3>
         <div className="kv"><span>From your collection</span><span>{stats.ownedCount}</span></div>
+        {stats.proxiedCount > 0 && (
+          <div className="kv"><span>Proxied</span><span>{stats.proxiedCount}</span></div>
+        )}
+        {/* Owned + proxied + to-buy, not quantity − owned: a proxy fills a slot
+            without anyone buying anything, and basics are not counted at all. */}
         <div className="kv"><span>Need to buy</span><span>{stats.needToBuyCount}</span></div>
         <div className="kv"><span>Estimated value</span><span>{money(stats.estimatedValueUsd)}</span></div>
       </div>

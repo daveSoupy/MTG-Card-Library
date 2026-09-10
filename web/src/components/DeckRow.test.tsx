@@ -7,14 +7,20 @@ const labels = { removal: 'Removal', draw: 'Card draw', sweeper: 'Board wipes' }
 
 const card: DeckCard = {
   id: 1, oracleId: 'ORACLE-1', name: 'Sol Ring', board: 'main', quantity: 1,
-  quantityFromCollection: 1, commanderRole: null, categories: [], cmc: 1, typeLine: 'Artifact',
+  quantityFromCollection: 1, quantityProxied: 0, commanderRole: null, categories: [],
+  cmc: 1, typeLine: 'Artifact',
   manaCost: '{1}', colorIdentity: '', isBasicLand: false, canBeCommander: false,
   category: null, producedMana: [], partnerKind: null, legality: null,
-  ownedQuantity: 1, availableQuantity: 1, printingId: 'PRINT-1', setCode: 'cmr',
+  ownedQuantity: 1, availableQuantity: 1, tradeListedQuantity: 0, allocationTracked: true,
+  printingId: 'PRINT-1', setCode: 'cmr',
   rarity: 'uncommon', imageSmall: null, priceUsd: 2,
 };
 
-function row(overrides: Partial<DeckCard> = {}, onQuantity = vi.fn()) {
+function row(
+  overrides: Partial<DeckCard> = {},
+  onQuantity = vi.fn(),
+  onProxy = vi.fn(),
+) {
   const view = render(
     <DeckRow
       card={{ ...card, ...overrides }}
@@ -23,12 +29,13 @@ function row(overrides: Partial<DeckCard> = {}, onQuantity = vi.fn()) {
       onBoard={() => {}}
       onRemove={() => {}}
       onToggleOwned={() => {}}
+      onProxy={onProxy}
       onPreview={() => {}}
       onArt={() => {}}
       categoryLabels={labels}
     />,
   );
-  return { ...view, onQuantity };
+  return { ...view, onQuantity, onProxy };
 }
 
 describe('DeckRow', () => {
@@ -55,6 +62,36 @@ describe('DeckRow', () => {
   it('says nothing at all when a card has no categories', () => {
     const { container } = row({ categories: [], category: null });
     expect(container.querySelector('.deck-name-tags')).toBeNull();
+  });
+
+  it('steps the proxy count, and stops at what the slot has room for', () => {
+    const { onProxy } = row({ quantity: 4, quantityFromCollection: 1, quantityProxied: 2 });
+    expect(screen.getByText('2 proxy')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('One more proxy of Sol Ring'));
+    expect(onProxy).toHaveBeenCalledWith(1);
+
+    // 1 owned + 2 proxied fills 3 of 4; a full slot offers no fourth proxy.
+    row({ quantity: 3, quantityFromCollection: 1, quantityProxied: 2 });
+    expect(screen.getAllByLabelText('One more proxy of Sol Ring').at(-1)).toBeDisabled();
+  });
+
+  it('renders an exempt basic land with no owned badge and no proxy stepper', () => {
+    // A blank badge beats a wrong one: basics are outside allocation entirely.
+    const { container } = row({
+      name: 'Sol Ring', isBasicLand: true, allocationTracked: false,
+      quantity: 38, quantityFromCollection: 0, ownedQuantity: 0, availableQuantity: 0,
+    });
+    expect(container.querySelector('.owned-chip.untracked')?.textContent).toBe('basic');
+    expect(container.querySelector('.proxy-step')).toBeNull();
+  });
+
+  it('says why a card you own is not available, rather than just that it is not', () => {
+    const { container } = row({
+      quantity: 1, quantityFromCollection: 0,
+      ownedQuantity: 1, availableQuantity: 0, tradeListedQuantity: 1,
+    });
+    expect(container.querySelector('.owned-chip')?.getAttribute('title'))
+      .toContain('1 on a trade list');
   });
 
   it('has no category control left to set one with', () => {

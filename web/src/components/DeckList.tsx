@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addDeckTag, removeDeckTag, imageUrl,
   createDeck, deleteDeck, duplicateDeck, fetchDecks,
-  type DeckSummary, type FormatRecord,
+  DECK_STATUSES, DECK_STATUS_HINT, DECK_STATUS_LABEL,
+  type DeckStatus, type DeckSummary, type FormatRecord,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
 
@@ -31,6 +32,11 @@ export function DeckList({
   const [importing, setImporting] = useState(false);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [tagging, setTagging] = useState<number | null>(null);
+  // Taken-apart decks are still decks — they keep their lists — but they are
+  // not what you came to the page for, so they start out of the way.
+  const [statuses, setStatuses] = useState<DeckStatus[]>(
+    () => DECK_STATUSES.filter((status) => status !== 'disassembled'),
+  );
 
   // The tag list is derived from the decks rather than fetched separately —
   // one source of truth, and it stays right after an add or a remove.
@@ -44,10 +50,18 @@ export function DeckList({
       .sort((a, b) => a.tag.localeCompare(b.tag, undefined, { sensitivity: 'base' }));
   }, [decks]);
 
-  // A deck has to carry every selected tag, so stacking them narrows.
+  const statusCounts = useMemo(() => {
+    const counts = new Map<DeckStatus, number>();
+    for (const deck of decks ?? []) counts.set(deck.status, (counts.get(deck.status) ?? 0) + 1);
+    return counts;
+  }, [decks]);
+
+  // A deck has to carry every selected tag, so stacking them narrows. Status is
+  // the other way round — the chips are the set of statuses shown.
   const shown = useMemo(
-    () => (decks ?? []).filter((deck) => activeTags.every((tag) => deck.tags.includes(tag))),
-    [decks, activeTags],
+    () => (decks ?? []).filter((deck) => statuses.includes(deck.status)
+      && activeTags.every((tag) => deck.tags.includes(tag))),
+    [decks, activeTags, statuses],
   );
   const [name, setName] = useState('');
   const [formatCode, setFormatCode] = useState('commander');
@@ -115,10 +129,30 @@ export function DeckList({
 
       {decks === null && <p className="loading">Loading…</p>}
       {decks !== null && decks.length > 0 && shown.length === 0 && (
-        <p className="empty">No decks carry all of those tags.</p>
+        <p className="empty">No decks match those filters.</p>
       )}
       {decks?.length === 0 && (
         <p className="empty">No decks yet. Name one above and start building.</p>
+      )}
+
+      {decks !== null && decks.length > 0 && (
+        <div className="deck-status-filter">
+          {DECK_STATUSES.map((status) => (
+            <button
+              key={status}
+              className="status-chip"
+              data-status={status}
+              aria-pressed={statuses.includes(status)}
+              title={DECK_STATUS_HINT[status]}
+              onClick={() => setStatuses((current) => current.includes(status)
+                ? current.filter((s) => s !== status)
+                : [...current, status])}
+            >
+              {DECK_STATUS_LABEL[status]}
+              <span className="dim">{statusCounts.get(status) ?? 0}</span>
+            </button>
+          ))}
+        </div>
       )}
 
       {allTags.length > 0 && (
@@ -156,7 +190,11 @@ export function DeckList({
                 </div>
               )}
               <div className="deck-card-title">
-                <span>{deck.name}</span>
+                <span>
+                  {deck.name}
+                  <span className="status-dot" data-status={deck.status}
+                        title={DECK_STATUS_HINT[deck.status]} />
+                </span>
                 <span className="pips">
                   {[...deck.colorIdentity].map((c) => (
                     <span key={c} className={`pip ${COLOR_PIP[c] ?? ''}`}>{c}</span>
@@ -164,7 +202,8 @@ export function DeckList({
                 </span>
               </div>
               <div className="deck-card-meta">
-                {deck.formatName ?? 'No format'} · {deck.cardCount} cards · {deck.uniqueCards} distinct
+                {DECK_STATUS_LABEL[deck.status]} · {deck.formatName ?? 'No format'} ·{' '}
+                {deck.cardCount} cards · {deck.uniqueCards} distinct
               </div>
               {deck.commanderNames.length > 0 && (
                 <div className="deck-card-meta commander">{deck.commanderNames.join(' & ')}</div>
@@ -228,7 +267,9 @@ export function DeckList({
 
       {decks && decks.length > 0 && (
         <p className="note" style={{ marginTop: 18 }}>
-          Deleting a deck immediately frees any collection copies it had claimed.
+          Only decks that are building or assembled hold on to copies. A brew or a
+          taken-apart deck keeps its list without claiming any cardboard — and deleting
+          a deck immediately frees whatever it had claimed.
         </p>
       )}
 

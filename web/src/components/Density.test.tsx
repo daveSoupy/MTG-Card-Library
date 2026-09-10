@@ -20,10 +20,11 @@ vi.mock('../api.ts', async (importOriginal) => ({
 
 const deckCard = (overrides: Partial<DeckCard> = {}): DeckCard => ({
   id: 1, oracleId: 'ORACLE-1', name: 'Sol Ring', board: 'main', quantity: 2,
-  quantityFromCollection: 1, commanderRole: null, categories: [], cmc: 1, typeLine: 'Artifact',
+  quantityFromCollection: 1, quantityProxied: 0, commanderRole: null, categories: [], cmc: 1, typeLine: 'Artifact',
   manaCost: '{1}', colorIdentity: '', isBasicLand: false, canBeCommander: false,
   category: null, producedMana: [], partnerKind: null, legality: null,
-  ownedQuantity: 1, availableQuantity: 1, printingId: 'PRINT-1', setCode: 'cmr',
+  ownedQuantity: 1, availableQuantity: 1,
+    tradeListedQuantity: 0, allocationTracked: true, printingId: 'PRINT-1', setCode: 'cmr',
   rarity: 'uncommon', imageSmall: 'small.jpg', priceUsd: 2,
   ...overrides,
 });

@@ -32,7 +32,9 @@ test('a trade list holds owned copies, flags deck conflicts, and exports plainte
   lists.addItem(def, lot, { quantity: 2, askingPriceUsd: 28 });
 
   // A deck claims one copy, so listing 2 conflicts with the deck allocation.
-  db.prepare(`INSERT INTO decks (name, format_code) VALUES ('Jund','modern')`).run();
+  // Assembled, so it actually reserves the copy — a brew would not (Phase 22).
+  db.prepare(`INSERT INTO decks (name, format_code, status)
+              VALUES ('Jund','modern','assembled')`).run();
   db.prepare(`INSERT INTO deck_cards (deck_id, oracle_id, board, quantity, quantity_from_collection)
               VALUES (1,'goyf','main',1,1)`).run();
 

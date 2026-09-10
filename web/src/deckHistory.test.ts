@@ -120,7 +120,7 @@ const slots = (snapshot: DeckSnapshot) =>
 describe('planRestore', () => {
   it('sets a slot back only when something about it changed', () => {
     const before: DeckSnapshot = [{
-      oracleId: 'SOL', board: 'main', quantity: 2, fromCollection: 1,
+      oracleId: 'SOL', board: 'main', quantity: 2, fromCollection: 1, proxied: 0,
       category: null, commanderRole: null, isBasicLand: false,
     }];
     assert.deepEqual(planRestore(before, before), []);
@@ -134,9 +134,9 @@ describe('planRestore', () => {
 
   it('leaves the basics until last, so no rebalance can follow them', () => {
     const current: DeckSnapshot = [
-      { oracleId: 'PLAINS', board: 'main', quantity: 9, fromCollection: 0, category: null, commanderRole: null, isBasicLand: true },
-      { oracleId: 'SOL', board: 'main', quantity: 1, fromCollection: 0, category: null, commanderRole: null, isBasicLand: false },
-      { oracleId: 'BOLT', board: 'main', quantity: 1, fromCollection: 0, category: null, commanderRole: null, isBasicLand: false },
+      { oracleId: 'PLAINS', board: 'main', quantity: 9, fromCollection: 0, proxied: 0, category: null, commanderRole: null, isBasicLand: true },
+      { oracleId: 'SOL', board: 'main', quantity: 1, fromCollection: 0, proxied: 0, category: null, commanderRole: null, isBasicLand: false },
+      { oracleId: 'BOLT', board: 'main', quantity: 1, fromCollection: 0, proxied: 0, category: null, commanderRole: null, isBasicLand: false },
     ];
     const target: DeckSnapshot = [
       { ...current[0], quantity: 12 },

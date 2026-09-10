@@ -51,8 +51,10 @@ export function takeSnapshot(
 
     db.prepare(`
       INSERT INTO deck_snapshot_cards
-        (snapshot_id, oracle_id, board, quantity, quantity_from_collection, category, commander_role)
-      SELECT ?, oracle_id, board, quantity, quantity_from_collection, category, commander_role
+        (snapshot_id, oracle_id, board, quantity, quantity_from_collection,
+         quantity_proxied, category, commander_role)
+      SELECT ?, oracle_id, board, quantity, quantity_from_collection,
+             quantity_proxied, category, commander_role
       FROM deck_cards WHERE deck_id = ?`).run(snapshotId, deckId);
 
     return snapshotId;
@@ -126,8 +128,10 @@ export function restoreSnapshot(db: Database.Database, snapshotId: number): { de
     db.prepare('DELETE FROM deck_cards WHERE deck_id = ?').run(snapshot.deck_id);
     db.prepare(`
       INSERT INTO deck_cards
-        (deck_id, oracle_id, board, quantity, quantity_from_collection, category, commander_role)
-      SELECT ?, oracle_id, board, quantity, quantity_from_collection, category, commander_role
+        (deck_id, oracle_id, board, quantity, quantity_from_collection,
+         quantity_proxied, category, commander_role)
+      SELECT ?, oracle_id, board, quantity, quantity_from_collection,
+             quantity_proxied, category, commander_role
       FROM deck_snapshot_cards WHERE snapshot_id = ?`).run(snapshot.deck_id, snapshotId);
 
     db.prepare(`UPDATE decks SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`)
