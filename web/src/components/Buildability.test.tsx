@@ -78,34 +78,46 @@ describe('BuildabilityStrip', () => {
   });
 });
 
-describe('the coverage chip on a deck slot', () => {
-  it('appears only when the slot is short, and names who holds the rest', () => {
-    render(
-      <DeckTile
-        card={card}
-        problem={null}
-        onQuantity={() => {}}
-        onArt={() => {}}
-        onRemove={() => {}}
-        coverage={coverage}
-      />,
-    );
-    const chip = screen.getByText('1/3');
-    expect(chip).toBeInTheDocument();
-    expect(chip.getAttribute('title')).toMatch(/Held by Atraxa x1/);
+describe('the action chip on a deck tile', () => {
+  const tile = (over: Partial<typeof coverage> = {}) => render(
+    <DeckTile
+      card={card}
+      problem={null}
+      onQuantity={() => {}}
+      onArt={() => {}}
+      onRemove={() => {}}
+      coverage={{ ...coverage, ...over }}
+    />,
+  );
+
+  it('names the deck holding the copies, because that is a decision not a purchase', () => {
+    tile();
+    const chip = screen.getByText('Atraxa has 1');
+    expect(chip.getAttribute('data-kind')).toBe('held');
+    expect(chip.getAttribute('title')).toMatch(/Take them back, or buy 2/);
   });
 
-  it('stays out of the way on a covered slot', () => {
+  it('says what to buy when nobody else has it', () => {
+    tile({ holdingDecks: [], owned: 0, covered: 0, missing: 3 });
+    expect(screen.getByText('Buy 3').getAttribute('data-kind')).toBe('buy');
+  });
+
+  it('counts only the shortfall when some copies are already yours', () => {
+    tile({ holdingDecks: [], owned: 1, available: 1, covered: 1, missing: 2 });
+    expect(screen.getByText('Buy 2 of 3')).toBeInTheDocument();
+  });
+
+  it('reads as done when the deck can field the card', () => {
+    tile({ holdingDecks: [], owned: 3, available: 3, covered: 3, missing: 0 });
+    const chip = screen.getByText('Have all 3');
+    expect(chip.getAttribute('data-kind')).toBe('have');
+  });
+
+  it('shows nothing at all until the figures arrive', () => {
     render(
-      <DeckTile
-        card={card}
-        problem={null}
-        onQuantity={() => {}}
-        onArt={() => {}}
-        onRemove={() => {}}
-        coverage={{ ...coverage, covered: 3, missing: 0 }}
-      />,
+      <DeckTile card={card} problem={null} onQuantity={() => {}} onArt={() => {}}
+                onRemove={() => {}} />,
     );
-    expect(document.querySelector('.tile-short')).toBeNull();
+    expect(document.querySelector('.tile-chip')).toBeNull();
   });
 });

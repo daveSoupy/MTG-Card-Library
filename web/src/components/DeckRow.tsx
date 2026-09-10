@@ -1,7 +1,7 @@
 import type { Board, BuildabilityRow, DeckCard } from '../api.ts';
 import { effectiveCategories, identityKey } from '../deckView.ts';
-import { ownedChip } from '../deckSlot.ts';
-import { coverageChip } from '../buildability.ts';
+import { slotAction } from '../deckSlot.ts';
+import { ManaCost } from './ManaCost.tsx';
 
 export function DeckRow({
   card,
@@ -9,7 +9,6 @@ export function DeckRow({
   onQuantity,
   onBoard,
   onRemove,
-  onToggleOwned,
   onPreview,
   onArt,
   categoryLabels,
@@ -20,7 +19,6 @@ export function DeckRow({
   onQuantity: (delta: number) => void;
   onBoard: (board: Board) => void;
   onRemove: () => void;
-  onToggleOwned: () => void;
   onPreview: () => void;
   onArt: () => void;
   /** Category key → display name, from /api/v1/status. */
@@ -28,11 +26,7 @@ export function DeckRow({
   /** Phase 24's coverage for this card, when the deck's figures are loaded. */
   coverage?: BuildabilityRow | null;
 }) {
-  const chip = ownedChip(card);
-  // Distinct from the owned chip beside it, which is what this slot *claims*.
-  // This one is what the collection could actually supply, and it only appears
-  // when the answer is "not enough" — including where the rest are.
-  const short = coverage ? coverageChip(coverage) : null;
+  const action = slotAction(card, coverage);
   const categories = effectiveCategories(card, categoryLabels);
 
   return (
@@ -64,28 +58,16 @@ export function DeckRow({
         {card.legality === 'restricted' && <span className="tag warn">restricted</span>}
       </button>
 
-      <span className="mana">{card.manaCost ?? ''}</span>
+      <ManaCost cost={card.manaCost} cmc={card.cmc} />
 
-      {/* One grid cell, so a basic land — which gets no badge at all — does not
-          shift every column after it. A basic under the exemption is not
-          tracked: a blank badge beats a wrong one. */}
+      {/* One grid cell, so a basic land — which reads only "basic" — does not
+          shift every column after it. Empty while the deck's figures load: a
+          blank cell for a moment beats a wrong one. */}
       <div className="slot-alloc">
-        {card.allocationTracked ? (
-          <>
-            <button
-              className={`owned-chip${chip.claimed > 0 ? ' on' : ''}${chip.short ? ' short' : ''}`}
-              onClick={onToggleOwned}
-              title={chip.title}
-            >
-              {chip.label}
-            </button>
-
-            {short && (
-              <span className="slot-short" title={short.title}>{short.text}</span>
-            )}
-          </>
-        ) : (
-          <span className="owned-chip untracked" title={chip.title}>basic</span>
+        {action && (
+          <span className="slot-chip" data-kind={action.kind} title={action.title}>
+            {action.label}
+          </span>
         )}
       </div>
 

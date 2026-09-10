@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { allocationFor } from '../decks/allocation.ts';
 import { getSetting, setSetting } from '../db/index.ts';
+import { reconcileAllDecks, reconcileDecksHolding } from '../decks/reconcile.ts';
 
 /** The single cost pool currently accepting cards, stored in app_settings. */
 export const OPEN_COST_POOL_ID = 'open_cost_pool_id';
@@ -125,7 +126,14 @@ export class CollectionStore {
     if (changes.notes !== undefined) { sets.push('notes = ?'); params.push(changes.notes); }
     if (changes.isArchived !== undefined) { sets.push('is_archived = ?'); params.push(changes.isArchived ? 1 : 0); }
     if (sets.length === 0) return;
-    this.db.prepare(`UPDATE storage_locations SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+    this.db.transaction(() => {
+      this.db.prepare(`UPDATE storage_locations SET ${sets.join(', ')} WHERE id = ?`)
+        .run(...params, id);
+      // Archiving takes a whole location off the shelf at once, so the cards
+      // affected are not worth enumerating — and it is a rare enough action to
+      // afford settling every deck.
+      if (changes.isArchived !== undefined) reconcileAllDecks(this.db);
+    })();
   }
 
   /**
@@ -153,6 +161,9 @@ export class CollectionStore {
       ).get(fromId) as { n: number }).n;
       this.db.prepare('UPDATE collection_items SET location_id = ? WHERE location_id = ?')
         .run(toId, fromId);
+      // The destination may be archived while the source was not, or the other
+      // way round, which changes what counts as owned.
+      if (moved > 0) reconcileAllDecks(this.db);
       return moved;
     })();
   }
@@ -285,6 +296,28 @@ export class CollectionStore {
    * including the purchase price and date — a different price is a different
    * lot, which is the whole reason the table is lot-grained.
    */
+  /**
+   * Decks claim copies of a card; the collection decides how many exist. When
+   * the second changes, the first has to follow, or a deck goes on reserving
+   * cards that were sold — which Phase 25 would then send you to a binder to
+   * find. Scoped to the card that moved, so an ordinary add touches only the
+   * decks that list it.
+   */
+  private reconcilePrinting(printingId: string): void {
+    const row = this.db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
+      .get(printingId) as { oracle_id: string } | undefined;
+    if (row) reconcileDecksHolding(this.db, row.oracle_id);
+  }
+
+  /** The same, for a change addressed by lot rather than by printing. */
+  private reconcileLot(lotId: number): void {
+    const row = this.db.prepare(`
+      SELECT p.oracle_id FROM collection_items ci
+      JOIN card_printings p ON p.id = ci.printing_id
+      WHERE ci.id = ?`).get(lotId) as { oracle_id: string } | undefined;
+    if (row) reconcileDecksHolding(this.db, row.oracle_id);
+  }
+
   addLot(input: {
     printingId: string;
     locationId: number;
@@ -359,6 +392,7 @@ export class CollectionStore {
       // A cost-pool ('box') batch spreads its lump sum evenly across every copy
       // it holds, so each added lot re-divides the total over the new count.
       if (input.importBatchId != null) this.resplitCostPool(input.importBatchId);
+      this.reconcilePrinting(input.printingId);
       return lotId;
     })();
   }
@@ -509,7 +543,11 @@ export class CollectionStore {
     ).run(perCopy, batchId);
   }
 
-  updateLot(id: number, changes: Record<string, unknown>): void {
+  updateLot(
+    id: number,
+    changes: Record<string, unknown>,
+    options: { reconcileDecks?: boolean } = {},
+  ): void {
     const columns: Record<string, string> = {
       quantity: 'quantity', locationId: 'location_id', finish: 'finish',
       condition: 'condition', language: 'language', priceOverride: 'price_override',
@@ -529,14 +567,28 @@ export class CollectionStore {
     // Quantity 0 means "gone", which the CHECK constraint would otherwise
     // reject; deleting the lot is what the user means.
     if (changes.quantity !== undefined && Number(changes.quantity) <= 0) {
-      this.removeLot(id);
+      this.removeLot(id, options);
       return;
     }
-    this.db.prepare(`UPDATE collection_items SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+    this.db.transaction(() => {
+      this.db.prepare(`UPDATE collection_items SET ${sets.join(', ')} WHERE id = ?`)
+        .run(...params, id);
+      if (options.reconcileDecks !== false) this.reconcileLot(id);
+    })();
   }
 
-  removeLot(id: number): void {
-    this.db.prepare('DELETE FROM collection_items WHERE id = ?').run(id);
+  removeLot(id: number, options: { reconcileDecks?: boolean } = {}): void {
+    this.db.transaction(() => {
+      // Resolved before the delete: afterwards the lot cannot name its card.
+      const row = this.db.prepare(`
+        SELECT p.oracle_id FROM collection_items ci
+        JOIN card_printings p ON p.id = ci.printing_id
+        WHERE ci.id = ?`).get(id) as { oracle_id: string } | undefined;
+      this.db.prepare('DELETE FROM collection_items WHERE id = ?').run(id);
+      if (row && options.reconcileDecks !== false) {
+        reconcileDecksHolding(this.db, row.oracle_id);
+      }
+    })();
   }
 
   /**
@@ -568,9 +620,11 @@ export class CollectionStore {
       if (lot.quantity > 1) {
         this.db.prepare('UPDATE collection_items SET quantity = ? WHERE id = ?')
           .run(lot.quantity - 1, lot.id);
+        this.reconcilePrinting(input.printingId);
         return lot.quantity - 1;
       }
       this.db.prepare('DELETE FROM collection_items WHERE id = ?').run(lot.id);
+      this.reconcilePrinting(input.printingId);
       return 0;
     })();
   }

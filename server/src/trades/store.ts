@@ -570,7 +570,15 @@ export class TradeStore {
             lot.id, context.tradeId ?? null, context.counterparty ?? null,
             context.notes ?? null);
 
-          this.collection.updateLot(lot.id, { quantity: lot.quantity - take });
+          // Copies *leaving* are the conflict case, and this store already has
+          // a deliberate policy for it — clamp, or alert and leave the deck
+          // alone. Letting the generic reconcile run underneath would resolve
+          // that conflict silently and throw away the very signal 'alert' mode
+          // exists to raise. Copies arriving are just more availability, so the
+          // incoming path reconciles normally.
+          this.collection.updateLot(
+            lot.id, { quantity: lot.quantity - take }, { reconcileDecks: false },
+          );
           consumed.push({ requestIndex, lotId: lot.id, locationId: lot.location_id, quantity: take });
           remaining -= take;
         }

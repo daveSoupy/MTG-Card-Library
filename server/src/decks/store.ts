@@ -14,6 +14,7 @@ import {
   allocationForMany, allocationSettings, assertSlotFits, availableFor,
   DECK_STATUSES, type DeckStatus,
 } from './allocation.ts';
+import { reconcileDeckClaims } from './reconcile.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -454,6 +455,10 @@ export class DeckStore {
                quantity_proxied, preferred_printing_id, commander_role, category, sort_order
         FROM deck_cards WHERE deck_id = ?`).run(newId, id);
 
+      // The copy cannot inherit the original's claim: both decks would be
+      // holding the same cardboard. It claims whatever is still spare.
+      reconcileDeckClaims(this.db, newId);
+
       return newId;
     })();
   }
@@ -548,6 +553,11 @@ export class DeckStore {
                board === 'command' ? (commanderRole ?? 'commander') : null,
                this.printingFor(oracleId, options.printingId ?? null));
       }
+      // The claim above is a starting point; this settles it against what the
+      // collection can actually spare, including a caller-supplied
+      // `fromCollection` that a restore or an undo replayed from an older
+      // state. Inside the transaction, so a rollback takes it too.
+      reconcileDeckClaims(this.db, deckId);
       this.touch(deckId);
     })();
   }
@@ -737,6 +747,7 @@ export class DeckStore {
            WHERE id = ? AND deck_id = ?`)
           .run(quantity, quantity, quantity, quantity, cardId, deckId);
       }
+      reconcileDeckClaims(this.db, deckId);
       this.touch(deckId);
     })();
   }
@@ -777,8 +788,14 @@ export class DeckStore {
         | undefined;
       if (!slot) return;
 
-      const fromCollection = changes.fromCollection ?? slot.quantity_from_collection;
       const proxied = changes.proxied ?? slot.quantity_proxied;
+      // The claim is derived now, and reconcile fills a slot as far as the
+      // collection allows — which would leave an explicit proxy request nowhere
+      // to go and throw. Asked for proxies and nothing else, the claim yields:
+      // what the caller stated beats what was computed for them.
+      const fromCollection = changes.fromCollection ?? Math.min(
+        slot.quantity_from_collection, Math.max(0, slot.quantity - proxied),
+      );
       assertSlotFits(slot.quantity, fromCollection, proxied);
 
       this.db.prepare(`
@@ -871,13 +888,21 @@ export class DeckStore {
         this.db.prepare('UPDATE deck_cards SET board = ?, commander_role = ? WHERE id = ?')
           .run(board, board === 'command' ? (commanderRole ?? 'commander') : null, cardId);
       }
+      // A maybeboard slot claims nothing, so moving a card in or out of it
+      // changes what this deck reserves.
+      reconcileDeckClaims(this.db, deckId);
       this.touch(deckId);
     })();
   }
 
   removeCard(deckId: number, cardId: number): void {
-    this.db.prepare('DELETE FROM deck_cards WHERE id = ? AND deck_id = ?').run(cardId, deckId);
-    this.touch(deckId);
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM deck_cards WHERE id = ? AND deck_id = ?').run(cardId, deckId);
+      // The same card can sit on two boards, so dropping one slot can free a
+      // copy for the other.
+      reconcileDeckClaims(this.db, deckId);
+      this.touch(deckId);
+    })();
   }
 
   // -- basic lands -----------------------------------------------------------

@@ -1,5 +1,6 @@
 import { imageUrl, type CollectionCard } from '../api.ts';
 import type { Density } from '../density.ts';
+import { ManaCost } from './ManaCost.tsx';
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
@@ -61,7 +62,7 @@ export function OwnedGrid({
               )}
               <div className="cname">
                 <span className="cname-text">{card.name}</span>
-                <span className="cmana">{card.manaCost ?? ''}</span>
+                <ManaCost cost={card.manaCost} cmc={card.cmc} className="cmana" />
               </div>
               <div className="cset">{(card.setCode?.toUpperCase() ?? '')} · #{card.collectorNumber}</div>
               <div className="cvalue">{money(card.valueUsd)}</div>

@@ -26,6 +26,7 @@ import {
 import { applyTheme, storedTheme, type Theme } from './theme.ts';
 import { SCOPES, SCOPE_HINT, SCOPE_LABEL, scopeOf, withScope } from './searchScope.ts';
 import { deckBadge, ownedBadge } from './ownedBadge.ts';
+import { ManaCost } from './components/ManaCost.tsx';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -577,7 +578,7 @@ export default function App() {
                             <span className="cname-text">{card.name}</span>
                             {/* Shown at Compact, where the art is too small to
                                 read a cost off. Hidden at Full by the sheet. */}
-                            <span className="cmana">{card.manaCost ?? ''}</span>
+                            <ManaCost cost={card.manaCost} cmc={card.cmc} className="cmana" />
                           </div>
                         </>
                       )}

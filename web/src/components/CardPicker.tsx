@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { searchCards, type CardSummary } from '../api.ts';
+import { ManaCost } from './ManaCost.tsx';
 
 /**
  * A "find a card" search that drops its matches into a floating, scrollable
@@ -86,7 +87,7 @@ export function CardPicker({ onPick, placeholder, ownedOnly, hideMana }: {
               title={card.typeLine}
             >
               <span>{card.name}</span>
-              {!hideMana && <span className="mana">{card.manaCost ?? ''}</span>}
+              {!hideMana && <ManaCost cost={card.manaCost} cmc={card.cmc} />}
             </button>
           ))}
         </div>

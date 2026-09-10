@@ -1,62 +1,88 @@
-import type { DeckCard } from './api.ts';
+import type { BuildabilityRow, DeckCard } from './api.ts';
 
 /**
- * How one deck slot reads: what it draws from, and — when it cannot draw from
- * anything — why not.
+ * What a deck slot needs you to do about it.
  *
- * "0 available" is the least useful thing an app can say about a card you own.
- * The server sends owned, available and trade-listed alongside each other
- * precisely so the difference between "another deck has it", "it is promised to
- * someone", and "you never had one" can be stated rather than left to guess.
+ * This used to be two chips side by side that meant opposite things. One read
+ * `${quantityFromCollection} owned` — the deck's *claim* on the collection,
+ * labelled as if it were ownership, so a slot could say "1 owned" in green for
+ * a card you owned none of. The other read `need 1`, the computed truth. Two
+ * numbers, no labels, and only one of them honest.
  *
- * All four numbers come from the server's `decks/allocation.ts`. Nothing here
- * recomputes availability — this only chooses the words.
+ * The claim is not shown any more, and is not the user's to set: the server
+ * derives it (`server/src/decks/reconcile.ts`). What is left is the only
+ * question the row was ever really asking — buy it, or is it already yours?
+ *
+ * Every figure comes from Phase 24's `BuildabilityRow`, which the server
+ * computed from `allocation.ts`. Nothing here subtracts anything.
  */
 
-export interface OwnedChip {
-  /** Copies this slot claims from the collection. */
-  claimed: number;
-  /** Copies still to buy, once owned copies and proxies are accounted for. */
-  toBuy: number;
+export interface SlotAction {
+  /** The chip's text. Short enough to sit in a dense row. */
   label: string;
   title: string;
-  /** The slot claims more than is free — flagged, never blocked. */
-  short: boolean;
+  /**
+   * `have` when the deck can field this card, `buy` when it cannot, and `held`
+   * when the copies exist but another built deck has them — the one case where
+   * there is a decision rather than a purchase.
+   */
+  kind: 'have' | 'buy' | 'held' | 'untracked';
 }
 
-export function ownedChip(card: DeckCard): OwnedChip {
-  const claimed = card.quantityFromCollection;
-  const toBuy = card.allocationTracked
-    ? Math.max(0, card.quantity - claimed - card.quantityProxied)
-    : 0;
-  const short = card.allocationTracked && claimed > card.availableQuantity;
+const copies = (n: number) => `${n} cop${n === 1 ? 'y' : 'ies'}`;
+
+/**
+ * Null while the deck's figures are still loading, so the cell is briefly
+ * blank rather than briefly wrong.
+ */
+export function slotAction(card: DeckCard, coverage?: BuildabilityRow | null): SlotAction | null {
+  if (!card.allocationTracked) {
+    return {
+      label: 'basic',
+      kind: 'untracked',
+      title: 'Basic lands are not tracked against your collection — grab as many as you need.',
+    };
+  }
+  if (!coverage) return null;
+
+  const { required, covered, missing, owned, tradeListed, proxied, holdingDecks } = coverage;
+
+  if (missing <= 0) {
+    const how = proxied > 0 && proxied >= required
+      ? 'Proxied.'
+      : `You own ${copies(owned)}${proxied > 0 ? `, and ${proxied} are proxied` : ''}.`;
+    return {
+      label: required > 1 ? `Have all ${required}` : 'Have it',
+      kind: 'have',
+      title: `${how} Nothing to buy.`,
+    };
+  }
+
+  // Said first, because it is the only one of these that is a decision rather
+  // than a purchase: the cards exist, they are just in another deck.
+  const holder = holdingDecks[0];
+  if (holder) {
+    const who = holdingDecks
+      .map((deck) => `${deck.deckName} has ${deck.quantity}`)
+      .join(', ');
+    return {
+      label: `${holder.deckName} has ${holder.quantity}`,
+      kind: 'held',
+      title: `You own ${copies(owned)}, but ${who}. `
+        + `Take ${missing === 1 ? 'it' : 'them'} back, or buy ${missing}.`,
+    };
+  }
+
+  const reasons: string[] = [];
+  if (owned > 0) reasons.push(`You own ${copies(owned)}`);
+  if (tradeListed > 0) reasons.push(`${tradeListed} promised on a trade list`);
+  if (proxied > 0) reasons.push(`${proxied} proxied`);
 
   return {
-    claimed,
-    toBuy,
-    label: claimed > 0 ? `${claimed} owned` : toBuy > 0 ? 'to buy' : 'covered',
-    short,
-    title: reason(card, claimed),
+    label: covered > 0 ? `Buy ${missing} of ${required}` : `Buy ${missing}`,
+    kind: 'buy',
+    title: reasons.length > 0
+      ? `${reasons.join(' · ')}. Still short ${missing}.`
+      : `You do not own this one. Short ${missing}.`,
   };
-}
-
-function reason(card: DeckCard, claimed: number): string {
-  if (!card.allocationTracked) {
-    return 'Basic lands are not tracked against your collection — grab as many as you need.';
-  }
-  if (card.ownedQuantity === 0) {
-    return 'You do not own this card yet — counted as "need to buy".';
-  }
-
-  const parts = [`You own ${card.ownedQuantity}`];
-  // The two reasons a card you own can still read as unavailable. Said out
-  // loud, because "0 free" on a card sitting in your binder looks like a bug.
-  if (card.tradeListedQuantity > 0) {
-    parts.push(`${card.tradeListedQuantity} on a trade list`);
-  }
-  parts.push(`${card.availableQuantity} free for this deck`);
-  if (claimed > card.availableQuantity) {
-    parts.push('other decks are using the rest');
-  }
-  return `${parts.join(' · ')}.`;
 }

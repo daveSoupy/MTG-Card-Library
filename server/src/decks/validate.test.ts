@@ -295,6 +295,21 @@ test('two commanders are allowed here; three are not', () => {
   assert.ok(codes(three.issues).includes('too_many_commanders'));
 });
 
+test('an over-allocation you *do* own names the decks holding the rest', () => {
+  const result = validateDeck(
+    [
+      card({
+        name: 'Sol Ring', quantity: 1, quantityFromCollection: 1,
+        availableQuantity: 0, ownedQuantity: 1,
+      }),
+      ...filler(59),
+    ],
+    MODERN,
+  );
+  const issue = result.issues.find((i) => i.code === 'over_allocated');
+  assert.match(issue!.message, /Other decks are using the rest/);
+});
+
 test('over-allocation warns but never makes a deck illegal', () => {
   const result = validateDeck(
     [
@@ -306,7 +321,9 @@ test('over-allocation warns but never makes a deck illegal', () => {
   const issue = result.issues.find((i) => i.code === 'over_allocated');
   assert.ok(issue, 'expected an over-allocation warning');
   assert.equal(issue!.severity, 'warning');
-  assert.match(issue!.message, /Other decks are using the rest/);
+  // This card is owned zero times, so blaming other decks would send you
+  // hunting for a culprit that does not exist.
+  assert.match(issue!.message, /You do not own any/);
   // CLAUDE.md is explicit: flag it, do not block it.
   assert.equal(result.isLegal, true);
 });

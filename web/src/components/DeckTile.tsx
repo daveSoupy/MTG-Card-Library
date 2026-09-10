@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { imageUrl, type BuildabilityRow, type DeckCard } from '../api.ts';
-import { coverageChip } from '../buildability.ts';
+import { slotAction } from '../deckSlot.ts';
 import type { Density } from '../density.ts';
 
 export function DeckTile({
@@ -36,9 +36,9 @@ export function DeckTile({
    *  Absent while they are in flight — the tile simply shows no chip. */
   coverage?: BuildabilityRow | null;
 }) {
-  // Only ever appears on a card the deck is actually short of; a badge that
-  // says "fine" on every tile is a badge nobody reads.
-  const chip = coverage ? coverageChip(coverage) : null;
+  // The same chip the text row shows, so every density finally says the same
+  // thing about a card. Absent while the deck's figures are still loading.
+  const action = slotAction(card, coverage);
   // The controls are a hover affordance on a desktop, and hover never fires on
   // a touch screen — which left the qty stepper and the art picker unreachable
   // on a phone. A tap toggles the same controls open; hover is untouched.
@@ -81,19 +81,19 @@ export function DeckTile({
       )}
 
       <span className="tile-qty">{card.quantity}</span>
-      {/* Nothing for a basic land under the exemption: it claims nothing, so a
-          count over its art would be inventing one. */}
-      {card.allocationTracked && card.quantityFromCollection > 0 && (
-        <span className="tile-owned" title="Claimed from your collection">
-          {card.quantityFromCollection}
-        </span>
-      )}
       {card.quantityProxied > 0 && (
         <span className="tile-proxied" title="Filled by a proxy — neither owned nor to buy">
           {card.quantityProxied}p
         </span>
       )}
-      {chip && <span className="tile-short" title={chip.title}>{chip.text}</span>}
+      {/* What to do about this card, in the same words the text row uses. The
+          deck's claim on the collection is the server's business now, so there
+          is no count of it here to misread. */}
+      {action && action.kind !== 'untracked' && (
+        <span className="tile-chip" data-kind={action.kind} title={action.title}>
+          {action.label}
+        </span>
+      )}
       {/* Lined-up leaves only the card's own printed name/cost strip showing.
           A placeholder has no printed name, so it gets one. */}
       {lined && !(card.printingId && card.imageSmall) && (

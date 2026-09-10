@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { reconcileDeckClaims } from './reconcile.ts';
 
 /**
  * Deck history.
@@ -133,6 +134,11 @@ export function restoreSnapshot(db: Database.Database, snapshotId: number): { de
       SELECT ?, oracle_id, board, quantity, quantity_from_collection,
              quantity_proxied, category, commander_role
       FROM deck_snapshot_cards WHERE snapshot_id = ?`).run(snapshot.deck_id, snapshotId);
+
+    // The snapshot's claims describe the collection as it was. Restoring the
+    // card list is the point; the claim is re-derived against the collection
+    // as it is now.
+    reconcileDeckClaims(db, snapshot.deck_id);
 
     db.prepare(`UPDATE decks SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`)
       .run(snapshot.deck_id);
