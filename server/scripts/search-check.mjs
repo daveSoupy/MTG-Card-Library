@@ -13,6 +13,8 @@ const db = new Database(join(resolveDataDir(), 'library.sqlite'), { readonly: tr
 const store = new CardSearchStore(db);
 
 let slow = 0;
+/** Phase 23: how many text queries owned>=1 made more than ~2x slower. */
+let ownedRegressions = 0;
 const run = (query, { filters = {}, sort = 'relevance', show = 2 } = {}) => {
   const started = performance.now();
   const { cards, total } = store.search(query, filters, sort, 25);
@@ -57,6 +59,51 @@ store.search('set:blb r:mythic', {}, 'name', 25);
 const setMs = performance.now() - t0;
 console.log(`  set:blb r:mythic  ${setMs.toFixed(1)} ms  ${setMs < 1000 ? 'PASS' : 'FAIL (was 5043 ms in Swift)'}`);
 
+console.log('\n=== Phase 23: collection predicates ===');
+run('owned>=1', { sort: 'name', show: 2 });
+run('available>=1', { sort: 'name', show: 0 });
+run('-indeck owned>=1', { sort: 'name', show: 2 });
+run('indeck', { sort: 'name', show: 0 });
+run('fortrade', { sort: 'name', show: 0 });
+run('want', { sort: 'name', show: 0 });
+{
+  // A typo in a name must explain itself rather than blanking the screen.
+  const typo = store.search('loc:definitely-not-a-real-box', {}, 'name', 5);
+  console.log(`  loc: typo -> ${typo.total} hits, ${typo.warnings.length} warning(s)` +
+    `${typo.warnings[0] ? `: ${typo.warnings[0]}` : ''}`);
+  console.log(typo.total === 0 && typo.warnings.length === 1 ? '  PASS' : '  FAIL');
+}
+
+console.log('\n=== Phase 23: what owned>=1 costs a text query ===');
+{
+  // The shape that could degrade: a broad text query crossed with the
+  // collection rollup. The repo has one 5-second regression on record from
+  // exactly this kind of correlated subquery, which is why this is measured
+  // rather than assumed.
+  const time = (query) => {
+    // One warm-up, then the median of five — a single cold run is mostly
+    // page-cache noise on a 117k-row table.
+    store.search(query, {}, 'relevance', 25);
+    const runs = [];
+    for (let i = 0; i < 5; i += 1) {
+      const started = performance.now();
+      store.search(query, {}, 'relevance', 25);
+      runs.push(performance.now() - started);
+    }
+    return runs.sort((a, b) => a - b)[2];
+  };
+
+  for (const base of ['t:creature', 'o:"draw a card"', 'dragon']) {
+    const plain = time(base);
+    const owned = time(`${base} owned>=1`);
+    const ratio = owned / plain;
+    console.log(`  ${base.padEnd(20)} ${plain.toFixed(1).padStart(7)} ms  ->  ` +
+      `${owned.toFixed(1).padStart(7)} ms with owned>=1  (${ratio.toFixed(2)}x)` +
+      `${ratio > 2 ? '  FAIL (>2x)' : '  PASS'}`);
+    if (ratio > 2) ownedRegressions += 1;
+  }
+}
+
 console.log('\n=== structured filters ===');
 run('', { filters: { colors: ['W', 'U'], rarities: ['mythic'] }, sort: 'name' });
 run('', { filters: { format: 'commander', minCmc: 8 }, sort: 'name' });
@@ -76,4 +123,7 @@ if (delver) {
 
 console.log(`\nsets: ${store.sets().length}, formats: ${store.formats().length}`);
 console.log(slow === 0 ? '\nNo query exceeded 1s.' : `\n${slow} slow queries.`);
+console.log(ownedRegressions === 0
+  ? 'owned>=1 costs less than 2x on every text query measured.'
+  : `${ownedRegressions} text queries more than 2x slower with owned>=1.`);
 db.close();

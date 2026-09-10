@@ -88,11 +88,28 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
     ],
   },
   {
+    title: 'Your collection',
+    entries: [
+      { syntax: 'owned  ·  owned>=2  ·  owned:0',
+        meaning: 'Copies you have, across every printing and box' },
+      { syntax: 'available  ·  available>=1',
+        meaning: 'Copies no deck has claimed and no trade list has promised away' },
+      { syntax: 'loc:"Blue Tackle Box"', meaning: 'Has a copy in that storage location' },
+      { syntax: 'indeck  ·  -indeck', meaning: 'Used by some deck; used by none' },
+      { syntax: '-indeck owned>=1', meaning: 'Dead inventory — owned, and in no deck' },
+      { syntax: 'deck:Atraxa', meaning: 'Used by that deck' },
+      { syntax: 'want  ·  want:Grails', meaning: 'On any want list, or that one' },
+      { syntax: 'fortrade  ·  tradelist:"Bulk trades"', meaning: 'Flagged to trade away' },
+    ],
+  },
+  {
     title: 'Combining',
     entries: [
       { syntax: 't:creature c:rg cmc<=3', meaning: 'Terms combine with AND' },
       { syntax: '-t:creature', meaning: 'A leading minus negates any term' },
       { syntax: 'not:owned', meaning: 'not: inverts an is: property' },
+      { syntax: 'available>=1 c:ur t:instant cmc<=2',
+        meaning: 'Collection terms are ordinary terms — they narrow, never replace' },
     ],
   },
 ];

@@ -77,7 +77,7 @@ function deckWith(cards: DeckCard[]): Deck {
 }
 
 const picker = (): DeckPickerState => ({
-  query: '', setQuery: noop, ownedOnly: false, setOwnedOnly: noop,
+  query: '', setQuery: noop,
   pickerColors: [], setPickerColors: noop, pickerGold: false, setPickerGold: noop,
   pickerHybrid: false, setPickerHybrid: noop, results: [], resultsTotal: 0, searching: false,
   pickingCommander: false, setPickingCommander: noop, searchInput: createRef(),

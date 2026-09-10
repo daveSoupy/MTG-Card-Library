@@ -1224,6 +1224,19 @@ GROUP BY v.oracle_id, v.printing_id, v.finish;
 -- server/src/decks/allocation.ts is the single source of truth. Everything —
 -- deck rows, shopping lists, trade-list conflicts, want lists, the collection
 -- card detail — reads it. Nothing re-derives owned/allocated/available.
+--
+-- Phase 23's owned-aware search is no exception, and is worth spelling out
+-- because it looks like the one case that would need a view. It computes
+-- allocation across a whole result set inside one query, so it cannot call
+-- allocationForMany() per card — instead allocation.ts exports the rollups as
+-- SQL (allocationCtes) and the subtraction as an expression
+-- (allocationSqlRefs), and search splices those. Still one definition of the
+-- rule, still settings-aware, and allocation.test.ts runs the SQL form and the
+-- JS form over the same fixtures to prove they agree.
+--
+-- Note that v_owned_by_oracle above is NOT that rollup: it is Phase 4's value
+-- report and counts archived locations on purpose. Do not reach for it to
+-- answer "how many do I own" — that question is allocation.ts's.
 
 -- "Deck A x2 (home: Blue Tackle Box)" — the deck half of the card detail
 -- breakdown. Carries the deck's status so the reader can tell a claim that

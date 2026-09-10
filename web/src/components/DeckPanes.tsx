@@ -17,6 +17,8 @@ import {
   DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density,
 } from '../density.ts';
 import { useCoarsePointer } from '../viewport.ts';
+import { SCOPES, SCOPE_HINT, SCOPE_LABEL, scopeOf, withScope } from '../searchScope.ts';
+import { ownedBadge } from '../ownedBadge.ts';
 
 const BOARD_LABEL: Record<Board, string> = {
   command: 'Command zone',
@@ -56,8 +58,6 @@ function sortPickerResults(cards: CardSummary[], sort: string): CardSummary[] {
 export type DeckPickerState = {
   query: string;
   setQuery: (value: string) => void;
-  ownedOnly: boolean;
-  setOwnedOnly: (value: boolean) => void;
   pickerColors: string[];
   setPickerColors: (fn: (prev: string[]) => string[]) => void;
   pickerGold: boolean;
@@ -148,7 +148,7 @@ export function DeckPanes({
   onPaneCommit?: (pane: 'picker' | 'stats', width: number) => void;
 }) {
   const {
-    query, setQuery, ownedOnly, setOwnedOnly,
+    query, setQuery,
     pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
     results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
     preview, setPreview, coverNote, setCoverNote,
@@ -442,10 +442,25 @@ export function DeckPanes({
           </button>
         </div>
 
-        <label className="check" style={{ margin: '8px 0' }}>
-          <input type="checkbox" checked={ownedOnly} onChange={(e) => setOwnedOnly(e.target.checked)} />
-          Only cards I own
-        </label>
+        {/* Scope chips. They write their term into the box above, so what the
+            chip does is visible and editable — and so the chip can only add to
+            the picker's identity and legality filters, never replace them. */}
+        <div className="scope-chips" role="group" aria-label="Collection scope">
+          {SCOPES.map((scope) => (
+            <button
+              key={scope}
+              type="button"
+              className="pill"
+              aria-pressed={scopeOf(query) === scope}
+              title={scope === 'available'
+                ? 'Copies free to build with — this deck\u2019s own claim does not count'
+                : SCOPE_HINT[scope]}
+              onClick={() => setQuery(withScope(query, scope))}
+            >
+              {SCOPE_LABEL[scope]}
+            </button>
+          ))}
+        </div>
         {deck.formatCode && (
           <p className="note">
             {limitedFormat
@@ -464,12 +479,12 @@ export function DeckPanes({
         )}
 
         {searching && <p className="loading">Searching…</p>}
-        {!searching && results.length === 0 && (query || ownedOnly) && (
+        {!searching && results.length === 0 && query && (
           <p className="empty">No matches.</p>
         )}
 
         {/* The picker's own filters (colour identity, legality, commander mode,
-            owned-only) stay where they are — this sits on top of them rather
+            scope) stay where they are — this sits on top of them rather
             than embedding Browse in the deck builder. No View style: these
             rows carry no art for a density to act on. */}
         <div className="picker-customize">
@@ -528,7 +543,10 @@ export function DeckPanes({
                 <span>{card.name}</span>
                 <span className="mana">{card.manaCost ?? ''}</span>
               </button>
-              {card.ownedQuantity > 0 && <span className="tag ok">{card.ownedQuantity}</span>}
+              {(() => {
+                const badge = ownedBadge(card);
+                return badge ? <span className="tag ok" title={badge.title}>{badge.text}</span> : null;
+              })()}
               <button
                 className="picker-add"
                 onClick={() => apply(
