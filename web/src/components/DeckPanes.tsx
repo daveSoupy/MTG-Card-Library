@@ -7,6 +7,7 @@ import { BackToTop } from './BackToTop.tsx';
 import { CascadePreview } from './CascadePreview.tsx';
 import { CustomizeView } from './CustomizeView.tsx';
 import { DeckRow } from './DeckRow.tsx';
+import { ManaCost } from './ManaCost.tsx';
 import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
 import { PaneDivider } from './PaneDivider.tsx';
@@ -317,14 +318,6 @@ export function DeckPanes({
                             () => removeDeckCard(deck.id, card.id),
                             `removing ${card.name}`,
                           )}
-                          onToggleOwned={() =>
-                            apply(() => updateDeckCard(deck.id, card.id, {
-                              // Never past the proxies already in the slot: the
-                              // server refuses an over-filled slot outright.
-                              fromCollection: card.quantityFromCollection > 0
-                                ? 0
-                                : card.quantity - card.quantityProxied,
-                            }), `changing what ${card.name} draws from`)}
                           onPreview={() =>
                             card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
                           onArt={() => setArtFor(card)}
@@ -544,7 +537,7 @@ export function DeckPanes({
                   : `Add ${card.name}`}
               >
                 <span>{card.name}</span>
-                <span className="mana">{card.manaCost ?? ''}</span>
+                <ManaCost cost={card.manaCost} cmc={card.cmc} />
               </button>
               {(() => {
                 const badge = ownedBadge(card);

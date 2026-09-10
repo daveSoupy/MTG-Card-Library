@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { BuildabilityRow, DeckBuildability } from './api.ts';
-import { coverageChip, money, percent, summarySegments } from './buildability.ts';
+import { money, percent, summarySegments } from './buildability.ts';
 
 const figures = (over: Partial<DeckBuildability> = {}): DeckBuildability => ({
   deckId: 1,
@@ -78,28 +78,3 @@ test('contested only appears when something is actually contested', () => {
   assert.equal(segments.at(-1)!.text, '2 contested');
 });
 
-test('a covered slot gets no chip at all', () => {
-  assert.equal(coverageChip(row({ covered: 3, missing: 0 })), null);
-});
-
-test('a partly covered slot reads 2/3, a bare one reads need 1', () => {
-  assert.equal(coverageChip(row({ required: 3, covered: 2, missing: 1 }))!.text, '2/3');
-  assert.equal(coverageChip(row({ required: 1, covered: 0, missing: 1 }))!.text, 'need 1');
-});
-
-test('the chip names the deck holding the rest', () => {
-  const chip = coverageChip(row({
-    required: 1, owned: 1, available: 0, covered: 0, missing: 1,
-    holdingDecks: [{ deckId: 2, deckName: 'Atraxa', status: 'assembled', quantity: 1 }],
-  }))!;
-  assert.match(chip.title, /You own 1/);
-  assert.match(chip.title, /0 free for this deck/);
-  assert.match(chip.title, /Held by Atraxa x1\./, 'otherwise "0 free" looks like a bug');
-});
-
-test('a trade-listed copy is named rather than left as a silent subtraction', () => {
-  const chip = coverageChip(row({
-    required: 1, owned: 1, tradeListed: 1, available: 0, covered: 0, missing: 1,
-  }))!;
-  assert.match(chip.title, /1 on a trade list/);
-});

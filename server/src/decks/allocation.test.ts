@@ -164,7 +164,7 @@ test('a status change stamps status_changed_at, and a no-op change does not', ()
   db.close();
 });
 
-test('a duplicate starts as a brew, carrying its claims but not its reservation', () => {
+test('a duplicate starts as a brew, and claims only what is still spare', () => {
   const { db, decks, collection, locationId } = fixture();
   own(collection, locationId, 'o-ring', 1);
   const source = decks.create({ name: 'Original' });
@@ -173,8 +173,11 @@ test('a duplicate starts as a brew, carrying its claims but not its reservation'
 
   const copy = decks.duplicate(source);
   assert.equal(decks.get(copy)!.status, 'brew');
-  assert.equal(slot(db, copy, 'o-ring').quantity_from_collection, 1, 'the claim came across');
-  assert.equal(availableFor(db, 'o-ring'), 0, 'and the copy did not double-book it');
+  // The claim is derived, so it cannot come across: one physical Sol Ring
+  // cannot be in two decks, and inheriting the claim would double-book it the
+  // moment the copy was promoted out of brew.
+  assert.equal(slot(db, copy, 'o-ring').quantity_from_collection, 0);
+  assert.equal(availableFor(db, 'o-ring'), 0, 'the original still holds it');
   db.close();
 });
 
@@ -253,20 +256,35 @@ test('a proxied copy satisfies a slot without being owned or bought', () => {
   db.close();
 });
 
-test('claiming and proxying more copies than the slot holds is refused, not clamped', () => {
+test('a proxy request moves the derived claim aside; a contradictory one is refused', () => {
   const { db, decks, collection, locationId } = fixture();
   own(collection, locationId, 'o-bolt', 4);
   const deck = decks.create({ name: 'Overfilled' });
-  decks.addCard(deck, 'o-bolt', { board: 'main', quantity: 4, fromCollection: 3 });
+  decks.addCard(deck, 'o-bolt', { board: 'main', quantity: 4 });
   const cardId = slot(db, deck, 'o-bolt').id;
+  assert.equal(slot(db, deck, 'o-bolt').quantity_from_collection, 4, 'all four are free');
 
-  assert.throws(() => decks.setProxied(deck, cardId, 2), SlotOverfilledError);
-  assert.equal(slot(db, deck, 'o-bolt').quantity_proxied, 0, 'the failed write changed nothing');
+  // The claim is computed, not chosen, so asking for two proxies is not a
+  // contradiction to refuse — it is a statement the claim should make room for.
+  // Refusing here would mean un-claiming by hand first, to satisfy a number the
+  // user never typed.
+  decks.setProxied(deck, cardId, 2);
+  assert.equal(slot(db, deck, 'o-bolt').quantity_proxied, 2);
+  assert.equal(slot(db, deck, 'o-bolt').quantity_from_collection, 2);
+
+  // Stating both halves so they cannot both hold is still refused rather than
+  // clamped: silently keeping half of what was asked for is how a slot ends up
+  // showing a number nobody chose.
+  assert.throws(
+    () => decks.setSlotAllocation(deck, cardId, { fromCollection: 3, proxied: 2 }),
+    SlotOverfilledError,
+  );
+  assert.equal(slot(db, deck, 'o-bolt').quantity_from_collection, 2, 'nothing changed');
 
   // Both fields at once, so a swap is judged as one move rather than two.
-  decks.setSlotAllocation(deck, cardId, { fromCollection: 2, proxied: 2 });
-  assert.equal(slot(db, deck, 'o-bolt').quantity_from_collection, 2);
-  assert.equal(slot(db, deck, 'o-bolt').quantity_proxied, 2);
+  decks.setSlotAllocation(deck, cardId, { fromCollection: 1, proxied: 3 });
+  assert.equal(slot(db, deck, 'o-bolt').quantity_from_collection, 1);
+  assert.equal(slot(db, deck, 'o-bolt').quantity_proxied, 3);
   db.close();
 });
 
@@ -317,11 +335,15 @@ test('available floors at zero rather than going negative', () => {
   const { db, decks, collection, tradeLists, locationId } = fixture();
   const lot = own(collection, locationId, 'o-ring', 1);
   const list = tradeLists.lists().find((l: any) => l.is_default)!.id;
-  tradeLists.addItem(list, lot, { quantity: 1 });
 
   const deck = decks.create({ name: 'Wants it too' });
   decks.addCard(deck, 'o-ring', { board: 'main', quantity: 1, fromCollection: 1 });
   decks.update(deck, { status: 'assembled' });
+  // Listed *after* the deck claimed it — promising away a copy a deck is using
+  // is exactly how owned 1 / reserved 1 / listed 1 arises. Trade-list writes
+  // deliberately do not reconcile: Phase 22 surfaces this as a conflict rather
+  // than silently deciding which side wins.
+  tradeLists.addItem(list, lot, { quantity: 1 });
 
   const allocation = allocationFor(db, 'o-ring');
   assert.equal(allocation.available, 0, 'owned 1 - reserved 1 - listed 1 is 0, never -1');

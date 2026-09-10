@@ -413,10 +413,16 @@ function checkAllocation(issues: DeckIssue[], cards: DeckCard[]): void {
     if (!card.allocationTracked) continue;
     if (card.quantityFromCollection > card.availableQuantity) {
       const short = card.quantityFromCollection - card.availableQuantity;
+      // `availableQuantity` is floored at 0, so owning none and owning one that
+      // another deck holds both arrive here as "0 free". Blaming other decks in
+      // the first case sends you looking for a culprit that does not exist.
+      const because = card.ownedQuantity === 0
+        ? 'You do not own any.'
+        : 'Other decks are using the rest.';
       issues.push({
         severity: 'warning',
         code: 'over_allocated',
-        message: `${card.name}: this deck claims ${card.quantityFromCollection} from your collection but only ${card.availableQuantity} ${card.availableQuantity === 1 ? 'is' : 'are'} free — ${short} short. Other decks are using the rest.`,
+        message: `${card.name}: this deck claims ${card.quantityFromCollection} from your collection but only ${card.availableQuantity} ${card.availableQuantity === 1 ? 'is' : 'are'} free — ${short} short. ${because}`,
         oracleId: card.oracleId,
         cardName: card.name,
       });

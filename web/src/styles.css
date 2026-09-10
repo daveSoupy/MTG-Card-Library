@@ -504,7 +504,26 @@ input[type='number'] { width: 72px; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btnrow { display: flex; gap: 8px; margin-top: 14px; }
 
-.mana { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+/* `5 ●●` rather than `{3}{W}{W}`. The value is monospaced so a column of them
+   lines up; the dots carry the colour the braces used to spell out. */
+.mana {
+  font-family: var(--mono); font-size: 12px; color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+}
+.mana .mv { font-variant-numeric: tabular-nums; }
+.mana-dots { display: inline-flex; gap: 2px; }
+.mana-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  background: var(--line-strong);
+}
+.mana-dot.W { background: var(--w); } .mana-dot.U { background: var(--u); }
+.mana-dot.B { background: var(--b); } .mana-dot.R { background: var(--r); }
+.mana-dot.G { background: var(--g); }
+/* Hybrid is two things at once, so the dot is split — the same treatment the
+   colour pills give it. */
+.mana-dot.H {
+  background: linear-gradient(135deg, var(--m) 0 50%, var(--h) 50% 100%);
+}
 
 /* ---------- nav tabs ---------- */
 .tabs {
@@ -706,21 +725,24 @@ input[type='number'] { width: 72px; }
 }
 .tag.bad { color: var(--bad); } .tag.warn { color: var(--warn); } .tag.ok { color: var(--good); }
 
-.owned-chip {
-  font-size: 11px; padding: 2px 7px; border-radius: 999px;
+/* What to do about this card. One chip, never two, and never a number that
+   means something different from the one beside it. */
+.slot-chip {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
   border: 1px solid var(--line-strong); background: none; color: var(--text-3);
-  white-space: nowrap;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
-.owned-chip.on { color: var(--good); border-color: var(--good); }
-.owned-chip.short { color: var(--warn); border-color: var(--warn); }
+.slot-chip[data-kind='have'] { color: var(--good); border-color: var(--good); }
+.slot-chip[data-kind='buy']  { color: var(--warn); border-color: var(--warn); }
+/* The copies exist — they are in another deck. A decision, not a purchase, so
+   it reads as information rather than as a warning. */
+.slot-chip[data-kind='held'] { color: var(--u); border-color: var(--u); }
 /* A basic land under the exemption. Deliberately flat and quiet: it is not a
    count, it is the absence of one. */
-.owned-chip.untracked {
-  border-style: dashed; color: var(--text-3); cursor: default;
-}
+.slot-chip[data-kind='untracked'] { border-style: dashed; color: var(--text-3); }
 
-/* The owned badge and the shortfall chip share one column, so a basic land —
-   which shows neither — leaves the columns after it exactly where they were. */
+/* One grid cell whatever the chip says, so a basic land leaves the columns
+   after it exactly where they were. */
 .slot-alloc { display: flex; align-items: center; gap: 6px; min-width: 0; }
 
 .board-select { font-size: 11.5px; padding: 3px 5px; }
@@ -1896,7 +1918,7 @@ input[type='number'] { width: 72px; }
   display: none; margin-left: auto; flex: 0 0 auto;
   font-family: var(--mono); font-size: 10px; color: var(--text-3);
 }
-[data-density='compact'] .card .cname .cmana { display: inline; }
+[data-density='compact'] .card .cname .cmana { display: inline-flex; }
 
 /* Compact sizes the *container*, never the tile: tiles are width:100%, so the
    column formula is the only thing that decides how big a card is. */
@@ -2201,15 +2223,16 @@ button.build-seg {
 button.build-seg:hover { text-decoration: underline; }
 
 /* Only ever on a card the deck is short of, so it can afford to be loud. */
-.tile-short {
-  position: absolute; bottom: 5px; left: 5px;
+/* The same verdict the text row shows, over the art. Loud on purpose: it only
+   ever appears when the card needs something doing about it. */
+.tile-chip {
+  position: absolute; bottom: 5px; left: 5px; right: 5px;
+  font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+  text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background: var(--warn); color: var(--bg);
-  font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
 }
-.slot-short {
-  font-size: 11px; font-weight: 600; color: var(--warn);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-}
+.tile-chip[data-kind='have'] { background: var(--good); }
+.tile-chip[data-kind='held'] { background: var(--u); }
 
 .missing-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;

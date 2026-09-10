@@ -27,7 +27,6 @@ function row(
       onQuantity={onQuantity}
       onBoard={() => {}}
       onRemove={() => {}}
-      onToggleOwned={() => {}}
       onPreview={() => {}}
       onArt={() => {}}
       categoryLabels={labels}
@@ -70,22 +69,39 @@ describe('DeckRow', () => {
     expect(screen.queryByLabelText('One more proxy of Sol Ring')).toBeNull();
   });
 
-  it('renders an exempt basic land with no owned badge at all', () => {
+  // The claim is the server's business now; there is nothing here to set it
+  // with, and nothing that reports it as though it were ownership.
+  it('offers no way to claim the card, and never says "owned"', () => {
+    const { container } = row({ quantity: 1, quantityFromCollection: 1, ownedQuantity: 0 });
+    expect(container.querySelector('.owned-chip')).toBeNull();
+    expect(container.querySelector('button.slot-chip')).toBeNull();
+    expect(container.textContent).not.toContain('owned');
+  });
+
+  it('renders an exempt basic land as just "basic"', () => {
     // A blank badge beats a wrong one: basics are outside allocation entirely.
     const { container } = row({
       name: 'Sol Ring', isBasicLand: true, allocationTracked: false,
       quantity: 38, quantityFromCollection: 0, ownedQuantity: 0, availableQuantity: 0,
     });
-    expect(container.querySelector('.owned-chip.untracked')?.textContent).toBe('basic');
+    const chip = container.querySelector('.slot-chip');
+    expect(chip?.textContent).toBe('basic');
+    expect(chip?.getAttribute('data-kind')).toBe('untracked');
   });
 
-  it('says why a card you own is not available, rather than just that it is not', () => {
-    const { container } = row({
-      quantity: 1, quantityFromCollection: 0,
-      ownedQuantity: 1, availableQuantity: 0, tradeListedQuantity: 1,
-    });
-    expect(container.querySelector('.owned-chip')?.getAttribute('title'))
-      .toContain('1 on a trade list');
+  it('stays blank until the deck figures arrive, rather than guessing', () => {
+    const { container } = row({ quantity: 1 });   // no coverage passed
+    expect(container.querySelector('.slot-chip')).toBeNull();
+  });
+
+  it('shows the mana value and a dot per coloured pip, not the raw symbols', () => {
+    const { container } = row({ manaCost: '{3}{W}{W}', cmc: 5 });
+    const mana = container.querySelector('.mana');
+    expect(mana?.querySelector('.mv')?.textContent).toBe('5');
+    expect(mana?.querySelectorAll('.mana-dot')).toHaveLength(2);
+    expect(container.textContent).not.toContain('{');
+    // Nothing is lost — the printed cost is one hover away.
+    expect(mana?.getAttribute('title')).toBe('{3}{W}{W}');
   });
 
   it('has no category control left to set one with', () => {

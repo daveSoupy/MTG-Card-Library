@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchCard, setCardArt, imageUrl, type CardDetail } from '../api.ts';
+import { ManaCost } from './ManaCost.tsx';
 
 const RULING_SOURCE_LABEL: Record<string, string> = { wotc: 'WotC', scryfall: 'Scryfall' };
 
@@ -114,7 +115,10 @@ export function CardDetailPane({
           </div>
           <div className="detail-sub">
             {card.typeLine}
-            {card.manaCost ? ` · ${card.manaCost}` : ''}
+            {card.manaCost ? ' · ' : ''}
+            {/* The summary line is scanned; the per-face block below keeps the
+                cost exactly as printed, which is what you came here to read. */}
+            <ManaCost cost={card.manaCost} cmc={card.cmc} />
           </div>
 
           {showFaces ? (

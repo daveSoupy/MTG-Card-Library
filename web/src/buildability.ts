@@ -92,42 +92,6 @@ export function summarySegments(figures: DeckBuildability): SummarySegment[] {
   return segments;
 }
 
-export interface CoverageChip {
-  text: string;
-  title: string;
-}
-
-/**
- * The chip on a deck slot — but only when the slot is actually short.
- *
- * A covered slot gets nothing: the row already carries the allocation control,
- * and a chip that says "fine" on every line is a chip nobody reads. When it does
- * appear it says where the rest live, because "0 available" on a card sitting in
- * your binder looks like a bug until something names the deck holding it.
- */
-export function coverageChip(row: BuildabilityRow): CoverageChip | null {
-  if (row.missing <= 0) return null;
-
-  const text = row.covered > 0 ? `${row.covered}/${row.required}` : `need ${row.missing}`;
-
-  const parts: string[] = [];
-  if (row.owned > 0) {
-    parts.push(`You own ${row.owned}`);
-    if (row.tradeListed > 0) parts.push(`${row.tradeListed} on a trade list`);
-    parts.push(`${row.available} free for this deck`);
-  } else {
-    parts.push('You do not own this one');
-  }
-  if (row.proxied > 0) parts.push(`${row.proxied} proxied`);
-
-  const holders = row.holdingDecks
-    .map((deck) => `${deck.deckName} x${deck.quantity}`)
-    .join(', ');
-  const where = holders ? ` Held by ${holders}.` : '';
-
-  return { text, title: `${parts.join(' · ')}. Short ${row.missing}.${where}` };
-}
-
 /** Rows worth showing in a "what is this deck missing" list, worst first. */
 export function missingRows(rows: BuildabilityRow[]): BuildabilityRow[] {
   return rows.filter((row) => row.missing > 0);
