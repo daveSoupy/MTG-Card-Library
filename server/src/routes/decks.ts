@@ -2,6 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import { DeckNotFoundError, type DeckStore } from '../decks/store.ts';
 import { DECK_STATUSES, SlotOverfilledError, type DeckStatus } from '../decks/allocation.ts';
+import {
+  buildabilityDetail, buildabilityForDecks, compareBuildability, isBuildabilitySort,
+  missingForWantList,
+} from '../decks/buildability.ts';
+import { pushEntriesToWantList } from '../collection/shopping.ts';
 import { BOARDS, type Board, type CommanderRole } from '../decks/types.ts';
 import {
   takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
@@ -35,7 +40,81 @@ export function registerDeckRoutes(
     }
   };
 
-  app.get('/api/v1/decks', async () => ({ decks: decks.list() }));
+  /**
+   * The deck list, optionally with the figure that decides whether you buy
+   * cards this week.
+   *
+   * Buildability is opt-in because it is a real computation over the whole
+   * collection, and most callers of this endpoint (the deck picker, the import
+   * dialog) only want names. Asking for one of the buildability sorts implies
+   * it — sorting by a number the response does not carry would leave the client
+   * unable to explain its own ordering.
+   *
+   * All decks are computed in one pass. A loop calling this per deck would be
+   * correct and still wrong: this screen is the deliverable.
+   */
+  app.get<{ Querystring: { include?: string; sort?: string } }>(
+    '/api/v1/decks',
+    async (request) => {
+      const sort = request.query?.sort;
+      const sorted = isBuildabilitySort(sort) ? sort : null;
+      const wanted = request.query?.include?.split(',').includes('buildability') || sorted !== null;
+
+      const list = decks.list();
+      if (!wanted) return { decks: list };
+
+      const figures = buildabilityForDecks(db, list.map((deck) => deck.id));
+      const withFigures = list.map((deck) => ({
+        ...deck,
+        buildability: figures.get(deck.id) ?? null,
+      }));
+
+      if (sorted) {
+        // A stable sort over the store's own ordering, so decks that tie on the
+        // figure stay in the order the rest of the app shows them in.
+        withFigures.sort((a, b) => compareBuildability(sorted, figures.get(a.id), figures.get(b.id)));
+      }
+      return { decks: withFigures };
+    },
+  );
+
+  // -- buildability ------------------------------------------------------------
+
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/decks/:id/buildability',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const detail = buildabilityDetail(db, request.params.id);
+      if (!detail) return reply.status(404).send({ error: 'No deck with that id.' });
+      return detail;
+    },
+  );
+
+  /**
+   * Everything this deck is short of, onto a want list.
+   *
+   * The *computed* missing set, not the declared one the shopping list pushes:
+   * these are copies your collection could not supply, whether or not you ever
+   * ticked "need to buy". Basics are already absent and proxied copies already
+   * count as covered, so neither reaches the list.
+   */
+  app.post<{ Params: { id: number }; Body: { wantListId?: number } }>(
+    '/api/v1/decks/:id/buildability/want',
+    { schema: { params: idParams('id'), body: body({ wantListId: ID }) } },
+    async (request, reply) => {
+      const { id } = request.params;
+      if (!decks.get(id)) return reply.status(404).send({ error: 'No deck with that id.' });
+      try {
+        const result = pushEntriesToWantList(
+          db, id, missingForWantList(db, id), request.body?.wantListId,
+        );
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return reply.status(400).send({ error: 'Could not add to the want list.', detail: message });
+      }
+    },
+  );
 
   app.post<{ Body: { name: string; formatCode?: string | null; description?: string | null } }>(
     '/api/v1/decks',

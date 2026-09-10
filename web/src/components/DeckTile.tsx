@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { imageUrl, type DeckCard } from '../api.ts';
+import { imageUrl, type BuildabilityRow, type DeckCard } from '../api.ts';
+import { coverageChip } from '../buildability.ts';
 import type { Density } from '../density.ts';
 
 export function DeckTile({
@@ -12,6 +13,7 @@ export function DeckTile({
   onPreview,
   tapOpensPreview = false,
   cascade,
+  coverage,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -30,7 +32,13 @@ export function DeckTile({
   /** Lined-up only. 'stacked' is what the stylesheet pulls up over the card
    *  before it; the first card in a column sits where it falls. */
   cascade?: 'first' | 'stacked';
+  /** Phase 24's coverage for this card, when the deck's figures are loaded.
+   *  Absent while they are in flight — the tile simply shows no chip. */
+  coverage?: BuildabilityRow | null;
 }) {
+  // Only ever appears on a card the deck is actually short of; a badge that
+  // says "fine" on every tile is a badge nobody reads.
+  const chip = coverage ? coverageChip(coverage) : null;
   // The controls are a hover affordance on a desktop, and hover never fires on
   // a touch screen — which left the qty stepper and the art picker unreachable
   // on a phone. A tap toggles the same controls open; hover is untouched.
@@ -85,6 +93,7 @@ export function DeckTile({
           {card.quantityProxied}p
         </span>
       )}
+      {chip && <span className="tile-short" title={chip.title}>{chip.text}</span>}
       {/* Lined-up leaves only the card's own printed name/cost strip showing.
           A placeholder has no printed name, so it gets one. */}
       {lined && !(card.printingId && card.imageSmall) && (

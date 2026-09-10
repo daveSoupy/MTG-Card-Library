@@ -2160,6 +2160,81 @@ input[type='number'] { width: 72px; }
 }
 .undo-toast-close:hover { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .undo-toast { animation: none; } }
+
+/* ---------- buildability (Phase 24) ----------
+ *
+ * The deck-list bar is the anti-buying mechanism: a row reading "94% · 6
+ * missing · $23" is a deck you finish this week instead of starting a fourth.
+ * Built from the same palette tokens as deck status, so light mode falls out
+ * of the same indirection.
+ */
+.deck-build {
+  display: flex; flex-direction: column; gap: 4px;
+  margin-top: 8px; width: 100%;
+}
+.deck-build.empty { font-size: 11.5px; color: var(--text-3); }
+
+.build-bar {
+  height: 5px; border-radius: 999px; background: var(--panel-2);
+  overflow: hidden; width: 100%;
+}
+.build-bar > span { display: block; height: 100%; border-radius: 999px; }
+.build-bar[data-tone="done"]  > span { background: var(--good); }
+.build-bar[data-tone="close"] > span { background: var(--warn); }
+.build-bar[data-tone="far"]   > span { background: var(--text-3); }
+
+.build-figures {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.build-figures strong { color: var(--text-2); font-size: 12.5px; }
+.build-figures .good { color: var(--good); }
+
+.deck-sort {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 0 4px; font-size: 12.5px; color: var(--text-3);
+}
+.deck-sort select { width: auto; min-width: 180px; }
+
+/* The header strip: 94% - 6 missing - $23 - 2 contested. */
+.build-strip {
+  display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.build-strip .build-seg + .build-seg::before {
+  content: "·"; margin-right: 6px; color: var(--line-strong);
+}
+button.build-seg {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; color: var(--accent);
+}
+button.build-seg:hover { text-decoration: underline; }
+
+/* Only ever on a card the deck is short of, so it can afford to be loud. */
+.tile-short {
+  position: absolute; bottom: 5px; left: 5px;
+  background: var(--warn); color: var(--bg);
+  font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+}
+.slot-short {
+  font-size: 11px; font-weight: 600; color: var(--warn);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+.missing-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px; align-items: center;
+  padding: 5px 8px; border-radius: 7px; background: var(--panel-2);
+}
+.missing-row .dim { font-size: 11px; }
+
+@media (max-width: 620px) {
+  .deck-sort select { min-width: 0; flex: 1; }
+  /* The strip wraps under the title rather than squeezing the header controls. */
+  .build-strip { width: 100%; }
+}
+
 @media (max-width: 620px) {
   /* Clear of the Back-to-top button, which sits in the same corner region. */
   .undo-toast { bottom: 70px; }

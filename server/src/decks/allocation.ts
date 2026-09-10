@@ -108,7 +108,7 @@ export interface AllocationOptions {
  * and it is on a trade list" is 0 copies free, not -1. Over-allocation is
  * reported separately so the flag survives the floor.
  */
-function assemble(
+export function allocationFromParts(
   oracleId: string,
   isBasic: boolean,
   parts: { owned: number; reserved: number; tradeListed: number },
@@ -199,14 +199,57 @@ export function allocationCtes(
   options: { excludeDeckId?: number; materialized?: boolean } = {},
 ): string {
   const as = options.materialized ? 'AS MATERIALIZED' : 'AS';
+  return `${collectionCtes(options)},
+       ${RESERVED_CTE} ${as} (${reservedByOracleSql(settings, options.excludeDeckId)})`;
+}
+
+/**
+ * The two collection-side rollups on their own — owned and trade-listed, with
+ * no deck-side reservation.
+ *
+ * For the caller that has to compute reservation itself: Phase 24's
+ * buildability runs every deck in one pass, and each deck needs reservation
+ * *by the other decks*, which is a different number per deck and can be asked
+ * of a hypothetical set of statuses. It pairs these with `deckClaimsSql()` and
+ * folds the result through `allocationFromParts`, so the subtraction is still
+ * this file's.
+ */
+export function collectionCtes(options: { materialized?: boolean } = {}): string {
+  const as = options.materialized ? 'AS MATERIALIZED' : 'AS';
   return `${OWNED_CTE} ${as} (${OWNED_BY_ORACLE_SQL}),
-       ${RESERVED_CTE} ${as} (${reservedByOracleSql(settings, options.excludeDeckId)}),
        ${LISTED_CTE} ${as} (${TRADE_LISTED_BY_ORACLE_SQL})`;
 }
 
-const OWNED_CTE = 'alloc_owned';
-const RESERVED_CTE = 'alloc_reserved';
-const LISTED_CTE = 'alloc_listed';
+/**
+ * Every deck's claim on every card, at (deck, oracle) grain and **before
+ * status is applied**.
+ *
+ * `reservedByOracleSql` above is the same rollup with the reserving-status
+ * filter already folded in, and it stays the one to use when you just want
+ * "what is reserved" — it is the shape the deck-row and search paths are tuned
+ * for. This variant exists because Phase 24 has to vary the status test per
+ * caller rather than per query: it answers each deck's coverage while excluding
+ * that deck, and Phase 26 asks the same question against statuses no deck
+ * actually has yet. A caller of this function owes the reader an explicit
+ * status test — `reserves()` — over every row it keeps.
+ *
+ * Takes no parameters; filter the result by deck in the caller.
+ */
+export function deckClaimsSql(): string {
+  const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
+  return `
+    SELECT dc.deck_id AS deck_id, dc.oracle_id AS oracle_id,
+           SUM(dc.quantity_from_collection) AS qty
+      FROM deck_cards dc
+     WHERE dc.board IN (${boards})
+       AND dc.quantity_from_collection > 0
+     GROUP BY dc.deck_id, dc.oracle_id`;
+}
+
+/** The names `allocationCtes` and `collectionCtes` bind, for composing callers. */
+export const OWNED_CTE = 'alloc_owned';
+export const RESERVED_CTE = 'alloc_reserved';
+export const LISTED_CTE = 'alloc_listed';
 
 /**
  * A semi-join against the owned rollup, for a query that filters on a *lower
@@ -232,9 +275,9 @@ export function ownedSemiJoinSql(qtyOperator: string, oracleColumn = 'o.oracle_i
 /** SQL expressions over the CTEs `allocationCtes` defines, one per number. */
 export interface AllocationSqlRefs {
   owned: string;
-  /** Effective reservation — 0 for an exempt basic, exactly as `assemble` does. */
+  /** Effective reservation — 0 for an exempt basic, exactly as `allocationFromParts` does. */
   reserved: string;
-  /** Raw, reported whether or not it subtracts — again matching `assemble`. */
+  /** Raw, reported whether or not it subtracts — again matching `allocationFromParts`. */
   tradeListed: string;
   available: string;
   /** 1 when the card is inside allocation at all, 0 for an exempt basic land. */
@@ -245,7 +288,7 @@ export interface AllocationSqlRefs {
  * The one subtraction again, this time as SQL.
  *
  * A second expression of the same rule is a liability, so it is written once,
- * here, next to `assemble()` — and `allocation.test.ts` runs both over the same
+ * here, next to `allocationFromParts()` — and `allocation.test.ts` runs both over the same
  * fixtures and asserts they agree. If the rule changes, both change together or
  * the test fails.
  */
@@ -268,7 +311,7 @@ export function allocationSqlRefs(
     owned,
     reserved,
     tradeListed: rawListed,
-    // Floored at 0 for the same reason `assemble` floors it: "you own 1, a deck
+    // Floored at 0 for the same reason `allocationFromParts` floors it: "you own 1, a deck
     // has it, and it is on a trade list" is 0 copies free, not -1.
     available: `MAX(0, ${owned} - ${reserved} - ${subtracted})`,
     tracked,
@@ -306,7 +349,7 @@ export function allocationForMany(
      }>;
 
   for (const row of rows) {
-    result.set(row.oracle_id, assemble(
+    result.set(row.oracle_id, allocationFromParts(
       row.oracle_id,
       Boolean(row.is_basic_land),
       { owned: row.owned, reserved: row.reserved, tradeListed: row.listed },
@@ -318,7 +361,7 @@ export function allocationForMany(
   // a missing key — callers otherwise have to guard every lookup.
   for (const id of ids) {
     if (!result.has(id)) {
-      result.set(id, assemble(id, false, { owned: 0, reserved: 0, tradeListed: 0 }, settings));
+      result.set(id, allocationFromParts(id, false, { owned: 0, reserved: 0, tradeListed: 0 }, settings));
     }
   }
   return result;

@@ -1,7 +1,7 @@
 import { useState, type CSSProperties, type RefObject } from 'react';
 import {
   addDeckCard, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
-  type Board, type CardSummary, type Deck, type DeckCard,
+  type Board, type BuildabilityRow, type CardSummary, type Deck, type DeckCard,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
 import { CascadePreview } from './CascadePreview.tsx';
@@ -82,6 +82,9 @@ export type DeckPickerState = {
   categoryLabels: Record<string, string>;
 };
 
+/** Shared so an absent `coverage` prop does not allocate a map per render. */
+const NO_COVERAGE: Map<string, BuildabilityRow> = new Map();
+
 /** The `.decklist` / `.picker` / `.stats-pane` layout shell. */
 export function DeckPanes({
   deck,
@@ -93,6 +96,7 @@ export function DeckPanes({
   cardSort,
   setCardSort,
   categoryLabels,
+  coverage = NO_COVERAGE,
   density,
   onDensity,
   listRef,
@@ -123,6 +127,9 @@ export function DeckPanes({
   cardSort: DeckSort;
   setCardSort: (sort: DeckSort) => void;
   categoryLabels: Record<string, string>;
+  /** Phase 24's per-card coverage, keyed by oracle id. Omitted while the deck's
+   *  figures are in flight, which simply means no shortfall chips yet. */
+  coverage?: Map<string, BuildabilityRow>;
   /** The decklist's whole layout, not a size within one: Ultra-compact is the
    *  text list that used to be its own "List" view mode. */
   density: Density;
@@ -273,6 +280,7 @@ export function DeckPanes({
                             () => removeDeckCard(deck.id, card.id),
                             `removing ${card.name}`,
                           )}
+                          coverage={coverage.get(card.oracleId) ?? null}
                         />
                       ))}
                     </div>
@@ -328,6 +336,7 @@ export function DeckPanes({
                             card.printingId && setPreview({ printingId: card.printingId, name: card.name })}
                           onArt={() => setArtFor(card)}
                           categoryLabels={categoryLabels}
+                          coverage={coverage.get(card.oracleId) ?? null}
                         />
                       </div>
                     ))
@@ -349,6 +358,7 @@ export function DeckPanes({
                             () => removeDeckCard(deck.id, card.id),
                             `removing ${card.name}`,
                           )}
+                          coverage={coverage.get(card.oracleId) ?? null}
                         />
                       ))}
                     </div>

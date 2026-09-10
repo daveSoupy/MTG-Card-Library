@@ -109,31 +109,50 @@ export interface WantPushResult {
   listName: string;
 }
 
-/**
- * Pushes shortfalls onto a want list, tagged with the deck that needs them.
- *
- * Phase 6 requires consolidation: one row per card per list, summing the
- * quantity and listing each deck's need separately. `want_list_items` enforces
- * that with UNIQUE(want_list_id, oracle_id), and `want_list_item_decks` holds
- * the per-deck breakdown that the list view shows as "needed for: Deck A ×2".
- */
+/** Pushes a deck's *declared* shortfall onto a want list, tagged with the deck. */
 export function pushToWantList(
   db: Database.Database,
   deckId: number,
   options: { wantListId?: number; oracleIds?: string[] } = {},
 ): WantPushResult {
-  const list = options.wantListId
-    ? db.prepare('SELECT id, name FROM want_lists WHERE id = ?').get(options.wantListId)
-    : db.prepare('SELECT id, name FROM want_lists ORDER BY is_default DESC, sort_order LIMIT 1').get();
-  if (!list) throw new Error('No want list to add to.');
-  const target = list as { id: number; name: string };
-
   const full = shoppingList(db, deckId);
   if (!full) throw new Error(`No deck with id ${deckId}.`);
 
   const wanted = options.oracleIds && options.oracleIds.length > 0
     ? full.entries.filter((e) => options.oracleIds!.includes(e.oracleId))
     : full.entries;
+
+  return pushEntriesToWantList(db, deckId, wanted, options.wantListId);
+}
+
+/**
+ * The push itself, over whatever set of shortfalls a caller worked out.
+ *
+ * Two callers now disagree about what "needed" means, and both are right. The
+ * shopping list above reads the *declared* shortfall — the copies you marked as
+ * "need to buy". Phase 24's buildability reads *computed coverage* — copies the
+ * collection could not supply whether or not you marked anything. They are
+ * different questions, so they are different callers; the consolidation rules
+ * below are the same for both, so they are written once, here.
+ *
+ * Phase 6 requires that consolidation: one row per card per list, summing the
+ * quantity and listing each deck's need separately. `want_list_items` enforces
+ * it with UNIQUE(want_list_id, oracle_id), and `want_list_item_decks` holds the
+ * per-deck breakdown the list view shows as "needed for: Deck A x2".
+ */
+export function pushEntriesToWantList(
+  db: Database.Database,
+  deckId: number,
+  entries: Array<{ oracleId: string; needed: number }>,
+  wantListId?: number,
+): WantPushResult {
+  const list = wantListId
+    ? db.prepare('SELECT id, name FROM want_lists WHERE id = ?').get(wantListId)
+    : db.prepare('SELECT id, name FROM want_lists ORDER BY is_default DESC, sort_order LIMIT 1').get();
+  if (!list) throw new Error('No want list to add to.');
+  const target = list as { id: number; name: string };
+
+  const wanted = entries.filter((entry) => entry.needed > 0);
 
   const upsertItem = db.prepare(`
     INSERT INTO want_list_items (want_list_id, oracle_id, quantity)

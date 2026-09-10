@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  addRecommendedLands, fetchDeck, fetchDeckGames, fetchSettings, fetchTemplates, formatRecord,
+  addRecommendedLands, fetchBuildability, fetchDeck, fetchDeckGames, fetchSettings,
+  fetchTemplates, formatRecord,
   imageUrl, resolveCategories, searchCards, updateDeck,
-  type AppSettings, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
-  type MatchRecord,
+  type AppSettings, type BuildabilityDetail, type BuildabilityRow, type Deck, type DeckCard,
+  type DeckTemplate, type FormatRecord, type MatchRecord,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
 import { withScope } from '../searchScope.ts';
@@ -13,6 +14,8 @@ import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
+import { BuildabilityStrip } from './Buildability.tsx';
+import { MissingCardsPanel } from './MissingCardsPanel.tsx';
 import { DeckGamesPanel } from './DeckGamesPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
 import { DeckStatusPill } from './DeckStatusPill.tsx';
@@ -63,6 +66,8 @@ export function DeckBuilder({
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [shopping, setShopping] = useState(false);
+  const [buildability, setBuildability] = useState<BuildabilityDetail | null>(null);
+  const [missing, setMissing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [history, setHistory] = useState(false);
@@ -132,9 +137,20 @@ export function DeckBuilder({
 
   const load = useCallback(() => {
     fetchDeck(deckId).then(setDeck).catch((e) => setError(e.message));
+    // Its own fetch rather than a field on the deck: buildability depends on
+    // the whole collection and on every *other* deck's status, so it changes
+    // for reasons that have nothing to do with this deck being edited. A
+    // failure here leaves the deck perfectly usable, so it is swallowed.
+    fetchBuildability(deckId).then(setBuildability).catch(() => setBuildability(null));
   }, [deckId]);
 
   useEffect(load, [load]);
+
+  const coverage = useMemo(() => {
+    const map = new Map<string, BuildabilityRow>();
+    for (const row of buildability?.rows ?? []) map.set(row.oracleId, row);
+    return map;
+  }, [buildability]);
 
   // The record is its own fetch: it changes when a game is logged, not when a
   // card moves, so it does not belong on the deck payload every edit reloads.
@@ -374,6 +390,13 @@ export function DeckBuilder({
         <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
           {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
         </span>
+        {/* Whether the deck is legal and whether you can physically build it
+            are different questions; they sit side by side because you need
+            both before sleeving anything. */}
+        <BuildabilityStrip
+          figures={buildability?.summary}
+          onShowMissing={() => setMissing(true)}
+        />
         <button
           className="btn secondary"
           onClick={() => apply(() => addRecommendedLands(deck.id), 'add lands')}
@@ -447,6 +470,9 @@ export function DeckBuilder({
         />
       )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
+      {missing && buildability && (
+        <MissingCardsPanel detail={buildability} onClose={() => { setMissing(false); load(); }} />
+      )}
       {games && showGameLog && (
         <DeckGamesPanel
           deckId={deck.id}
@@ -473,6 +499,7 @@ export function DeckBuilder({
         cardSort={cardSort}
         setCardSort={setCardSort}
         categoryLabels={categoryLabels}
+        coverage={coverage}
         density={density}
         onDensity={onDensity}
         listRef={listRef}
