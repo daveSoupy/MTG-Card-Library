@@ -9,6 +9,7 @@ import {
   ALLOCATION_DEFAULTS, ALLOCATION_IGNORES_BASICS, BREWS_RESERVE_COPIES,
   TRADELIST_REDUCES_AVAILABLE,
 } from '../decks/allocation.ts';
+import { ASSEMBLY_MOVES_LOTS, ASSEMBLY_MOVES_LOTS_DEFAULT } from '../decks/assembly.ts';
 import { FLAG, MONEY } from './schema.ts';
 
 /**
@@ -39,6 +40,11 @@ const BOOLEAN_SETTINGS: Record<string, BooleanSetting> = {
   tradelistReducesAvailable: {
     key: TRADELIST_REDUCES_AVAILABLE, default: ALLOCATION_DEFAULTS.tradeListReduces,
   },
+  // Phase 25. Off, an assembly run is a checklist and touches no data; on,
+  // completing one physically relocates lots into the deck's home location.
+  // The safe version is useful on its own, so the destructive one is a
+  // decision rather than a default.
+  assemblyMovesLots: { key: ASSEMBLY_MOVES_LOTS, default: ASSEMBLY_MOVES_LOTS_DEFAULT },
 };
 
 /**

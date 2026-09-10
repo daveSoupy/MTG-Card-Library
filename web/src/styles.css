@@ -2295,3 +2295,107 @@ button.build-seg:hover { text-decoration: underline; }
 /* Side-by-side fields inside the game and event dialogs; wraps on a phone. */
 .game-fields { display: flex; flex-wrap: wrap; gap: 0 12px; align-items: flex-end; }
 .game-fields .field { flex: 1 1 130px; }
+
+/* ---------------------------------------------------------------------
+   Assembly: the pull sheet (Phase 25)
+
+   Designed for the one place it gets used — standing at a shelf, phone in
+   one hand, binder in the other. Everything here follows from that: tap
+   targets sized for a thumb rather than a cursor, the location pinned to
+   the top of the scroll so "which box am I holding?" is always answered,
+   and a progress count that never leaves the screen. No hover states carry
+   meaning, because on the device this runs on there is no hover.
+   --------------------------------------------------------------------- */
+
+.assembly-card { width: min(720px, 100%); }
+
+.assembly-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.assembly-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.assembly-title h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.assembly-title .dim { font-size: 12px; }
+
+/* Sticky: this is the figure you glance at between every card. */
+.assembly-progress {
+  position: sticky; top: -20px; z-index: 2;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--panel); padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.assembly-progress .build-bar { flex: 1 1 160px; }
+.assembly-progress strong { font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.assembly-group { margin-top: 16px; }
+
+.assembly-location {
+  position: sticky; top: 34px; z-index: 1;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: 0 0 6px; padding: 6px 0;
+  font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-2); background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.assembly-location .dim { font-variant-numeric: tabular-nums; letter-spacing: 0; }
+
+.assembly-line {
+  display: flex; align-items: center; gap: 12px;
+  /* 48px of height: a thumb target, not a mouse target. */
+  min-height: 48px; padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px; cursor: pointer;
+}
+.assembly-line:last-child { border-bottom: 0; }
+.assembly-line input[type="checkbox"] {
+  width: 26px; height: 26px; flex: 0 0 auto; accent-color: var(--accent);
+}
+.assembly-line.picked { opacity: .5; }
+.assembly-line.picked .assembly-name > :first-child { text-decoration: line-through; }
+.assembly-line.missing { cursor: default; }
+
+.assembly-qty {
+  font-variant-numeric: tabular-nums; color: var(--text-2);
+  min-width: 28px; text-align: right;
+}
+.assembly-name {
+  display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+.assembly-name .dim { font-size: 11.5px; }
+.assembly-name .tag { align-self: flex-start; margin-top: 2px; }
+.assembly-dest { font-size: 12px; white-space: nowrap; }
+
+.assembly-actions {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+.assembly-actions .dim { font-size: 12px; flex-basis: 100%; }
+
+.assembly-facts { list-style: none; margin: 12px 0 0; padding: 0; }
+.assembly-facts .fact {
+  padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px;
+}
+.assembly-facts .fact:last-child { border-bottom: 0; }
+.assembly-facts .fact.good { color: var(--good); }
+.assembly-facts .fact.warn { color: var(--warn); }
+
+.assembly-problems { margin-top: 14px; }
+.assembly-problems h3 { font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); margin: 0 0 4px; }
+.assembly-problems p { margin: 0 0 4px; font-size: 13px; color: var(--text-2); }
+
+.assembly-history-head {
+  font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-3); margin: 18px 0 6px;
+}
+
+@media (max-width: 640px) {
+  /* Full-bleed on a phone: a modal with margins wastes the width the card
+     names need, and there is nothing behind it worth seeing. */
+  .assembly-card {
+    width: 100%; max-height: 100vh; height: 100%;
+    border-radius: 0; border: 0; padding: 14px 14px 24px;
+  }
+  .assembly-line { font-size: 16px; min-height: 52px; }
+  .assembly-actions .btn { flex: 1 1 auto; }
+}

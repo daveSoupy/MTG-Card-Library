@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  createSnapshot, deleteSnapshot, fetchSnapshotDiff, fetchSnapshots, restoreSnapshot,
-  type DeckDiff, type DeckSnapshot,
+  createSnapshot, deleteSnapshot, fetchRunHistory, fetchSnapshotDiff, fetchSnapshots,
+  restoreSnapshot, type AssemblyRun, type DeckDiff, type DeckSnapshot,
 } from '../api.ts';
+import { runHistoryLabel } from '../assembly.ts';
 
 const when = (iso: string) => new Date(iso).toLocaleString();
 
 /**
- * Deck history.
+ * Deck history: what the list said, and when the cardboard moved.
  *
- * The point is to make rebuilding safe: snapshot before you take a deck apart,
- * and you can see exactly what changed or put it back. Restoring takes its own
- * snapshot first, so it is never the destructive option either.
+ * The point of the snapshots is to make rebuilding safe — snapshot before you
+ * take a deck apart, and you can see exactly what changed or put it back.
+ * Restoring takes its own snapshot first, so it is never the destructive option
+ * either. Phase 25's assembly runs sit underneath, read-only: they are a record
+ * of something that already happened to real cards, and there is no undoing one
+ * from a list.
  */
 export function DeckHistoryPanel({ deckId, onRestored, onClose }: {
   deckId: number;
@@ -19,12 +23,16 @@ export function DeckHistoryPanel({ deckId, onRestored, onClose }: {
   onClose: () => void;
 }) {
   const [snapshots, setSnapshots] = useState<DeckSnapshot[] | null>(null);
+  const [runs, setRuns] = useState<AssemblyRun[]>([]);
   const [diff, setDiff] = useState<{ id: number; diff: DeckDiff } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     fetchSnapshots(deckId).then(setSnapshots).catch((e) => setError(e.message));
+    // Its own fetch, and a swallowed failure: assembly history is context, and
+    // losing it should never stop the snapshots from loading.
+    fetchRunHistory(deckId).then(setRuns).catch(() => setRuns([]));
   }, [deckId]);
 
   useEffect(reload, [reload]);
@@ -117,6 +125,27 @@ export function DeckHistoryPanel({ deckId, onRestored, onClose }: {
             </div>
           ))}
         </div>
+
+        {runs.length > 0 && (
+          <>
+            <h3 className="assembly-history-head">Assembly runs</h3>
+            <div className="backup-list">
+              {runs.map((run) => (
+                <div className="snapshot-row" key={run.id}>
+                  <div>
+                    <strong>{runHistoryLabel(run)}</strong>
+                    <div className="dim">
+                      {run.movesLots
+                        ? 'Moved cards into and out of storage'
+                        : 'Checklist only — no cards were moved'}
+                      {run.status === 'open' && ' · still open'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

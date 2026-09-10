@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 18;
+PRAGMA user_version = 19;
 
 
 -- =====================================================================
@@ -822,6 +822,92 @@ CREATE TABLE deck_cards (
 CREATE INDEX idx_deckcards_deck   ON deck_cards(deck_id);
 CREATE INDEX idx_deckcards_oracle ON deck_cards(oracle_id);
 CREATE INDEX idx_deckcards_alloc  ON deck_cards(oracle_id) WHERE quantity_from_collection > 0;
+
+
+-- ---------------------------------------------------------------------
+-- Assembly runs (Phase 25)
+--
+-- Allocation is stored as a per-slot count, never a link to a lot — that
+-- is what makes "deleting a deck releases its allocation" a cascade with
+-- no way to leak. The cost is that the app knows you own two Sol Rings
+-- and not which binder they are in.
+--
+-- These two tables buy that back without changing the steady state:
+-- allocations are resolved to specific lots **at assembly time**, as a
+-- run, and the result is recorded. Between runs the model is unchanged.
+-- ---------------------------------------------------------------------
+
+CREATE TABLE deck_assembly_runs (
+    id           INTEGER PRIMARY KEY,
+    deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+    kind         TEXT    NOT NULL CHECK (kind IN ('assemble','disassemble')),
+    status       TEXT    NOT NULL DEFAULT 'open'
+                     CHECK (status IN ('open','completed','cancelled')),
+    -- Snapshot of assembly_moves_lots as it was when the run opened, not a
+    -- live read of the setting: a run that presented itself as a harmless
+    -- checklist must not move cardboard because the switch was flipped
+    -- while the user stood at the shelf. It is also what tells a
+    -- disassembly whether there is anything to put back.
+    moves_lots   INTEGER NOT NULL DEFAULT 0,
+    -- The assemble run this one reverses. Only ever set on a 'disassemble'.
+    source_run_id INTEGER REFERENCES deck_assembly_runs(id) ON DELETE SET NULL,
+    started_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    completed_at TEXT,
+    notes        TEXT
+);
+
+CREATE INDEX idx_assembly_deck ON deck_assembly_runs(deck_id, started_at DESC);
+-- The "one open run per deck" rule, and the lookup that enforces it.
+CREATE INDEX idx_assembly_open ON deck_assembly_runs(deck_id) WHERE status = 'open';
+
+CREATE TABLE deck_assembly_items (
+    id                 INTEGER PRIMARY KEY,
+    run_id             INTEGER NOT NULL REFERENCES deck_assembly_runs(id) ON DELETE CASCADE,
+    oracle_id          TEXT    NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE RESTRICT,
+    printing_id        TEXT    REFERENCES card_printings(id)    ON DELETE SET NULL,
+    -- SET NULL because the source lot legitimately disappears when it hits
+    -- zero, exactly as trade_items.source_collection_item_id does.
+    collection_item_id INTEGER REFERENCES collection_items(id)  ON DELETE SET NULL,
+    quantity           INTEGER NOT NULL CHECK (quantity > 0),
+    -- The load-bearing pair: from_location_id is how a disassembly knows
+    -- where each card came from.
+    from_location_id   INTEGER REFERENCES storage_locations(id) ON DELETE SET NULL,
+    to_location_id     INTEGER REFERENCES storage_locations(id) ON DELETE SET NULL,
+    picked             INTEGER NOT NULL DEFAULT 0,
+    -- A line the collection could not supply: the "Not available" section,
+    -- which is also the buy list. Set after the fact when a move finds the
+    -- lot it expected is gone.
+    unavailable        INTEGER NOT NULL DEFAULT 0,
+    notes              TEXT,
+
+    -- The snapshot columns are not decorative. Once copies have been moved
+    -- and merged into a lot at the deck's home location, this row is the
+    -- only record of what went in, so it has to carry enough to find those
+    -- copies again -- and enough to stay readable when they are gone, as on
+    -- trade_items.
+    snapshot_name              TEXT,
+    snapshot_set_code          TEXT,
+    snapshot_number            TEXT,
+    snapshot_finish            TEXT,
+    snapshot_condition         TEXT,
+    snapshot_language          TEXT,
+    snapshot_acquired_at       TEXT,
+    snapshot_acquired_unit_cost REAL,
+    snapshot_acquisition_kind  TEXT,
+    snapshot_acquired_from     TEXT,
+
+    -- What a disassembly actually matches on: every column of the source lot
+    -- except its id, location and quantity, serialised by lotKey() in
+    -- server/src/decks/assembly.ts. The named columns above are a readable
+    -- subset of it and are never matched on -- two lots can agree on all ten
+    -- of them and still differ in price_override, a signature, or an import
+    -- batch, and merging those together would destroy the difference.
+    -- Forward and return moves compute this one string the same way, which is
+    -- what makes the return move the exact inverse of the forward move.
+    snapshot_lot_key           TEXT
+);
+
+CREATE INDEX idx_assembly_items_run ON deck_assembly_items(run_id);
 
 
 -- =====================================================================

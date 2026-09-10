@@ -589,4 +589,51 @@ export const MIGRATIONS: Migration[] = [
       JOIN card_printings p    ON p.id  = ci.printing_id;
     `,
   },
+  {
+    version: 19,
+    description: 'Assembly runs, pull sheets and disassembly (Phase 25)',
+    sql: `
+      -- Lifted verbatim from schema.sql; the comments explaining each column
+      -- live there, and migrations.test.ts proves the two still agree.
+      CREATE TABLE IF NOT EXISTS deck_assembly_runs (
+          id           INTEGER PRIMARY KEY,
+          deck_id      INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+          kind         TEXT    NOT NULL CHECK (kind IN ('assemble','disassemble')),
+          status       TEXT    NOT NULL DEFAULT 'open'
+                           CHECK (status IN ('open','completed','cancelled')),
+          moves_lots   INTEGER NOT NULL DEFAULT 0,
+          source_run_id INTEGER REFERENCES deck_assembly_runs(id) ON DELETE SET NULL,
+          started_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+          completed_at TEXT,
+          notes        TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_assembly_deck ON deck_assembly_runs(deck_id, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_assembly_open ON deck_assembly_runs(deck_id) WHERE status = 'open';
+      CREATE TABLE IF NOT EXISTS deck_assembly_items (
+          id                 INTEGER PRIMARY KEY,
+          run_id             INTEGER NOT NULL REFERENCES deck_assembly_runs(id) ON DELETE CASCADE,
+          oracle_id          TEXT    NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE RESTRICT,
+          printing_id        TEXT    REFERENCES card_printings(id)    ON DELETE SET NULL,
+          collection_item_id INTEGER REFERENCES collection_items(id)  ON DELETE SET NULL,
+          quantity           INTEGER NOT NULL CHECK (quantity > 0),
+          from_location_id   INTEGER REFERENCES storage_locations(id) ON DELETE SET NULL,
+          to_location_id     INTEGER REFERENCES storage_locations(id) ON DELETE SET NULL,
+          picked             INTEGER NOT NULL DEFAULT 0,
+          unavailable        INTEGER NOT NULL DEFAULT 0,
+          notes              TEXT,
+          snapshot_name              TEXT,
+          snapshot_set_code          TEXT,
+          snapshot_number            TEXT,
+          snapshot_finish            TEXT,
+          snapshot_condition         TEXT,
+          snapshot_language          TEXT,
+          snapshot_acquired_at       TEXT,
+          snapshot_acquired_unit_cost REAL,
+          snapshot_acquisition_kind  TEXT,
+          snapshot_acquired_from     TEXT,
+          snapshot_lot_key           TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_assembly_items_run ON deck_assembly_items(run_id);
+    `,
+  },
 ];

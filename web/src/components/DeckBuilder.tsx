@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  addRecommendedLands, fetchBuildability, fetchDeck, fetchDeckGames, fetchSettings,
-  fetchTemplates, formatRecord,
-  imageUrl, resolveCategories, searchCards, updateDeck,
-  type AppSettings, type BuildabilityDetail, type BuildabilityRow, type Deck, type DeckCard,
-  type DeckTemplate, type FormatRecord, type MatchRecord,
+  addRecommendedLands, fetchBuildability, fetchDeck, fetchDeckGames, fetchLocations,
+  fetchRunHistory, fetchSettings, fetchSheet, fetchTemplates, formatRecord,
+  imageUrl, resolveCategories, searchCards, startAssembly, startDisassembly, updateDeck,
+  type AppSettings, type AssemblyRun, type AssemblySheet, type BuildabilityDetail,
+  type BuildabilityRow, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
+  type MatchRecord, type StorageLocation,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
 import { withScope } from '../searchScope.ts';
@@ -15,6 +16,7 @@ import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import { BuildabilityStrip } from './Buildability.tsx';
+import { AssemblyPanel } from './AssemblyPanel.tsx';
 import { MissingCardsPanel } from './MissingCardsPanel.tsx';
 import { DeckGamesPanel } from './DeckGamesPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
@@ -25,6 +27,7 @@ import {
   type DeckSort, type PaneWidths,
 } from '../deckView.ts';
 import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
+import { runHistoryLabel } from '../assembly.ts';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import { useNarrow } from '../viewport.ts';
 import { type Density } from '../density.ts';
@@ -68,6 +71,11 @@ export function DeckBuilder({
   const [shopping, setShopping] = useState(false);
   const [buildability, setBuildability] = useState<BuildabilityDetail | null>(null);
   const [missing, setMissing] = useState(false);
+  // Phase 25. The sheet is only held here while it is on screen; its ticks live
+  // on the server, so being interrupted costs nothing.
+  const [sheet, setSheet] = useState<AssemblySheet | null>(null);
+  const [runs, setRuns] = useState<AssemblyRun[]>([]);
+  const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [history, setHistory] = useState(false);
@@ -142,6 +150,9 @@ export function DeckBuilder({
     // for reasons that have nothing to do with this deck being edited. A
     // failure here leaves the deck perfectly usable, so it is swallowed.
     fetchBuildability(deckId).then(setBuildability).catch(() => setBuildability(null));
+    // Run history, and whether one is still open — the header offers to resume
+    // it rather than silently opening a second sheet over a half-pulled deck.
+    fetchRunHistory(deckId).then(setRuns).catch(() => setRuns([]));
   }, [deckId]);
 
   useEffect(load, [load]);
@@ -169,6 +180,9 @@ export function DeckBuilder({
   useEffect(() => {
     fetchSettings().then(setSettings).catch(() => undefined);
     fetchTemplates().then(setTemplates).catch(() => undefined);
+    // For the home-location picker: where this deck physically lives, which is
+    // where an assembly run moves its cards.
+    fetchLocations().then(setLocations).catch(() => undefined);
   }, []);
 
   // Phase 23: the picker opens in whichever scope the setting names, by
@@ -231,6 +245,39 @@ export function DeckBuilder({
       setBusy(false);
     }
   };
+
+  /**
+   * Opens (or resumes) a pull sheet.
+   *
+   * The server returns the run already in progress if there is one, so this is
+   * safe to press twice — the second press picks the half-ticked sheet back up
+   * rather than throwing it away.
+   */
+  const openSheet = async (kind: 'assemble' | 'disassemble') => {
+    setBusy(true);
+    setError(null);
+    try {
+      setSheet(await (kind === 'assemble' ? startAssembly(deckId) : startDisassembly(deckId)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resumeRun = async (runId: number) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setSheet(await fetchSheet(runId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openRun = runs.find((run) => run.status === 'open') ?? null;
 
   const resizePane = (pane: keyof PaneWidths, width: number) =>
     setPaneWidths((current) => ({ ...current, [pane]: width }));
@@ -397,6 +444,60 @@ export function DeckBuilder({
           figures={buildability?.summary}
           onShowMissing={() => setMissing(true)}
         />
+        {/* Where the physical deck lives. Only meaningful once you have more
+            than one place to keep cards, so it stays out of the way until then. */}
+        {locations.length > 1 && (
+          <select
+            value={deck.homeLocationId ?? ''}
+            onChange={(e) => apply(() => updateDeck(deck.id, {
+              homeLocationId: e.target.value ? Number(e.target.value) : null,
+            }))}
+            style={{ width: 170 }}
+            title="Where this deck physically lives — an assembly run moves its cards here"
+          >
+            <option value="">No home location</option>
+            {locations.filter((location) => !location.is_archived).map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
+          </select>
+        )}
+
+        {/* The button this phase is really about. Prominent when the deck is
+            close to buildable, quiet when it is not: offering to go and pull a
+            deck you are twenty cards short of is offering the wrong job. */}
+        {openRun ? (
+          <button
+            className="btn"
+            onClick={() => resumeRun(openRun.id)}
+            disabled={busy}
+            title="You have a sheet part-way through — pick it back up"
+          >
+            Resume {openRun.kind === 'assemble' ? 'pull sheet' : 'put-away'}
+            <span className="record-chip">{openRun.pickedCount}/{openRun.cardCount}</span>
+          </button>
+        ) : (
+          <>
+            <button
+              className={(buildability?.summary.buildablePct ?? 0) >= 0.9 ? 'btn' : 'btn secondary'}
+              onClick={() => openSheet('assemble')}
+              disabled={busy}
+              title="Which binder to open, in what order"
+            >
+              Assemble
+            </button>
+            {deck.status === 'assembled' && (
+              <button
+                className="btn secondary"
+                onClick={() => openSheet('disassemble')}
+                disabled={busy}
+                title="Put every card back where it came from"
+              >
+                Put away
+              </button>
+            )}
+          </>
+        )}
+
         <button
           className="btn secondary"
           onClick={() => apply(() => addRecommendedLands(deck.id), 'add lands')}
@@ -472,6 +573,15 @@ export function DeckBuilder({
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
       {missing && buildability && (
         <MissingCardsPanel detail={buildability} onClose={() => { setMissing(false); load(); }} />
+      )}
+      {sheet && (
+        <AssemblyPanel
+          sheet={sheet}
+          onClose={() => { setSheet(null); load(); }}
+          // Completing a run rewrites the deck's status and its declared
+          // allocation, so everything on this screen is stale until it reloads.
+          onFinished={load}
+        />
       )}
       {games && showGameLog && (
         <DeckGamesPanel

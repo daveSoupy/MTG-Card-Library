@@ -429,6 +429,23 @@ export function DataPage({
         </p>
 
         {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.assemblyMovesLots}
+              onChange={(e) => saveSetting('assemblyMovesLots', e.target.checked)}
+            />
+            Assembling a deck moves its cards into the deck&rsquo;s home location
+          </label>
+        )}
+        <p className="hint">
+          Off, a pull sheet is a checklist: it tells you which binder to open and changes
+          nothing. On, finishing one physically relocates each ticked copy into the deck&rsquo;s
+          home location, keeping what you paid for it, and putting the deck away moves them
+          all back. Only decks with a home location can move anything.
+        </p>
+
+        {settings && (
           <div className="cost-default">
             <label>
               <span className="dim">Deck builder search opens in</span>
