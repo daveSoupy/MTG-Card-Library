@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { allocationFor } from '../decks/allocation.ts';
 import { getSetting, setSetting } from '../db/index.ts';
 
 /** The single cost pool currently accepting cards, stored in app_settings. */
@@ -258,11 +259,21 @@ export class CollectionStore {
       SELECT deck_id, deck_name, board, qty_from_collection, deck_home_location
       FROM v_card_deck_usage WHERE oracle_id = ? ORDER BY deck_name`).all(oracleId) as any[];
 
-    const availability = this.db.prepare(
-      'SELECT owned_qty, allocated_qty, available_qty FROM v_card_availability WHERE oracle_id = ?',
-    ).get(oracleId) as any;
+    // Same keys the client has always read, now correct: only reserving decks
+    // count towards allocated, archived locations are off the shelf, and a copy
+    // promised on a trade list is not a copy you can build with. trade_listed
+    // is new, so the UI can say "1 owned · on trade list" rather than a bare 0.
+    const allocation = allocationFor(this.db, oracleId);
+    const availability = {
+      owned_qty: allocation.owned,
+      allocated_qty: allocation.reserved,
+      available_qty: allocation.available,
+      trade_listed_qty: allocation.tradeListed,
+      is_tracked: allocation.tracked,
+      is_over_allocated: allocation.isOverAllocated,
+    };
 
-    return { printings, lots, decks, availability: availability ?? null };
+    return { printings, lots, decks, availability };
   }
 
   // -- editing ---------------------------------------------------------------

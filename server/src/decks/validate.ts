@@ -408,6 +408,9 @@ function checkSignatureSpell(issues: DeckIssue[], rules: FormatRules, command: D
 function checkAllocation(issues: DeckIssue[], cards: DeckCard[]): void {
   for (const card of cards) {
     if (card.board === 'maybe' || card.quantityFromCollection === 0) continue;
+    // An exempt basic land has no reservation to be short of — see
+    // allocation.ts. Warning about one would be noise on every Commander deck.
+    if (!card.allocationTracked) continue;
     if (card.quantityFromCollection > card.availableQuantity) {
       const short = card.quantityFromCollection - card.availableQuantity;
       issues.push({

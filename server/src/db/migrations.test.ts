@@ -45,7 +45,7 @@ function databaseAtVersion(version: number): Database.Database {
   db.exec(SCHEMA_SQL);
   // Rewind past every later migration. Each kind a migration can take has an
   // inverse: a created table is dropped, an added column is dropped, a created
-  // index or trigger is dropped. A kind with no inverse here would silently leave the
+  // index, trigger or view is dropped. A kind with no inverse here would silently leave the
   // "old" database identical to a fresh one, and the drift check below would
   // pass without ever comparing anything — so the assertion that the fixture
   // really is missing something is what keeps this list honest.
@@ -55,6 +55,12 @@ function databaseAtVersion(version: number): Database.Database {
     // line drops fails everything after it.
     for (const name of createdTriggers(migration.sql)) {
       db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+    }
+    // Views next, and for the same reason: SQLite re-validates every view body
+    // whenever the schema is re-read, so one left pointing at a column the
+    // column-drop below is about to remove fails everything after it.
+    for (const name of createdViews(migration.sql)) {
+      db.exec(`DROP VIEW IF EXISTS ${name}`);
     }
     for (const name of createdTables(migration.sql)) {
       db.exec(`DROP TABLE IF EXISTS ${name}`);
@@ -76,6 +82,10 @@ function createdTables(sql: string): string[] {
 
 function createdTriggers(sql: string): string[] {
   return [...sql.matchAll(/CREATE TRIGGER (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+}
+
+function createdViews(sql: string): string[] {
+  return [...sql.matchAll(/CREATE VIEW (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function createdIndexes(sql: string): string[] {

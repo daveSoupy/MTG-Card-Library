@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 17;
+PRAGMA user_version = 18;
 
 
 -- =====================================================================
@@ -708,6 +708,14 @@ CREATE TABLE deck_template_targets (
 -- means "work it out from the contents" — see DeckStore.list().
 -- template_id: the shape this deck is tracked against, chosen per deck. NULL
 -- is the off state — Phase 7's "Follow a template" picker's none option.
+-- status: whether this deck lays claim to physical copies. Only 'building' and
+-- 'assembled' reserve; a 'brew' is an idea with a card list, and a
+-- 'disassembled' deck kept its list after the cards went back. is_archived is
+-- orthogonal and still only controls visibility. Phase 22's escape hatch
+-- (brews_reserve_copies) can widen the reserving set — which is why the rule
+-- lives in server/src/decks/allocation.ts and not in a view.
+-- status_changed_at: when it last moved, so a deck that has been "building"
+-- for six months can say so.
 CREATE TABLE decks (
     id              INTEGER PRIMARY KEY,
     name            TEXT    NOT NULL,
@@ -723,10 +731,14 @@ CREATE TABLE decks (
     created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     updated_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
     cover_printing_id TEXT REFERENCES card_printings(id) ON DELETE SET NULL,
-    template_id       INTEGER REFERENCES deck_templates(id) ON DELETE SET NULL
+    template_id       INTEGER REFERENCES deck_templates(id) ON DELETE SET NULL,
+    status            TEXT NOT NULL DEFAULT 'brew'
+                          CHECK (status IN ('brew','building','assembled','disassembled')),
+    status_changed_at TEXT
 );
 CREATE INDEX idx_decks_format ON decks(format_code);
 CREATE INDEX idx_decks_home   ON decks(home_location_id);
+CREATE INDEX idx_decks_status ON decks(status);
 
 -- Free-form labels on a deck: 'cEDH', 'budget', 'built', 'needs cards'. One
 -- table rather than a tag entity plus a link table, because with a single user
@@ -759,6 +771,9 @@ CREATE TABLE deck_snapshot_cards (
     quantity_from_collection INTEGER NOT NULL DEFAULT 0,
     category       TEXT,
     commander_role TEXT,
+    -- Last in the list, as ALTER TABLE ADD COLUMN appends. Without it a
+    -- restore would silently zero every proxy the deck was playtesting with.
+    quantity_proxied INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (snapshot_id, oracle_id, board)
 );
 
@@ -792,6 +807,15 @@ CREATE TABLE deck_cards (
     notes                   TEXT,
     sort_order              INTEGER NOT NULL DEFAULT 0,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+
+    -- Copies filled by a proxy: neither owned nor to-buy. Last in the list,
+    -- because ALTER TABLE ADD COLUMN appends.
+    --
+    -- The real rule is quantity_from_collection + quantity_proxied <= quantity,
+    -- and it is deliberately NOT a CHECK here: a cross-column CHECK added by
+    -- ALTER TABLE survives until migrations.test.ts rebuilds the table and the
+    -- two definitions drift. DeckStore enforces it instead, with a test.
+    quantity_proxied        INTEGER NOT NULL DEFAULT 0 CHECK (quantity_proxied >= 0),
 
     UNIQUE (deck_id, oracle_id, board)
 );
@@ -1188,31 +1212,22 @@ JOIN card_printings p ON p.id = v.printing_id
 LEFT JOIN sets s      ON s.code = p.set_code
 GROUP BY v.oracle_id, v.printing_id, v.finish;
 
--- Copies currently claimed by decks. 'maybe' boards deliberately excluded.
-CREATE VIEW v_allocated_by_oracle AS
-SELECT oracle_id, SUM(quantity_from_collection) AS allocated_qty
-FROM deck_cards
-WHERE board IN ('main','side','command')
-  AND quantity_from_collection > 0
-GROUP BY oracle_id;
-
--- The owned / allocated / available triple the spec asks for.
-CREATE VIEW v_card_availability AS
-SELECT o.oracle_id,
-       COALESCE(w.owned_qty, 0)                                    AS owned_qty,
-       COALESCE(a.allocated_qty, 0)                                AS allocated_qty,
-       COALESCE(w.owned_qty, 0) - COALESCE(a.allocated_qty, 0)     AS available_qty,
-       COALESCE(w.owned_value_usd, 0.0)                            AS owned_value_usd,
-       -- Negative available = decks collectively claim more than you own.
-       -- Flagged visually, never blocked.
-       (COALESCE(w.owned_qty, 0) < COALESCE(a.allocated_qty, 0))   AS is_over_allocated
-FROM oracle_cards o
-LEFT JOIN v_owned_by_oracle     w ON w.oracle_id = o.oracle_id
-LEFT JOIN v_allocated_by_oracle a ON a.oracle_id = o.oracle_id
-WHERE w.oracle_id IS NOT NULL OR a.oracle_id IS NOT NULL;
+-- There is deliberately NO v_allocated_by_oracle / v_card_availability here.
+--
+-- Availability stopped being expressible as a view in Phase 22: whether a deck
+-- reserves depends on its status AND on three app_settings keys, whether a
+-- basic land is tracked at all depends on a fourth, and a trade-listed copy is
+-- subtracted only when its setting is on. Encoding that in SQL would have
+-- produced a second definition of the rule sitting beside the first, and the
+-- two would have drifted the first time a setting was added.
+--
+-- server/src/decks/allocation.ts is the single source of truth. Everything —
+-- deck rows, shopping lists, trade-list conflicts, want lists, the collection
+-- card detail — reads it. Nothing re-derives owned/allocated/available.
 
 -- "Deck A x2 (home: Blue Tackle Box)" — the deck half of the card detail
--- breakdown.
+-- breakdown. Carries the deck's status so the reader can tell a claim that
+-- holds cardboard from one a brew is only imagining.
 CREATE VIEW v_card_deck_usage AS
 SELECT dc.oracle_id,
        d.id            AS deck_id,
@@ -1220,12 +1235,14 @@ SELECT dc.oracle_id,
        dc.board,
        dc.quantity     AS slot_quantity,
        dc.quantity_from_collection AS qty_from_collection,
+       dc.quantity_proxied         AS qty_proxied,
+       d.status        AS deck_status,
        d.home_location_id,
        sl.name         AS deck_home_location
 FROM deck_cards dc
 JOIN decks d              ON d.id  = dc.deck_id
 LEFT JOIN storage_locations sl ON sl.id = d.home_location_id
-WHERE dc.quantity_from_collection > 0;
+WHERE dc.quantity_from_collection > 0 OR dc.quantity_proxied > 0;
 
 -- "Binder 3 x2 available" — the physical half of the same breakdown.
 CREATE VIEW v_card_locations AS
@@ -1243,25 +1260,11 @@ FROM collection_items ci
 JOIN card_printings p     ON p.id  = ci.printing_id
 JOIN storage_locations sl ON sl.id = ci.location_id;
 
--- Phase 4 per-deck shopping list: falls straight out of allocation.
-CREATE VIEW v_deck_shopping_list AS
-SELECT dc.deck_id,
-       d.name                                   AS deck_name,
-       dc.oracle_id,
-       o.name                                   AS card_name,
-       dc.board,
-       dc.quantity - dc.quantity_from_collection AS qty_to_buy,
-       COALESCE(dc.preferred_printing_id, o.default_printing_id) AS price_printing_id,
-       COALESCE(pp.price_usd, dp.price_usd)     AS unit_price_usd,
-       (dc.quantity - dc.quantity_from_collection)
-           * COALESCE(pp.price_usd, dp.price_usd, 0.0) AS est_cost_usd
-FROM deck_cards dc
-JOIN decks d        ON d.id = dc.deck_id
-JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
-LEFT JOIN card_printings pp ON pp.id = dc.preferred_printing_id
-LEFT JOIN card_printings dp ON dp.id = o.default_printing_id
-WHERE dc.board IN ('main','side','command')
-  AND dc.quantity > dc.quantity_from_collection;
+-- Phase 4's per-deck shopping list used to be a view here. It cannot be one
+-- any more: a slot's shortfall is now quantity - from_collection - proxied,
+-- and a basic land has no shortfall at all while allocation_ignores_basics is
+-- on. See shoppingList() in server/src/collection/shopping.ts, which builds it
+-- from server/src/decks/allocation.ts.
 
 -- Current total collection value (the number snapshotted daily).
 CREATE VIEW v_collection_value AS
@@ -1371,8 +1374,9 @@ LEFT JOIN card_printings cp  ON cp.set_code = s.code
 LEFT JOIN collection_items ci ON ci.printing_id = cp.id
 GROUP BY s.code;
 
--- Trade-list rows whose quantity exceeds what is actually free, either
--- because owned qty dropped or because decks claim the copies.
+-- Trade-list rows measured against the lot behind them. Pure lot arithmetic:
+-- whether a listing also fights a deck's claim is an allocation question, so
+-- TradeListStore asks allocation.ts rather than this view.
 CREATE VIEW v_trade_list_status AS
 SELECT tli.id                   AS trade_list_item_id,
        tli.trade_list_id,
@@ -1380,13 +1384,10 @@ SELECT tli.id                   AS trade_list_item_id,
        ci.id                    AS collection_item_id,
        ci.quantity              AS owned_qty_this_row,
        p.oracle_id,
-       av.available_qty         AS available_qty_overall,
-       (tli.quantity > ci.quantity)         AS exceeds_owned,
-       (tli.quantity > COALESCE(av.available_qty, 0)) AS conflicts_with_deck_allocation
+       (tli.quantity > ci.quantity)         AS exceeds_owned
 FROM trade_list_items tli
 JOIN collection_items ci ON ci.id = tli.collection_item_id
-JOIN card_printings p    ON p.id  = ci.printing_id
-LEFT JOIN v_card_availability av ON av.oracle_id = p.oracle_id;
+JOIN card_printings p    ON p.id  = ci.printing_id;
 
 
 -- =====================================================================

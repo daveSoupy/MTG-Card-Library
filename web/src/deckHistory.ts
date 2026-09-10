@@ -23,6 +23,7 @@ export interface DeckSlot {
   board: Board;
   quantity: number;
   fromCollection: number;
+  proxied: number;
   category: string | null;
   commanderRole: string | null;
   isBasicLand: boolean;
@@ -41,6 +42,7 @@ export function snapshotDeck(deck: Deck): DeckSnapshot {
     board: card.board,
     quantity: card.quantity,
     fromCollection: card.quantityFromCollection,
+    proxied: card.quantityProxied,
     category: card.category,
     commanderRole: card.commanderRole,
     isBasicLand: card.isBasicLand,
@@ -56,6 +58,7 @@ export type DeckOp =
 function sameSlot(a: DeckSlot, b: DeckSlot): boolean {
   return a.quantity === b.quantity
     && a.fromCollection === b.fromCollection
+    && a.proxied === b.proxied
     && a.category === b.category
     && a.commanderRole === b.commanderRole;
 }
@@ -112,9 +115,12 @@ const LIVE_CALLS: DeckCalls = {
 function changesFor(live: DeckCard, slot: DeckSlot) {
   const changes: Parameters<typeof updateDeckCard>[2] = {};
   if (live.quantity !== slot.quantity) changes.quantity = slot.quantity;
+  // Sent together, so a slot that swapped an owned copy for a proxy is never
+  // judged mid-swap against a total it only briefly had.
   if (live.quantityFromCollection !== slot.fromCollection) {
     changes.fromCollection = slot.fromCollection;
   }
+  if (live.quantityProxied !== slot.proxied) changes.quantityProxied = slot.proxied;
   if (live.category !== slot.category) changes.category = slot.category;
   if (live.commanderRole !== slot.commanderRole) {
     // Only setBoard writes the role, so the board is resent alongside it.

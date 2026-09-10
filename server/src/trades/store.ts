@@ -1,4 +1,7 @@
 import type Database from 'better-sqlite3';
+import {
+  allocationFor, allocationSettings, reservingStatuses,
+} from '../decks/allocation.ts';
 import type { CollectionStore, Finish, Condition } from '../collection/store.ts';
 import type { AlertStore } from '../alerts/store.ts';
 import { reconcileWants, type FulfilledWant } from '../collection/wants.ts';
@@ -502,11 +505,9 @@ export class TradeStore {
 
     const conflicts: Conflict[] = [];
     for (const [oracleId, { name, qty }] of byOracle) {
-      const avail = this.db.prepare(
-        `SELECT owned_qty, allocated_qty FROM v_card_availability WHERE oracle_id = ?`,
-      ).get(oracleId) as { owned_qty: number; allocated_qty: number } | undefined;
-      const owned = avail?.owned_qty ?? 0;
-      const allocated = avail?.allocated_qty ?? 0;
+      // allocation.ts owns what "claimed" means: only decks in a reserving
+      // status count, and an exempt basic land is claimed by nobody.
+      const { owned, reserved: allocated } = allocationFor(this.db, oracleId);
       if (owned - qty < allocated) {
         conflicts.push({ oracleId, name, owned, allocated, tradingAway: qty });
       }
@@ -600,30 +601,27 @@ export class TradeStore {
   reconcileAllocationAlerts(oracleIds: Iterable<string>): AllocationShortfall[] {
     const shortfalls: AllocationShortfall[] = [];
     for (const oracleId of new Set(oracleIds)) {
-      const row = this.db.prepare(`
-        SELECT o.name, COALESCE(av.owned_qty, 0) AS owned, COALESCE(av.allocated_qty, 0) AS allocated
-        FROM oracle_cards o
-        LEFT JOIN v_card_availability av ON av.oracle_id = o.oracle_id
-        WHERE o.oracle_id = ?`).get(oracleId) as
-        | { name: string; owned: number; allocated: number } | undefined;
+      const row = this.db.prepare('SELECT name FROM oracle_cards WHERE oracle_id = ?')
+        .get(oracleId) as { name: string } | undefined;
       if (!row) continue;
 
+      const { owned, reserved: allocated } = allocationFor(this.db, oracleId);
       const dedupeKey = `allocation_conflict:${oracleId}`;
-      if (row.allocated <= row.owned) {
+      if (allocated <= owned) {
         this.alerts.resolveByKey(dedupeKey);
         continue;
       }
 
       const shortfall: AllocationShortfall = {
-        oracleId, name: row.name, owned: row.owned, allocated: row.allocated,
-        short: row.allocated - row.owned,
+        oracleId, name: row.name, owned, allocated,
+        short: allocated - owned,
       };
       this.alerts.raise({
         kind: 'allocation_conflict',
         dedupeKey,
         subjectType: 'oracle_card',
         title: `Decks claim more copies than you own: ${row.name}`,
-        message: `Decks claim ${row.allocated}, but you own ${row.owned}. ` +
+        message: `Decks claim ${allocated}, but you own ${owned}. ` +
           `Free up ${shortfall.short} or reacquire.`,
         payload: shortfall,
       });
@@ -665,11 +663,17 @@ export class TradeStore {
       let overclaim = conflict.allocated - newOwned;
       if (overclaim <= 0) continue;
 
+      // Only reserving decks are trimmed. A brew's declared claim is the
+      // user's intent for a deck that holds no cardboard, and rewriting it here
+      // would quietly lose that intent over a trade it had no part in.
+      const statuses = reservingStatuses(allocationSettings(this.db))
+        .map((status) => `'${status}'`).join(',');
       const claims = this.db.prepare(`
         SELECT dc.id, dc.quantity_from_collection AS q, d.name AS deck_name
         FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
         WHERE dc.oracle_id = ? AND dc.board IN ('main','side','command')
           AND dc.quantity_from_collection > 0
+          AND d.status IN (${statuses})
         ORDER BY dc.quantity_from_collection DESC`).all(conflict.oracleId) as Array<{
           id: number; q: number; deck_name: string;
         }>;

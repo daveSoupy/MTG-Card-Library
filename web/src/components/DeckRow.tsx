@@ -1,5 +1,6 @@
 import type { Board, DeckCard } from '../api.ts';
 import { effectiveCategories, identityKey } from '../deckView.ts';
+import { ownedChip } from '../deckSlot.ts';
 
 export function DeckRow({
   card,
@@ -8,6 +9,7 @@ export function DeckRow({
   onBoard,
   onRemove,
   onToggleOwned,
+  onProxy,
   onPreview,
   onArt,
   categoryLabels,
@@ -18,14 +20,16 @@ export function DeckRow({
   onBoard: (board: Board) => void;
   onRemove: () => void;
   onToggleOwned: () => void;
+  /** Steps `quantity_proxied` by ±1. Clamped by the caller, refused by the API. */
+  onProxy: (delta: number) => void;
   onPreview: () => void;
   onArt: () => void;
   /** Category key → display name, from /api/v1/status. */
   categoryLabels: Record<string, string>;
 }) {
-  const claimed = card.quantityFromCollection;
-  const shortfall = claimed > card.availableQuantity;
+  const chip = ownedChip(card);
   const categories = effectiveCategories(card, categoryLabels);
+  const proxyRoom = card.quantity - card.quantityFromCollection - card.quantityProxied;
 
   return (
     // The colour bar down the left edge reads a decklist the way a pile of
@@ -58,17 +62,45 @@ export function DeckRow({
 
       <span className="mana">{card.manaCost ?? ''}</span>
 
-      <button
-        className={`owned-chip${claimed > 0 ? ' on' : ''}${shortfall ? ' short' : ''}`}
-        onClick={onToggleOwned}
-        title={
-          card.ownedQuantity === 0
-            ? 'You do not own this card yet — counted as "need to buy"'
-            : `You own ${card.ownedQuantity}; ${card.availableQuantity} not claimed by other decks`
-        }
-      >
-        {claimed > 0 ? `${claimed} owned` : 'to buy'}
-      </button>
+      {/* One grid cell, so a basic land — which gets no badge and no stepper —
+          does not shift every column after it. A basic under the exemption is
+          not tracked at all: a blank badge beats a wrong one, and a proxy of a
+          card nobody counts would be counting nothing. */}
+      <div className="slot-alloc">
+        {card.allocationTracked ? (
+          <>
+            <button
+              className={`owned-chip${chip.claimed > 0 ? ' on' : ''}${chip.short ? ' short' : ''}`}
+              onClick={onToggleOwned}
+              title={chip.title}
+            >
+              {chip.label}
+            </button>
+
+            <div className="proxy-step" title={chip.title}>
+              <button
+                onClick={() => onProxy(-1)}
+                disabled={card.quantityProxied === 0}
+                aria-label={`One fewer proxy of ${card.name}`}
+              >
+                −
+              </button>
+              <span className={card.quantityProxied > 0 ? 'on' : ''}>
+                {card.quantityProxied > 0 ? `${card.quantityProxied} proxy` : 'proxy'}
+              </span>
+              <button
+                onClick={() => onProxy(1)}
+                disabled={proxyRoom <= 0}
+                aria-label={`One more proxy of ${card.name}`}
+              >
+                +
+              </button>
+            </div>
+          </>
+        ) : (
+          <span className="owned-chip untracked" title={chip.title}>basic</span>
+        )}
+      </div>
 
       <select
         className="board-select"

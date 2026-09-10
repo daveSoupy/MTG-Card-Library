@@ -646,8 +646,8 @@ input[type='number'] { width: 72px; }
 
 .deck-row {
   display: grid;
-  /* qty / name+tags / mana / owned / board / art / remove */
-  grid-template-columns: 78px minmax(0, 1fr) auto 74px 108px 24px 24px;
+  /* qty / name+tags / mana / owned+proxy / board / art / remove */
+  grid-template-columns: 78px minmax(0, 1fr) auto 152px 108px 24px 24px;
   align-items: center; gap: 8px;
   padding: 2px 4px; border-radius: 6px; border-left: 3px solid transparent;
 }
@@ -685,6 +685,30 @@ input[type='number'] { width: 72px; }
 }
 .owned-chip.on { color: var(--good); border-color: var(--good); }
 .owned-chip.short { color: var(--warn); border-color: var(--warn); }
+/* A basic land under the exemption. Deliberately flat and quiet: it is not a
+   count, it is the absence of one. */
+.owned-chip.untracked {
+  border-style: dashed; color: var(--text-3); cursor: default;
+}
+
+/* The owned badge and the proxy stepper share one column, so a basic land —
+   which shows neither — leaves the columns after it exactly where they were. */
+.slot-alloc { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* Proxy stepper: the same shape as the quantity stepper so the two read as the
+   same kind of control, but muted until a slot actually has proxies in it. */
+.proxy-step {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 11px; color: var(--text-3); white-space: nowrap;
+}
+.proxy-step button {
+  background: none; border: 0; color: var(--text-3);
+  font-size: 13px; line-height: 1; padding: 0 3px; cursor: pointer;
+}
+.proxy-step button:hover:not(:disabled) { color: var(--accent); }
+.proxy-step button:disabled { opacity: 0.3; cursor: default; }
+.proxy-step span.on { color: var(--accent); }
+
 .board-select { font-size: 11.5px; padding: 3px 5px; }
 .row-remove {
   background: none; border: 0; color: var(--text-3); font-size: 16px; line-height: 1;
@@ -848,6 +872,13 @@ input[type='number'] { width: 72px; }
 .tile-owned {
   position: absolute; top: 5px; right: 5px;
   background: var(--good); color: #06231a;
+  font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
+}
+/* Sits under the owned badge rather than beside it: a slot can be part owned
+   and part proxied, and the two counts must not overlap when it is. */
+.tile-proxied {
+  position: absolute; top: 27px; right: 5px;
+  background: var(--accent); color: var(--bg);
   font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
 }
 .tile-controls {
@@ -1313,6 +1344,77 @@ input[type='number'] { width: 72px; }
   overflow: hidden; aspect-ratio: 626 / 200; background: var(--panel-2);
 }
 .deck-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ---------- deck status ----------
+ *
+ * Four states, colour-coded because this is the single most-glanced-at fact
+ * about a deck: blue for an idea, amber for in-progress, green for a deck that
+ * physically exists, grey for one that used to. Built out of the palette tokens
+ * rather than fresh hex, so light mode is handled by the same indirection every
+ * other colour here uses.
+ */
+:root {
+  --status-brew: var(--u);
+  --status-building: var(--warn);
+  --status-assembled: var(--good);
+  --status-disassembled: var(--text-3);
+}
+
+.status-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  margin-left: 6px; flex: none; vertical-align: middle;
+}
+.status-dot[data-status="brew"]         { background: var(--status-brew); }
+.status-dot[data-status="building"]     { background: var(--status-building); }
+.status-dot[data-status="assembled"]    { background: var(--status-assembled); }
+.status-dot[data-status="disassembled"] { background: var(--status-disassembled); }
+
+.status-pill-wrap { position: relative; }
+.status-pill {
+  font-size: 11.5px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid currentColor; background: none; white-space: nowrap;
+}
+.status-pill[data-status="brew"]         { color: var(--status-brew); }
+.status-pill[data-status="building"]     { color: var(--status-building); }
+.status-pill[data-status="assembled"]    { color: var(--status-assembled); }
+.status-pill[data-status="disassembled"] { color: var(--status-disassembled); }
+.status-pill:disabled { opacity: 0.5; cursor: default; }
+
+.status-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  min-width: 260px; padding: 4px; border-radius: var(--radius);
+  border: 1px solid var(--line-strong); background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.status-menu > button {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  padding: 6px 8px; border: 0; border-radius: 6px;
+  background: none; color: var(--text); font-size: 12.5px;
+}
+.status-menu > button:hover { background: var(--panel-2); }
+.status-menu > button.on { background: var(--panel-2); }
+.status-menu-label { display: flex; align-items: center; gap: 2px; }
+.status-menu-label .status-dot { margin: 0 6px 0 0; }
+.status-menu-reserve { margin-left: auto; font-size: 10.5px; color: var(--text-3); }
+.status-menu-hint {
+  display: block; margin-top: 2px; font-size: 11px; color: var(--text-2);
+}
+.status-menu-foot {
+  margin: 4px 8px 6px; font-size: 10.5px; color: var(--text-3); line-height: 1.4;
+}
+
+.deck-status-filter { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
+.status-chip {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--text-3);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.status-chip:hover { border-color: var(--line-strong); color: var(--text); }
+.status-chip[aria-pressed="true"][data-status="brew"]         { color: var(--status-brew); border-color: var(--status-brew); }
+.status-chip[aria-pressed="true"][data-status="building"]     { color: var(--status-building); border-color: var(--status-building); }
+.status-chip[aria-pressed="true"][data-status="assembled"]    { color: var(--status-assembled); border-color: var(--status-assembled); }
+.status-chip[aria-pressed="true"][data-status="disassembled"] { color: var(--text-2); border-color: var(--line-strong); }
 
 .deck-tags, .deck-tag-filter { display: flex; flex-wrap: wrap; gap: 4px; }
 .deck-tag-filter { margin: 0 0 14px; }

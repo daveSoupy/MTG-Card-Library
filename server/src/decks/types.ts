@@ -1,3 +1,5 @@
+import type { DeckStatus } from './allocation.ts';
+
 /** Where a card sits in a deck. Mirrors `deck_cards.board` in schema.sql. */
 export type Board = 'main' | 'side' | 'command' | 'maybe';
 
@@ -42,6 +44,8 @@ export interface DeckCard {
   board: Board;
   quantity: number;
   quantityFromCollection: number;
+  /** Copies filled by a proxy: neither owned nor to-buy. */
+  quantityProxied: number;
   commanderRole: CommanderRole | null;
   category: string | null;
   /** Phase 7: card_categories membership — the tag-derived categories this card matches. */
@@ -78,6 +82,14 @@ export interface DeckCard {
   ownedQuantity: number;
   /** Copies free across the whole collection, before this deck's own claim. */
   availableQuantity: number;
+  /** Copies promised on a trade list, so "1 owned · on trade list" can be said
+   *  rather than a bare 0 available. */
+  tradeListedQuantity: number;
+  /**
+   * False for a basic land while `allocation_ignores_basics` is on. Such a slot
+   * shows no owned/missing badge and can never be short — see allocation.ts.
+   */
+  allocationTracked: boolean;
 
   printingId: string | null;
   setCode: string | null;
@@ -93,6 +105,10 @@ export interface Deck {
   homeLocationId: number | null;
   description: string | null;
   notes: string | null;
+  /** Whether this deck lays claim to physical copies — see allocation.ts. */
+  status: DeckStatus;
+  statusChangedAt: string | null;
+  /** Orthogonal to status: this only hides the deck from the list. */
   isArchived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -171,5 +187,7 @@ export interface DeckStats {
   typeDistribution: Array<{ type: string; count: number }>;
   estimatedValueUsd: number | null;
   ownedCount: number;
+  /** Slots filled by a proxy — owned by nobody, and bought by nobody. */
+  proxiedCount: number;
   needToBuyCount: number;
 }

@@ -5,6 +5,10 @@ import { AUTO_MAINTAIN_LANDS } from '../decks/store.ts';
 import { SHOW_DECK_TEMPLATES } from '../decks/templates.ts';
 import { SHOW_GAME_LOG } from '../events/store.ts';
 import { COST_METHODS } from '../collection/store.ts';
+import {
+  ALLOCATION_DEFAULTS, ALLOCATION_IGNORES_BASICS, BREWS_RESERVE_COPIES,
+  TRADELIST_REDUCES_AVAILABLE,
+} from '../decks/allocation.ts';
 import { FLAG, MONEY } from './schema.ts';
 
 /**
@@ -24,6 +28,17 @@ const BOOLEAN_SETTINGS: Record<string, BooleanSetting> = {
   autoMaintainLands: { key: AUTO_MAINTAIN_LANDS, default: false },
   showDeckTemplates: { key: SHOW_DECK_TEMPLATES, default: false },
   showGameLog: { key: SHOW_GAME_LOG, default: false },
+  // Phase 22. The defaults live beside the rule they change, in allocation.ts,
+  // so a reader of that module never has to come here to find out what is on.
+  allocationIgnoresBasics: {
+    key: ALLOCATION_IGNORES_BASICS, default: ALLOCATION_DEFAULTS.ignoreBasics,
+  },
+  brewsReserveCopies: {
+    key: BREWS_RESERVE_COPIES, default: ALLOCATION_DEFAULTS.brewsReserve,
+  },
+  tradelistReducesAvailable: {
+    key: TRADELIST_REDUCES_AVAILABLE, default: ALLOCATION_DEFAULTS.tradeListReduces,
+  },
 };
 
 export const DEFAULT_COST_METHOD = 'default_cost_method';

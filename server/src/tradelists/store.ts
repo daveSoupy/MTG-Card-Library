@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { allocationForMany } from '../decks/allocation.ts';
 import { ListNameTakenError } from '../collection/wants.ts';
 
 /**
@@ -43,8 +44,7 @@ export class TradeListStore {
              sl.name AS location_name,
              COALESCE(p.image_small, ff.image_small) AS image_small,
              p.price_usd AS market_usd,
-             st.owned_qty_this_row, st.available_qty_overall,
-             st.exceeds_owned, st.conflicts_with_deck_allocation
+             st.owned_qty_this_row, st.exceeds_owned
       FROM trade_list_items ti
       JOIN collection_items ci ON ci.id = ti.collection_item_id
       JOIN card_printings p ON p.id = ci.printing_id
@@ -54,6 +54,14 @@ export class TradeListStore {
       LEFT JOIN v_trade_list_status st ON st.trade_list_item_id = ti.id
       WHERE ti.trade_list_id = ?
       ORDER BY ti.sort_order, o.name COLLATE NOCASE`).all(target.id) as any[];
+
+    // Whether a listing also fights a deck's claim is an allocation question,
+    // so it is asked of allocation.ts rather than baked into the view. The
+    // comparison deliberately leaves the trade list out of its own denominator:
+    // with tradelist_reduces_available on, `available` already subtracts this
+    // very listing, and measuring against that would report every row as a
+    // conflict with itself.
+    const allocation = allocationForMany(this.db, items.map((row) => row.oracle_id));
 
     return {
       id: target.id,
@@ -74,9 +82,12 @@ export class TradeListStore {
         imageSmall: row.image_small,
         notes: row.notes,
         ownedQuantity: row.owned_qty_this_row,
-        availableOverall: row.available_qty_overall,
+        availableOverall: allocation.get(row.oracle_id)!.available,
         exceedsOwned: Boolean(row.exceeds_owned),
-        conflictsWithDeck: Boolean(row.conflicts_with_deck_allocation),
+        conflictsWithDeck: row.quantity > Math.max(
+          0,
+          allocation.get(row.oracle_id)!.owned - allocation.get(row.oracle_id)!.reserved,
+        ),
       })),
     };
   }

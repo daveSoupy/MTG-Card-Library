@@ -39,13 +39,14 @@ let nextId = 1;
 function card(overrides: Partial<DeckCard> = {}): DeckCard {
   return {
     id: nextId++, oracleId: `o-${nextId}`, name: `Card ${nextId}`,
-    board: 'main' as Board, quantity: 1, quantityFromCollection: 0,
+    board: 'main' as Board, quantity: 1, quantityFromCollection: 0, quantityProxied: 0,
     commanderRole: null, category: null, sortOrder: 0,
     cmc: 2, typeLine: 'Creature — Human', manaCost: '{1}{G}',
     colorIdentity: 'G', colorIdentityMask: 16, colorsMask: 16,
     isBasicLand: false, isLegendary: false, canBeCommander: false, hasUncommonPrinting: false,
     partnerKind: null, partnerWith: null,
     legality: 'legal', deckCopyLimit: null, ownedQuantity: 0, availableQuantity: 0,
+    tradeListedQuantity: 0, allocationTracked: true,
     printingId: null, setCode: null, rarity: 'common', imageSmall: null, priceUsd: null,
     ...overrides,
   };

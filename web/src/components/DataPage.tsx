@@ -379,6 +379,56 @@ export function DataPage({
         </p>
 
         {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.allocationIgnoresBasics}
+              onChange={(e) => saveSetting('allocationIgnoresBasics', e.target.checked)}
+            />
+            Leave basic lands out of allocation
+          </label>
+        )}
+        <p className="hint">
+          On, a basic land is never claimed by a deck, never short, and never lands on a
+          want list — so a Commander deck with 38 Islands reports 0 missing rather than 38.
+          Off, basics are counted like every other card, and two decks playing the same
+          Islands will read as fighting over them.
+        </p>
+
+        {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.tradelistReducesAvailable}
+              onChange={(e) => saveSetting('tradelistReducesAvailable', e.target.checked)}
+            />
+            Copies on a trade list are not available to build with
+          </label>
+        )}
+        <p className="hint">
+          A card you have promised to someone is not a card you can sleeve. On, trade-listed
+          copies are subtracted from what is free, so the deck that takes one cannot quietly
+          scuttle the trade. Off, they count as available and the trade-list badge is the
+          only warning.
+        </p>
+
+        {settings && (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.brewsReserveCopies}
+              onChange={(e) => saveSetting('brewsReserveCopies', e.target.checked)}
+            />
+            Brews claim copies too
+          </label>
+        )}
+        <p className="hint">
+          Normally only decks marked Building or Assembled hold on to your cards, so a
+          half-formed idea cannot starve the deck you actually intend to build. Turn this
+          on to go back to every deck claiming its copies whatever its status.
+        </p>
+
+        {settings && (
           <div className="cost-default">
             <label>
               <span className="dim">Default cost basis when adding cards</span>
