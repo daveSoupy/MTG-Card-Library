@@ -179,6 +179,102 @@ function reservedByOracleSql(settings: AllocationSettings, excludeDeckId?: numbe
      GROUP BY dc.oracle_id`;
 }
 
+/**
+ * The three rollups above, named, as the body of a `WITH` clause.
+ *
+ * Exported for the one caller that cannot use `allocationForMany` — Phase 23's
+ * owned-aware search, which has to compute allocation across a whole result set
+ * inside a single query rather than for a known list of cards. It composes
+ * these fragments and the expressions from `allocationSqlRefs` below, so the
+ * rule still lives here and nothing is written a second time.
+ *
+ * `MATERIALIZED` where the caller asks for it: over an unconstrained query the
+ * planner will otherwise re-run each rollup per candidate row, which is the
+ * shape the repo already has one five-second regression on record for. The
+ * three tables are small, so evaluating each once and probing it is strictly
+ * the cheaper plan.
+ */
+export function allocationCtes(
+  settings: AllocationSettings,
+  options: { excludeDeckId?: number; materialized?: boolean } = {},
+): string {
+  const as = options.materialized ? 'AS MATERIALIZED' : 'AS';
+  return `${OWNED_CTE} ${as} (${OWNED_BY_ORACLE_SQL}),
+       ${RESERVED_CTE} ${as} (${reservedByOracleSql(settings, options.excludeDeckId)}),
+       ${LISTED_CTE} ${as} (${TRADE_LISTED_BY_ORACLE_SQL})`;
+}
+
+const OWNED_CTE = 'alloc_owned';
+const RESERVED_CTE = 'alloc_reserved';
+const LISTED_CTE = 'alloc_listed';
+
+/**
+ * A semi-join against the owned rollup, for a query that filters on a *lower
+ * bound* of owned or available.
+ *
+ * Purely a planner hint, and only sound as one. `COALESCE(alloc_owned.qty,0)
+ * >= 1` is a condition on a left-joined column, so SQLite scans all 117k oracle
+ * rows and probes the rollup for each — 94ms to find ten cards. Written as
+ * `oracle_id IN (SELECT ... WHERE qty >= 1)` it drives from the collection
+ * instead and the same answer takes 0.2ms.
+ *
+ * The caller adds this *alongside* the real expression, never instead of it,
+ * and only where it is implied by that expression — so it narrows nothing and
+ * stays correct under negation, where `NOT (implied AND expr)` is still
+ * `NOT expr`. Availability qualifies because it can never exceed owned.
+ *
+ * Takes one bound parameter: the quantity.
+ */
+export function ownedSemiJoinSql(qtyOperator: string, oracleColumn = 'o.oracle_id'): string {
+  return `${oracleColumn} IN (SELECT oracle_id FROM ${OWNED_CTE} WHERE qty ${qtyOperator} ?)`;
+}
+
+/** SQL expressions over the CTEs `allocationCtes` defines, one per number. */
+export interface AllocationSqlRefs {
+  owned: string;
+  /** Effective reservation — 0 for an exempt basic, exactly as `assemble` does. */
+  reserved: string;
+  /** Raw, reported whether or not it subtracts — again matching `assemble`. */
+  tradeListed: string;
+  available: string;
+  /** 1 when the card is inside allocation at all, 0 for an exempt basic land. */
+  tracked: string;
+}
+
+/**
+ * The one subtraction again, this time as SQL.
+ *
+ * A second expression of the same rule is a liability, so it is written once,
+ * here, next to `assemble()` — and `allocation.test.ts` runs both over the same
+ * fixtures and asserts they agree. If the rule changes, both change together or
+ * the test fails.
+ */
+export function allocationSqlRefs(
+  settings: AllocationSettings,
+  isBasicColumn = 'o.is_basic_land',
+): AllocationSqlRefs {
+  const owned = `COALESCE(${OWNED_CTE}.qty, 0)`;
+  const rawReserved = `COALESCE(${RESERVED_CTE}.qty, 0)`;
+  const rawListed = `COALESCE(${LISTED_CTE}.qty, 0)`;
+
+  const tracked = settings.ignoreBasics ? `(COALESCE(${isBasicColumn}, 0) = 0)` : '1';
+  const whenTracked = (value: string) =>
+    settings.ignoreBasics ? `(CASE WHEN ${tracked} THEN ${value} ELSE 0 END)` : value;
+
+  const reserved = whenTracked(rawReserved);
+  const subtracted = settings.tradeListReduces ? whenTracked(rawListed) : '0';
+
+  return {
+    owned,
+    reserved,
+    tradeListed: rawListed,
+    // Floored at 0 for the same reason `assemble` floors it: "you own 1, a deck
+    // has it, and it is on a trade list" is 0 copies free, not -1.
+    available: `MAX(0, ${owned} - ${reserved} - ${subtracted})`,
+    tracked,
+  };
+}
+
 /** Allocation for a set of cards in one query. The bulk form every caller with
  *  more than one card should use. */
 export function allocationForMany(
@@ -194,18 +290,16 @@ export function allocationForMany(
   const placeholders = ids.map(() => '?').join(',');
 
   const rows = db.prepare(`
-    WITH owned AS (${OWNED_BY_ORACLE_SQL}),
-         reserved AS (${reservedByOracleSql(settings, options.excludeDeckId)}),
-         listed AS (${TRADE_LISTED_BY_ORACLE_SQL})
+    WITH ${allocationCtes(settings, { excludeDeckId: options.excludeDeckId })}
     SELECT o.oracle_id,
            o.is_basic_land,
-           COALESCE(owned.qty, 0)    AS owned,
-           COALESCE(reserved.qty, 0) AS reserved,
-           COALESCE(listed.qty, 0)   AS listed
+           COALESCE(alloc_owned.qty, 0)    AS owned,
+           COALESCE(alloc_reserved.qty, 0) AS reserved,
+           COALESCE(alloc_listed.qty, 0)   AS listed
       FROM oracle_cards o
-      LEFT JOIN owned    ON owned.oracle_id    = o.oracle_id
-      LEFT JOIN reserved ON reserved.oracle_id = o.oracle_id
-      LEFT JOIN listed   ON listed.oracle_id   = o.oracle_id
+      LEFT JOIN alloc_owned    ON alloc_owned.oracle_id    = o.oracle_id
+      LEFT JOIN alloc_reserved ON alloc_reserved.oracle_id = o.oracle_id
+      LEFT JOIN alloc_listed   ON alloc_listed.oracle_id   = o.oracle_id
      WHERE o.oracle_id IN (${placeholders})`).all(...ids) as Array<{
        oracle_id: string; is_basic_land: number;
        owned: number; reserved: number; listed: number;

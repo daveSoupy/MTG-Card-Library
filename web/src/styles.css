@@ -369,6 +369,31 @@ input[type='number'] { width: 72px; }
   border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px;
 }
 
+/* A search that ran but could not honour part of what was typed — an unknown
+   storage location. Not an error: the results below it are real. */
+.notice {
+  color: var(--warn); background: rgba(216, 167, 66, 0.1);
+  border: 1px solid rgba(216, 167, 66, 0.35);
+  border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px;
+  font-size: 12px;
+}
+
+/* Phase 23's All / Owned / Available chips. They sit under the search box in
+   Browse and in the deck picker, and write their term into the box itself. */
+.scope-chips { display: flex; gap: 5px; flex-wrap: wrap; margin: 8px 0; }
+
+/* The other half of the owned badge: which decks already claim this card.
+   Stacked directly under the owned count rather than at the foot of the art,
+   which is where the artist credit and copyright line are printed and must
+   stay legible. */
+.deck-badge {
+  position: absolute; top: 27px; right: 6px;
+  background: var(--panel-2); color: var(--text-2);
+  border: 1px solid var(--line-strong);
+  font-size: 10px; font-weight: 600;
+  border-radius: 999px; padding: 1px 6px;
+}
+
 /* ---------- detail ---------- */
 .detail-pane {
   background: var(--panel);

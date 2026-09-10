@@ -1,5 +1,9 @@
 import type Database from 'better-sqlite3';
 import { compileQuery, mentionsDigital, mentionsLegality } from './query.ts';
+import { nameChecker, ownedAtLeast, type SearchContext } from './collection.ts';
+import {
+  allocationCtes, allocationSettings, allocationSqlRefs, type AllocationSettings,
+} from '../decks/allocation.ts';
 import { isLimitedFormat, normalizeName, EXTRA_LAYOUTS } from '../model/mtg.ts';
 
 /**
@@ -50,6 +54,15 @@ export interface SearchFilters {
   excludeUniversesBeyond?: boolean;
   /** Phase 7 shortfall links: cards resolved into this card_categories value. */
   category?: string;
+  /**
+   * The deck this search is being run from, so `available` excludes that deck's
+   * own reservation — a deck must never compete with itself for its own cards.
+   * The deck builder always sends it; Browse never does.
+   *
+   * Not a filter in the narrowing sense, but it arrives on the same query
+   * string and changes what the same query means, so it travels with them.
+   */
+  deckId?: number;
 }
 
 export type SortOrder = 'relevance' | 'name' | 'manaValue' | 'newest' | 'price' | 'edhrec';
@@ -77,6 +90,23 @@ export interface CardSummary {
   ownedQuantity: number;
   wantedQuantity: number;
   printingCount: number;
+  /**
+   * Phase 23. Carried on every row so the client renders badges from the result
+   * set — a follow-up request per card is the failure mode this exists to
+   * avoid. All four mean exactly what allocation.ts says they mean.
+   */
+  availableQuantity: number;
+  /** Effective reservation — 0 for a basic land outside allocation. */
+  reservedQuantity: number;
+  tradeListedQuantity: number;
+  /** Decks that reference the card, and their names. */
+  deckCount: number;
+  deckNames: string[];
+  /**
+   * False for a basic land exempted by `allocation_ignores_basics`. Such a card
+   * gets no owned/available badge at all — a blank badge beats a wrong one.
+   */
+  allocationTracked: boolean;
 }
 
 export interface SearchResult {
@@ -84,6 +114,8 @@ export interface SearchResult {
   total: number;
   limit: number;
   offset: number;
+  /** Parse warnings — an unknown location, a count that was not a number. */
+  warnings: string[];
 }
 
 /**
@@ -104,7 +136,44 @@ const SORT_SQL: Record<Exclude<SortOrder, 'relevance'>, string> = {
   edhrec: 'COALESCE(o.edhrec_rank, 999999) ASC, o.name_normalized ASC',
 };
 
-/** Shared FROM/JOIN block. `owned` is a join so an owned-only filter is cheap. */
+/**
+ * Which decks reference a card, and how many — the badge on a result row.
+ *
+ * Any board, any status, on purpose: this is "spoken for by a list", not the
+ * allocation question, and `indeck` in ./collection.ts reads the same
+ * definition so a filter and a badge can never disagree. Names are joined with
+ * a unit separator rather than a comma because deck names may contain commas.
+ */
+const DECK_USAGE_CTE = `deck_usage AS MATERIALIZED (
+      SELECT oracle_id,
+             COUNT(*)                        AS deck_count,
+             group_concat(name, char(31))    AS deck_names
+      FROM (SELECT DISTINCT dc.oracle_id AS oracle_id, d.name AS name
+              FROM deck_cards dc
+              JOIN decks d ON d.id = dc.deck_id)
+      GROUP BY oracle_id)`;
+
+/**
+ * The `WITH` block every search runs under.
+ *
+ * The three allocation rollups come from allocation.ts so owned / reserved /
+ * trade-listed mean here exactly what they mean in a deck row — an archived
+ * location does not count, a brew does not reserve. They bind no parameters,
+ * so prepending this never disturbs the placeholder order below.
+ */
+function withClause(settings: AllocationSettings, excludeDeckId?: number): string {
+  return `WITH ${allocationCtes(settings, { excludeDeckId, materialized: true })},
+       ${DECK_USAGE_CTE}`;
+}
+
+/**
+ * Shared FROM/JOIN block.
+ *
+ * The rollups are joins rather than per-row subqueries so an `owned>=1` or
+ * `available>=1` filter costs one probe of a small materialised table. The
+ * previous hand-rolled `owned` subquery lived here and counted archived
+ * locations, which stopped being what "owned" means in Phase 22.
+ */
 const FROM_CLAUSE = `
   FROM oracle_cards o
   -- A chosen art wins over the synced default, which the sync recomputes and
@@ -113,17 +182,10 @@ const FROM_CLAUSE = `
   LEFT JOIN card_printings dp ON dp.id = COALESCE(pref.printing_id, o.default_printing_id)
   LEFT JOIN sets s ON s.code = dp.set_code
   LEFT JOIN card_faces ff ON ff.printing_id = dp.id AND ff.face_index = 0
-  LEFT JOIN (
-      -- Written as a correlated lookup rather than a join to card_printings,
-      -- because the planner reads the join form as licence to scan all 117,620
-      -- printings and probe the collection for each — backwards, and paid on
-      -- every search whether or not the collection is even involved. Driving
-      -- from collection_items instead costs one primary-key lookup per lot.
-      SELECT (SELECT cp.oracle_id FROM card_printings cp WHERE cp.id = ci.printing_id) AS oracle_id,
-             SUM(ci.quantity) AS qty
-      FROM collection_items ci
-      GROUP BY 1
-  ) owned ON owned.oracle_id = o.oracle_id`;
+  LEFT JOIN alloc_owned    ON alloc_owned.oracle_id    = o.oracle_id
+  LEFT JOIN alloc_reserved ON alloc_reserved.oracle_id = o.oracle_id
+  LEFT JOIN alloc_listed   ON alloc_listed.oracle_id   = o.oracle_id
+  LEFT JOIN deck_usage     ON deck_usage.oracle_id     = o.oracle_id`;
 
 /**
  * Runs searches and detail lookups against the local card database.
@@ -138,8 +200,29 @@ export class CardSearchStore {
     this.db = db;
   }
 
-  private buildWhere(text: string, filters: SearchFilters) {
-    const compiled = compileQuery(text);
+  /**
+   * The allocation rule as this database is configured right now.
+   *
+   * Read per search rather than cached: the three settings behind it are
+   * toggleable from the UI, and a search that answered from a stale copy would
+   * disagree with the deck rows on the same screen. Three key/value reads.
+   */
+  private contextFor(filters: SearchFilters): {
+    settings: AllocationSettings; excludeDeckId?: number; query: SearchContext;
+  } {
+    const settings = allocationSettings(this.db);
+    return {
+      settings,
+      excludeDeckId: filters.deckId,
+      query: {
+        allocation: allocationSqlRefs(settings),
+        nameExists: nameChecker(this.db),
+      },
+    };
+  }
+
+  private buildWhere(text: string, filters: SearchFilters, context: SearchContext) {
+    const compiled = compileQuery(text, context);
     const where = [...compiled.where];
     const params: (string | number)[] = [...compiled.params];
 
@@ -231,7 +314,11 @@ export class CardSearchStore {
     }
 
     if (filters.ownedOnly) {
-      where.push('COALESCE(owned.qty, 0) > 0');
+      // Literally the same fragment `owned>=1` compiles to, so the checkbox and
+      // the term cannot give different answers or different performance.
+      const fragment = ownedAtLeast(context, 1);
+      where.push(fragment.sql);
+      params.push(...fragment.params);
     }
     if (filters.colors && filters.colors.length > 0) {
       // "C" is a sixth choice alongside WUBRG, not the absence of a choice.
@@ -294,7 +381,7 @@ export class CardSearchStore {
       params.push(filters.category);
     }
 
-    return { where, params, freeText: compiled.freeText };
+    return { where, params, freeText: compiled.freeText, warnings: compiled.warnings };
   }
 
   search(
@@ -306,8 +393,11 @@ export class CardSearchStore {
     /** The total from the first page, so later pages need not recount. */
     knownTotal?: number,
   ): SearchResult {
-    const { where, params, freeText } = this.buildWhere(text, filters);
+    const context = this.contextFor(filters);
+    const { where, params, freeText, warnings } =
+      this.buildWhere(text, filters, context.query);
     const whereSql = where.length > 0 ? `WHERE ${where.join('\n    AND ')}` : '';
+    const with_ = withClause(context.settings, context.excludeDeckId);
 
     // The count is the expensive half — it cannot stop at LIMIT and it runs
     // over the whole FROM clause. It also cannot change while paging through
@@ -315,7 +405,7 @@ export class CardSearchStore {
     const total = offset > 0 && knownTotal !== undefined
       ? knownTotal
       : (this.db
-          .prepare(`SELECT count(*) AS n ${FROM_CLAUSE} ${whereSql}`)
+          .prepare(`${with_} SELECT count(*) AS n ${FROM_CLAUSE} ${whereSql}`)
           .get(...params) as { n: number }).n;
 
     // Relevance ordering only means something when the user typed words. An
@@ -340,8 +430,10 @@ export class CardSearchStore {
       orderSql = SORT_SQL[sort === 'relevance' ? 'name' : sort];
     }
 
+    const refs = context.query.allocation;
     const rows = this.db
       .prepare(`
+        ${with_}
         SELECT o.oracle_id, o.name, o.mana_cost, o.cmc, o.type_line, o.power, o.toughness,
                o.loyalty, o.colors, o.color_identity,
                dp.id AS printing_id, dp.set_code, dp.collector_number, dp.rarity,
@@ -351,7 +443,13 @@ export class CardSearchStore {
                COALESCE(dp.image_normal, ff.image_normal) AS image_normal,
                dp.price_usd, dp.price_usd_foil,
                s.name AS set_name,
-               COALESCE(owned.qty, 0) AS owned_qty,
+               ${refs.owned}       AS owned_qty,
+               ${refs.available}   AS available_qty,
+               ${refs.reserved}    AS reserved_qty,
+               ${refs.tradeListed} AS trade_listed_qty,
+               ${refs.tracked}     AS allocation_tracked,
+               COALESCE(deck_usage.deck_count, 0) AS deck_count,
+               deck_usage.deck_names,
                -- On any active want list? A small table, so a scalar subquery
                -- over a page of results is cheap. Drives the "wanted" badge.
                (SELECT COALESCE(SUM(w.quantity), 0) FROM want_list_items w
@@ -363,11 +461,14 @@ export class CardSearchStore {
         LIMIT ? OFFSET ?`)
       .all(...params, ...rankParams, limit, offset) as any[];
 
-    return { cards: rows.map(toSummary), total, limit, offset };
+    return { cards: rows.map(toSummary), total, limit, offset, warnings };
   }
 
   detail(oracleId: string) {
+    const settings = allocationSettings(this.db);
+    const refs = allocationSqlRefs(settings);
     const row = this.db.prepare(`
+      ${withClause(settings)}
       SELECT o.oracle_id, o.name, o.mana_cost, o.cmc, o.type_line, o.power, o.toughness,
              o.loyalty, o.colors, o.color_identity, o.oracle_text, o.keywords,
              o.is_reserved, o.can_be_commander, o.edhrec_rank, o.layout,
@@ -377,7 +478,13 @@ export class CardSearchStore {
              COALESCE(dp.image_normal, ff.image_normal) AS image_normal,
              dp.price_usd, dp.price_usd_foil,
              dp.flavor_text, dp.artist, s.name AS set_name,
-             COALESCE(owned.qty, 0) AS owned_qty,
+             ${refs.owned}       AS owned_qty,
+             ${refs.available}   AS available_qty,
+             ${refs.reserved}    AS reserved_qty,
+             ${refs.tradeListed} AS trade_listed_qty,
+             ${refs.tracked}     AS allocation_tracked,
+             COALESCE(deck_usage.deck_count, 0) AS deck_count,
+             deck_usage.deck_names,
              (pref.printing_id IS NOT NULL) AS art_is_pinned,
              (SELECT count(*) FROM card_printings cp WHERE cp.oracle_id = o.oracle_id) AS printing_count,
              -- Same "on any active want list" check the search results use, so
@@ -519,10 +626,12 @@ export class CardSearchStore {
    * keystroke.
    */
   random(text: string, filters: SearchFilters): string | null {
-    const { where, params } = this.buildWhere(text, filters);
+    const context = this.contextFor(filters);
+    const { where, params } = this.buildWhere(text, filters, context.query);
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const row = this.db.prepare(
-      `SELECT o.oracle_id AS id ${FROM_CLAUSE} ${whereSql} ORDER BY random() LIMIT 1`,
+      `${withClause(context.settings, context.excludeDeckId)}
+       SELECT o.oracle_id AS id ${FROM_CLAUSE} ${whereSql} ORDER BY random() LIMIT 1`,
     ).get(...params) as { id: string } | undefined;
     return row?.id ?? null;
   }
@@ -585,5 +694,16 @@ function toSummary(row: any): CardSummary {
     ownedQuantity: row.owned_qty ?? 0,
     wantedQuantity: row.wanted_qty ?? 0,
     printingCount: row.printing_count ?? 0,
+    availableQuantity: row.available_qty ?? 0,
+    reservedQuantity: row.reserved_qty ?? 0,
+    tradeListedQuantity: row.trade_listed_qty ?? 0,
+    deckCount: row.deck_count ?? 0,
+    // group_concat with a unit separator, so a deck named "Rakdos, Lord of
+    // Riots" survives the round trip intact.
+    deckNames: row.deck_names ? String(row.deck_names).split('\u001f') : [],
+    // The column is SQLite's 1/0; an older row with nothing there is tracked,
+    // which is the safe default — it shows a badge rather than hiding one.
+    allocationTracked: row.allocation_tracked === undefined
+      ? true : Boolean(row.allocation_tracked),
   };
 }

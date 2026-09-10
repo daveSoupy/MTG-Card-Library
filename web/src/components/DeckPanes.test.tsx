@@ -39,7 +39,7 @@ const deck: Deck = {
 
 function fakePicker(overrides: Partial<DeckPickerState> = {}): DeckPickerState {
   return {
-    query: '', setQuery: vi.fn(), ownedOnly: false, setOwnedOnly: vi.fn(),
+    query: '', setQuery: vi.fn(),
     pickerColors: [], setPickerColors: vi.fn(), pickerGold: false, setPickerGold: vi.fn(),
     pickerHybrid: false, setPickerHybrid: vi.fn(), results: [], resultsTotal: 0, searching: false,
     pickingCommander: false, setPickingCommander: vi.fn(), searchInput: createRef(),

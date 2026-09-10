@@ -1,4 +1,8 @@
 import { colorMask, expandRarity, isColorlessSpec, normalizeName, parseColors } from '../model/mtg.ts';
+import {
+  BARE_COLLECTION_PREDICATES, COLLECTION_KEYS, DEFAULT_SEARCH_CONTEXT,
+  collectionFragment, ownedAtLeast, type SearchContext,
+} from './collection.ts';
 
 /**
  * Parses Scryfall-style search syntax into SQL.
@@ -24,6 +28,13 @@ export interface CompiledQuery {
   ftsMatch: string | null;
   /** The bare words joined, for name-relevance ranking. */
   freeText: string;
+  /**
+   * Things the query said that could not be honoured — an unknown storage
+   * location, a count that was not a number. Returned to the client rather
+   * than raised: a typo should explain itself, not 500 and not blank the
+   * screen with no reason given.
+   */
+  warnings: string[];
 }
 
 const KNOWN_KEYS = new Set([
@@ -32,7 +43,17 @@ const KNOWN_KEYS = new Set([
   'set', 's', 'e', 'edition', 'rarity', 'r', 'power', 'pow', 'toughness', 'tou',
   'loyalty', 'loy', 'artist', 'a', 'legal', 'f', 'format', 'banned', 'restricted',
   'is', 'not', 'layout', 'year', 'lang', 'category', 'cat',
+  // Phase 23 — the collection half. Compiled in ./collection.ts.
+  ...COLLECTION_KEYS,
 ]);
+
+/**
+ * Terms that are a whole word on their own: `owned`, `-indeck`, `fortrade`.
+ *
+ * Checked before a token falls through to free text, which is the cost — the
+ * word `owned` no longer searches rules text. `o:owned` still does.
+ */
+const BARE_KEYS = new Set<string>(BARE_COLLECTION_PREDICATES);
 
 /** Longest operators first so ">=" is not read as ">". */
 const OPERATORS: Comparison[] = ['<=', '>=', '!=', ':', '=', '<', '>'];
@@ -84,8 +105,16 @@ export function parseQuery(text: string): { terms: Term[]; words: string[] } {
       body = body.slice(1);
     }
     const term = parseTerm(body, negated);
-    if (term) terms.push(term);
-    else words.push(body.replace(/"/g, ''));
+    if (term) { terms.push(term); continue; }
+
+    const bare = body.toLowerCase();
+    if (BARE_KEYS.has(bare)) {
+      // An empty value is what tells the compiler this was the bare form —
+      // `owned` means "at least one", `owned>=2` means what it says.
+      terms.push({ key: bare, comparison: ':', value: '', negated });
+      continue;
+    }
+    words.push(body.replace(/"/g, ''));
   }
   return { terms, words };
 }
@@ -102,6 +131,9 @@ interface Fragment {
   sql: string;
   params: (string | number)[];
 }
+
+/** What `clauseFor` returns: a Fragment that may also have something to say. */
+type CollectionFragment = Fragment & { warning?: string };
 
 /**
  * Colour comparisons run against the bitmask, so each variant is a single
@@ -133,12 +165,13 @@ function colorFragment(column: string, term: Term, defaultToSubset: boolean): Fr
   }
 }
 
-function isFragment(value: string): Fragment | null {
+function isFragment(value: string, context: SearchContext): Fragment | null {
   switch (value) {
+    // Delegated to allocation.ts rather than counting lots directly: since
+    // Phase 22 a lot in an archived location is not owned, and `is:owned`
+    // saying otherwise would put two answers on the same screen.
     case 'owned':
-      return { sql: `EXISTS (SELECT 1 FROM collection_items ci
-                             JOIN card_printings cip ON cip.id = ci.printing_id
-                             WHERE cip.oracle_id = o.oracle_id)`, params: [] };
+      return ownedAtLeast(context, 1);
     case 'commander':  return { sql: 'o.can_be_commander = 1', params: [] };
     case 'legendary':  return { sql: 'o.is_legendary = 1', params: [] };
     case 'reserved':   return { sql: 'o.is_reserved = 1', params: [] };
@@ -198,8 +231,13 @@ function isFragment(value: string): Fragment | null {
   }
 }
 
-function clauseFor(term: Term): Fragment | null {
+function clauseFor(term: Term, context: SearchContext): CollectionFragment | null {
   const numeric = Number.parseFloat(term.value);
+
+  // Phase 23's collection terms compile in ./collection.ts, beside the
+  // allocation expressions they are built from.
+  const collection = collectionFragment(term, context);
+  if (collection) return collection;
 
   switch (term.key) {
     case 'name': case 'n':
@@ -271,7 +309,7 @@ function clauseFor(term: Term): Fragment | null {
       return { sql: 'dp.lang = ?', params: [term.value.toLowerCase()] };
 
     case 'is': case 'not': {
-      const fragment = isFragment(term.value.toLowerCase());
+      const fragment = isFragment(term.value.toLowerCase(), context);
       if (!fragment) return null;
       return term.key === 'not'
         ? { sql: `NOT (${fragment.sql})`, params: fragment.params }
@@ -282,14 +320,26 @@ function clauseFor(term: Term): Fragment | null {
   }
 }
 
-export function compileQuery(text: string): CompiledQuery {
+/**
+ * @param context Where the collection terms get their SQL. The store passes one
+ *   built from the live settings; the default exists so the parser's own tests
+ *   can run without a database, and is never what a real search uses.
+ */
+export function compileQuery(
+  text: string, context: SearchContext = DEFAULT_SEARCH_CONTEXT,
+): CompiledQuery {
   const { terms, words } = parseQuery(text);
   const where: string[] = [];
   const params: (string | number)[] = [];
+  const warnings: string[] = [];
 
   for (const term of terms) {
-    const fragment = clauseFor(term);
+    const fragment = clauseFor(term, context);
     if (!fragment) continue;
+    if (fragment.warning) warnings.push(fragment.warning);
+    // A term can warn *instead of* filtering — an unparseable count is
+    // reported and dropped rather than silently narrowing to nothing.
+    if (!fragment.sql) continue;
     where.push(term.negated ? `NOT (${fragment.sql})` : fragment.sql);
     params.push(...fragment.params);
   }
@@ -311,6 +361,7 @@ export function compileQuery(text: string): CompiledQuery {
       ? ftsWords.map((w) => `"${w}"*`).join(' AND ')
       : null,
     freeText: kept.join(' '),
+    warnings,
   };
 }
 

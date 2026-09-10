@@ -6,6 +6,7 @@ import {
   type MatchRecord,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
+import { withScope } from '../searchScope.ts';
 import { DeckPanes } from './DeckPanes.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
 import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
@@ -50,7 +51,6 @@ export function DeckBuilder({
   const [templates, setTemplates] = useState<DeckTemplate[]>([]);
 
   const [query, setQuery] = useState('');
-  const [ownedOnly, setOwnedOnly] = useState(false);
   const [pickerCategory, setPickerCategory] = useState<string | null>(null);
   const [pickerColors, setPickerColors] = useState<string[]>([]);
   const [pickerGold, setPickerGold] = useState(false);
@@ -155,6 +155,19 @@ export function DeckBuilder({
     fetchTemplates().then(setTemplates).catch(() => undefined);
   }, []);
 
+  // Phase 23: the picker opens in whichever scope the setting names, by
+  // writing that term into the query box — the same thing tapping the chip
+  // does, so there is no second, invisible source of the filter. Applied once,
+  // and never over anything already typed: settings arrive asynchronously and
+  // must not overwrite a search in progress.
+  const scopeSeeded = useRef(false);
+  useEffect(() => {
+    if (scopeSeeded.current || !settings) return;
+    scopeSeeded.current = true;
+    if (settings.deckbuilderDefaultScope === 'all') return;
+    setQuery((current) => (current ? current : withScope('', settings.deckbuilderDefaultScope)));
+  }, [settings]);
+
   /** Puts the deck back to a recorded set of slots, as API calls. */
   const replay = async (target: ReturnType<typeof snapshotDeck>) => {
     setBusy(true);
@@ -215,7 +228,7 @@ export function DeckBuilder({
       // Commander mode lists candidates with no query typed, since "show me what
       // can lead this deck" is the whole request; a colour filter alone is also
       // enough of a request to run a search.
-      if (!query && !ownedOnly && !pickingCommander && !colorFilterActive && !pickerCategory) {
+      if (!query && !pickingCommander && !colorFilterActive && !pickerCategory) {
         setResults([]);
         setResultsTotal(0);
         return;
@@ -224,7 +237,9 @@ export function DeckBuilder({
       searchCards(
         {
           q: query,
-          ownedOnly,
+          // `available` here means available *to this deck* — its own claim on
+          // its own cards is not competition.
+          deckId,
           format: deck?.formatCode ?? undefined,
           commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
           // The colour pills narrow within the commander's identity where the
@@ -257,7 +272,7 @@ export function DeckBuilder({
         .finally(() => setSearching(false));
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, ownedOnly, deck?.formatCode, identity, pickingCommander,
+  }, [query, deckId, deck?.formatCode, identity, pickingCommander,
       pickerColors, pickerGold, pickerHybrid, colorFilterActive, pickerCategory]);
 
   if (!deck) {
@@ -483,7 +498,7 @@ export function DeckBuilder({
         onPaneResize={resizePane}
         onPaneCommit={(pane, width) => { resizePane(pane, width); savePaneWidth(pane, width); }}
         picker={{
-          query, setQuery, ownedOnly, setOwnedOnly,
+          query, setQuery,
           pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
           results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
           preview, setPreview, coverNote, setCoverNote,

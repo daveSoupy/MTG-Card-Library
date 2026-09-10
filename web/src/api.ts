@@ -30,6 +30,20 @@ export interface CardSummary {
   /** Total quantity on any active want list; 0 when not wanted. */
   wantedQuantity?: number;
   printingCount: number;
+  /**
+   * Phase 23's collection numbers, on every row so badges render from the
+   * result set rather than a request per card. All computed server-side by
+   * allocation.ts — the client never subtracts anything itself.
+   */
+  availableQuantity?: number;
+  /** Copies decks in a reserving status have claimed. */
+  reservedQuantity?: number;
+  tradeListedQuantity?: number;
+  /** Decks that reference this card, and their names. */
+  deckCount?: number;
+  deckNames?: string[];
+  /** False for a basic land outside allocation: render no owned badge at all. */
+  allocationTracked?: boolean;
 }
 
 export interface CardFace {
@@ -103,6 +117,12 @@ export interface SearchResponse {
   total: number;
   limit: number;
   offset: number;
+  /**
+   * Things the query said that could not be honoured — `loc:Binderrr`. Shown
+   * above the results: an empty screen with no explanation is the failure mode
+   * these exist to prevent.
+   */
+  warnings?: string[];
 }
 
 export interface LibraryStatus {
@@ -179,6 +199,11 @@ export interface SearchParams {
   commanderFor?: string;
   /** Phase 7 shortfall links: cards resolved into this card_categories value. */
   category?: string;
+  /**
+   * The deck this search runs from. Makes `available` mean "available to this
+   * deck" — its own reservation excluded, so a deck never competes with itself.
+   */
+  deckId?: number;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -220,6 +245,7 @@ export function searchCards(params: SearchParams, signal?: AbortSignal): Promise
   if (params.excludeUniversesBeyond) query.set('excludeUniversesBeyond', 'true');
   if (params.commanderFor) query.set('commanderFor', params.commanderFor);
   if (params.category) query.set('category', params.category);
+  if (params.deckId !== undefined) query.set('deckId', String(params.deckId));
   if (params.sort) query.set('sort', params.sort);
   query.set('limit', String(params.limit ?? 60));
   if (params.offset) query.set('offset', String(params.offset));
@@ -590,6 +616,8 @@ export interface AppSettings {
   defaultCostFixedUsd: number;
   /** Price of one booster pack; the Draft cost defaults to 3× this. */
   draftBoosterPriceUsd: number;
+  /** Phase 23: the scope the deck builder's search pane opens in. */
+  deckbuilderDefaultScope: 'all' | 'owned' | 'available';
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>

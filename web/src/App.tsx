@@ -24,6 +24,8 @@ import {
   savePageDensity, saveGlobalDensity, type Density, type DensityPage,
 } from './density.ts';
 import { applyTheme, storedTheme, type Theme } from './theme.ts';
+import { SCOPES, SCOPE_HINT, SCOPE_LABEL, scopeOf, withScope } from './searchScope.ts';
+import { deckBadge, ownedBadge } from './ownedBadge.ts';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -97,6 +99,10 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [showSyntax, setShowSyntax] = useState(false);
+  // Parse warnings from the last search — an unknown storage location, a count
+  // that was not a number. Kept beside the results rather than raised as an
+  // error: the search still ran.
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const [sets, setSets] = useState<SetRecord[]>([]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
@@ -272,6 +278,7 @@ export default function App() {
         .then((result) => {
           setCards(result.cards);
           setTotal(result.total);
+          setWarnings(result.warnings ?? []);
         })
         .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
         .finally(() => setLoading(false));
@@ -345,6 +352,26 @@ export default function App() {
             syntax
           </button>
         </div>}
+
+        {/* Scope chips. They write their term into the box above rather than
+            setting a filter of their own, so the syntax is discoverable by
+            using the buttons — and so a chip can only ever narrow a query. */}
+        {view.name === 'browse' && (
+          <div className="scope-chips" role="group" aria-label="Collection scope">
+            {SCOPES.map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                className="pill"
+                aria-pressed={scopeOf(text) === scope}
+                title={SCOPE_HINT[scope]}
+                onClick={() => setText((current) => withScope(current, scope))}
+              >
+                {SCOPE_LABEL[scope]}
+              </button>
+            ))}
+          </div>
+        )}
 
         {view.name === 'browse' && (
           <>
@@ -472,6 +499,12 @@ export default function App() {
 
           {error && <div className="error">{error}</div>}
 
+          {/* A typo in a name — loc:Binderrr — returns nothing, which is
+              correct, but silently, which is not. */}
+          {warnings.map((warning) => (
+            <div className="notice" key={warning}>{warning}</div>
+          ))}
+
           {!loading && cards.length === 0 && !error && (
             <p className="empty">
               {text || filtersAreActive(filters)
@@ -496,6 +529,8 @@ export default function App() {
               <div className="grid">
                 {group.cards.map((card) => {
                   const wanted = isWanted(card.oracleId, card.wantedQuantity);
+                  const owned = ownedBadge(card);
+                  const decks = deckBadge(card);
                   return (
                     <div
                       key={card.oracleId}
@@ -517,8 +552,8 @@ export default function App() {
                             {card.setCode?.toUpperCase() ?? ''}
                             {card.collectorNumber ? ` #${card.collectorNumber}` : ''}
                           </span>
-                          <span className="tr-qty">
-                            {card.ownedQuantity > 0 ? `×${card.ownedQuantity}` : ''}
+                          <span className="tr-qty" title={owned?.title}>
+                            {owned ? `×${owned.text}` : ''}
                           </span>
                           <span className="tr-price">{money(card.priceUsd)}</span>
                         </div>
@@ -529,7 +564,15 @@ export default function App() {
                           ) : (
                             <div className="placeholder">{card.name}</div>
                           )}
-                          {card.ownedQuantity > 0 && <span className="owned-badge">{card.ownedQuantity}</span>}
+                          {owned && (
+                            <span className="owned-badge" title={owned.title}>{owned.text}</span>
+                          )}
+                          {/* Which decks already use it — the other half of
+                              "do I own this?", and the reason a copy you own
+                              may still not be one you can build with. */}
+                          {decks && (
+                            <span className="deck-badge" title={decks.title}>⛁{decks.text}</span>
+                          )}
                           <div className="cname">
                             <span className="cname-text">{card.name}</span>
                             {/* Shown at Compact, where the art is too small to

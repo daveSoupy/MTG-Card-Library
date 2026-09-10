@@ -44,7 +44,16 @@ function filtersFrom(q: Record<string, unknown>): SearchFilters {
     commanderFor: typeof q.commanderFor === 'string' && q.commanderFor
       ? q.commanderFor.toLowerCase() : undefined,
     category: typeof q.category === 'string' && q.category ? q.category.toLowerCase() : undefined,
+    // Phase 23. The deck the search is being run from, so `available` excludes
+    // that deck's own reservation. Checked to be a whole positive number here
+    // because allocation.ts splices it into SQL and refuses anything else.
+    deckId: deckIdFrom(q.deckId),
   };
+}
+
+function deckIdFrom(value: unknown): number | undefined {
+  const parsed = asNumber(value);
+  return parsed !== undefined && Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 export function registerCardRoutes(app: FastifyInstance, store: CardSearchStore): void {

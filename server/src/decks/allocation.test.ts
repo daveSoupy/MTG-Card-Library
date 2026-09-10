@@ -10,6 +10,7 @@ import { DeckStore } from './store.ts';
 import {
   allocationFor, availableFor, RESERVING_STATUSES, SlotOverfilledError,
   ALLOCATION_IGNORES_BASICS, BREWS_RESERVE_COPIES, TRADELIST_REDUCES_AVAILABLE,
+  allocationCtes, allocationSettings, allocationSqlRefs,
 } from './allocation.ts';
 
 /**
@@ -396,4 +397,99 @@ test('every existing deck upgrades to assembled, and the numbers do not move', a
   setSetting(db, TRADELIST_REDUCES_AVAILABLE, '0');
   assert.equal(availableFor(db, 'o-ring'), before, 'the upgrade moved no number');
   db.close();
+});
+
+// ------------------------------------------------- the rule, written twice
+
+/**
+ * Phase 23 needs the subtraction as an SQL expression, because it computes it
+ * across a whole search result rather than for a known list of cards. That is a
+ * second expression of the same rule, and the way two copies of a rule fail is
+ * quietly. So both are run over the same fixtures and compared: change one
+ * without the other and this goes red.
+ */
+test('allocationSqlRefs computes exactly what allocationFor does', () => {
+  const { db, decks, collection, tradeLists, locationId } = fixture();
+  own(collection, locationId, 'o-ring', 3);
+  own(collection, locationId, 'o-island', 4);
+  const lot = own(collection, locationId, 'o-bolt', 2);
+
+  const assembled = decks.create({ name: 'Built', formatCode: 'commander' });
+  decks.update(assembled, { status: 'assembled' });
+  decks.addCard(assembled, 'o-ring', { quantity: 2 });
+  decks.addCard(assembled, 'o-island', { quantity: 4 });
+
+  const brew = decks.create({ name: 'Idea', formatCode: 'commander' });
+  decks.addCard(brew, 'o-bolt', { quantity: 1, fromCollection: 1 });
+
+  const listId = tradeLists.createList('Bulk');
+  tradeLists.addItem(listId, lot, { quantity: 1 });
+
+  // Every combination of the three settings, so no branch of either form is
+  // left unvisited — including the ones that disagree about basics.
+  for (const ignoreBasics of [true, false]) {
+    for (const brewsReserve of [true, false]) {
+      for (const tradeListReduces of [true, false]) {
+        setSetting(db, ALLOCATION_IGNORES_BASICS, ignoreBasics ? '1' : '0');
+        setSetting(db, BREWS_RESERVE_COPIES, brewsReserve ? '1' : '0');
+        setSetting(db, TRADELIST_REDUCES_AVAILABLE, tradeListReduces ? '1' : '0');
+
+        const settings = allocationSettings(db);
+        const refs = allocationSqlRefs(settings);
+        const rows = db.prepare(`
+          WITH ${allocationCtes(settings, { materialized: true })}
+          SELECT o.oracle_id,
+                 ${refs.owned}       AS owned,
+                 ${refs.reserved}    AS reserved,
+                 ${refs.tradeListed} AS listed,
+                 ${refs.available}   AS available,
+                 ${refs.tracked}     AS tracked
+            FROM oracle_cards o
+            LEFT JOIN alloc_owned    ON alloc_owned.oracle_id    = o.oracle_id
+            LEFT JOIN alloc_reserved ON alloc_reserved.oracle_id = o.oracle_id
+            LEFT JOIN alloc_listed   ON alloc_listed.oracle_id   = o.oracle_id`)
+          .all() as Array<Record<string, any>>;
+
+        const label = `basics=${ignoreBasics} brews=${brewsReserve} trades=${tradeListReduces}`;
+        for (const row of rows) {
+          const expected = allocationFor(db, row.oracle_id, { settings });
+          assert.deepEqual(
+            {
+              owned: row.owned, reserved: row.reserved, listed: row.listed,
+              available: row.available, tracked: Boolean(row.tracked),
+            },
+            {
+              owned: expected.owned, reserved: expected.reserved,
+              listed: expected.tradeListed, available: expected.available,
+              tracked: expected.tracked,
+            },
+            `${row.oracle_id} — ${label}`,
+          );
+        }
+      }
+    }
+  }
+});
+
+/** The same, with a deck excluded — the deck-builder case Phase 23 relies on. */
+test('the SQL form honours excludeDeckId exactly as the JS form does', () => {
+  const { db, decks, collection, locationId } = fixture();
+  own(collection, locationId, 'o-ring', 2);
+  const mine = decks.create({ name: 'Mine', formatCode: 'commander' });
+  decks.update(mine, { status: 'assembled' });
+  decks.addCard(mine, 'o-ring', { quantity: 1 });
+
+  const settings = allocationSettings(db);
+  const refs = allocationSqlRefs(settings);
+  const row = db.prepare(`
+    WITH ${allocationCtes(settings, { excludeDeckId: mine, materialized: true })}
+    SELECT ${refs.available} AS available
+      FROM oracle_cards o
+      LEFT JOIN alloc_owned    ON alloc_owned.oracle_id    = o.oracle_id
+      LEFT JOIN alloc_reserved ON alloc_reserved.oracle_id = o.oracle_id
+      LEFT JOIN alloc_listed   ON alloc_listed.oracle_id   = o.oracle_id
+     WHERE o.oracle_id = 'o-ring'`).get() as { available: number };
+
+  assert.equal(row.available, availableFor(db, 'o-ring', { excludeDeckId: mine }));
+  assert.equal(row.available, 2);
 });

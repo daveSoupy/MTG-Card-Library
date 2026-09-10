@@ -431,6 +431,30 @@ export function DataPage({
         {settings && (
           <div className="cost-default">
             <label>
+              <span className="dim">Deck builder search opens in</span>
+              <select
+                value={settings.deckbuilderDefaultScope}
+                onChange={(e) => saveSetting(
+                  'deckbuilderDefaultScope',
+                  e.target.value as AppSettings['deckbuilderDefaultScope'],
+                )}
+              >
+                <option value="all">All cards</option>
+                <option value="owned">Cards I own</option>
+                <option value="available">Cards available to build with</option>
+              </select>
+            </label>
+          </div>
+        )}
+        <p className="hint">
+          Which scope chip the deck builder&rsquo;s search pane starts on. The chip writes its
+          term into the search box, so you can always see and edit what it did. Browse always
+          opens on all cards.
+        </p>
+
+        {settings && (
+          <div className="cost-default">
+            <label>
               <span className="dim">Default cost basis when adding cards</span>
               <select
                 value={settings.defaultCostMethod}

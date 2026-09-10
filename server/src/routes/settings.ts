@@ -41,6 +41,15 @@ const BOOLEAN_SETTINGS: Record<string, BooleanSetting> = {
   },
 };
 
+/**
+ * Phase 23. The scope the deck builder's search pane opens in — the whole
+ * catalog, or only what you own / can still claim. Browse always opens on
+ * 'all'; narrowing the whole card database by default is a different decision
+ * and not one this setting makes.
+ */
+export const DECKBUILDER_DEFAULT_SCOPE = 'deckbuilder_default_scope';
+export const DECKBUILDER_SCOPES = ['all', 'owned', 'available'] as const;
+
 export const DEFAULT_COST_METHOD = 'default_cost_method';
 export const DEFAULT_COST_FIXED_USD = 'default_cost_fixed_usd';
 export const DRAFT_BOOSTER_PRICE_USD = 'draft_booster_price_usd';
@@ -52,6 +61,11 @@ const ENUM_SETTINGS: Record<string, EnumSetting> = {
     key: DEFAULT_COST_METHOD,
     default: 'unknown',
     allowed: COST_METHODS.filter((m) => m !== 'box'),
+  },
+  deckbuilderDefaultScope: {
+    key: DECKBUILDER_DEFAULT_SCOPE,
+    default: 'all',
+    allowed: DECKBUILDER_SCOPES,
   },
 };
 
