@@ -144,7 +144,7 @@ export function registerDeckRoutes(
     Body: {
       name?: string; formatCode?: string | null; description?: string | null;
       notes?: string | null; isArchived?: boolean; templateId?: number | null;
-      status?: DeckStatus;
+      status?: DeckStatus; homeLocationId?: number | null;
     };
   }>(
     '/api/v1/decks/:id',
@@ -154,6 +154,9 @@ export function registerDeckRoutes(
         body: body({
           name: NAME, formatCode: TEXT_OR_NULL, description: TEXT_OR_NULL,
           notes: TEXT_OR_NULL, isArchived: FLAG, templateId: ID_OR_NULL,
+          // Where the physical deck lives — the destination an assembly run
+          // moves lots into, and where a disassembly takes them back from.
+          homeLocationId: ID_OR_NULL,
           // Whether the deck reserves its copies. The store stamps
           // status_changed_at and leaves every slot's claim untouched, so
           // assembled → brew → assembled is lossless.
@@ -162,9 +165,11 @@ export function registerDeckRoutes(
       },
     },
     async (request, reply) => guard(reply, () => {
-      const { name, formatCode, description, notes, isArchived, templateId, status } = request.body;
+      const {
+        name, formatCode, description, notes, isArchived, templateId, status, homeLocationId,
+      } = request.body;
       decks.update(request.params.id, {
-        name, formatCode, description, notes, isArchived, templateId, status,
+        name, formatCode, description, notes, isArchived, templateId, status, homeLocationId,
       });
       return { deck: decks.get(request.params.id) };
     }),

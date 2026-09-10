@@ -477,6 +477,8 @@ export interface Deck {
   id: number;
   name: string;
   formatCode: string | null;
+  /** Where the physical deck lives — an assembly run's destination. */
+  homeLocationId: number | null;
   description: string | null;
   notes: string | null;
   status: DeckStatus;
@@ -608,13 +610,141 @@ export const pushMissingToWantList = (deckId: number, wantListId?: number) =>
   send<{ added: number; updated: number; listName: string }>(
     `/api/v1/decks/${deckId}/buildability/want`, 'POST', { wantListId });
 
+
+// -- assembly runs (Phase 25) -------------------------------------------------
+
+export type RunKind = 'assemble' | 'disassemble';
+export type RunStatus = 'open' | 'completed' | 'cancelled';
+
+export interface AssemblyRun {
+  id: number;
+  deckId: number;
+  kind: RunKind;
+  status: RunStatus;
+  movesLots: boolean;
+  sourceRunId: number | null;
+  startedAt: string;
+  completedAt: string | null;
+  notes: string | null;
+  lineCount: number;
+  cardCount: number;
+  pickedCount: number;
+}
+
+export interface SheetLine {
+  id: number;
+  oracleId: string;
+  name: string;
+  printingId: string | null;
+  setCode: string | null;
+  collectorNumber: string | null;
+  finish: string | null;
+  condition: string | null;
+  language: string | null;
+  quantity: number;
+  picked: boolean;
+  unavailable: boolean;
+  notes: string | null;
+  collectionItemId: number | null;
+  fromLocationId: number | null;
+  fromLocationName: string | null;
+  toLocationId: number | null;
+  toLocationName: string | null;
+  /** Copies of this lot currently offered on a trade list; 0 when none. */
+  tradeListed: number;
+  unitPriceUsd: number | null;
+  extendedUsd: number | null;
+}
+
+export interface SheetGroup {
+  locationId: number | null;
+  locationName: string;
+  lines: SheetLine[];
+  cardCount: number;
+  pickedCount: number;
+}
+
+export interface AssemblySheet {
+  run: AssemblyRun;
+  deck: {
+    id: number;
+    name: string;
+    status: DeckStatus;
+    homeLocationId: number | null;
+    homeLocationName: string | null;
+  };
+  groups: SheetGroup[];
+  unavailable: SheetLine[];
+  summary: {
+    cardsToPull: number;
+    pickedCards: number;
+    lineCount: number;
+    pickedLines: number;
+    unavailableCards: number;
+    unavailableCostUsd: number;
+    unpricedCount: number;
+    tradeListedLines: number;
+    proxiedCards: number;
+  };
+  movesLots: boolean;
+  movesLotsBlocked: string | null;
+}
+
+export interface AssemblyCompletion {
+  runId: number;
+  kind: RunKind;
+  deckId: number;
+  deckStatus: DeckStatus;
+  pulledCards: number;
+  notFoundCards: number;
+  proxiedCards: number;
+  stillMissingCards: number;
+  stillMissingCostUsd: number;
+  unpricedCount: number;
+  movedLots: boolean;
+  copiesMoved: number;
+  tradeListAdjustments: Array<{
+    listName: string; cardName: string; quantity: number; removed: boolean;
+  }>;
+  problems: string[];
+}
+
+/** Opens a run, or hands back the one already open on this deck. */
+export const startAssembly = (deckId: number) =>
+  send<AssemblySheet>(`/api/v1/decks/${deckId}/assembly`, 'POST');
+
+export const startDisassembly = (deckId: number) =>
+  send<AssemblySheet>(`/api/v1/decks/${deckId}/disassembly`, 'POST');
+
+/** The run in progress, if any — so the deck header can offer to resume it. */
+export const fetchOpenRun = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ run: AssemblyRun | null }>(`/api/v1/decks/${deckId}/assembly`, signal)
+    .then((r) => r.run);
+
+export const fetchRunHistory = (deckId: number, signal?: AbortSignal) =>
+  getJson<{ runs: AssemblyRun[] }>(`/api/v1/decks/${deckId}/assembly/runs`, signal)
+    .then((r) => r.runs);
+
+export const fetchSheet = (runId: number, signal?: AbortSignal) =>
+  getJson<AssemblySheet>(`/api/v1/assembly/${runId}`, signal);
+
+/** Ticking a line off. The whole sheet comes back so the counts stay honest. */
+export const setLinePicked = (runId: number, itemId: number, picked: boolean) =>
+  send<AssemblySheet>(`/api/v1/assembly/${runId}/items/${itemId}`, 'PATCH', { picked });
+
+export const completeAssembly = (runId: number) =>
+  send<AssemblyCompletion>(`/api/v1/assembly/${runId}/complete`, 'POST');
+
+export const cancelAssembly = (runId: number) =>
+  send<{ run: AssemblyRun }>(`/api/v1/assembly/${runId}/cancel`, 'POST');
+
 export const fetchDeck = (id: number, signal?: AbortSignal) =>
   getJson<{ deck: Deck }>(`/api/v1/decks/${id}`, signal).then((r) => r.deck);
 
 export const createDeck = (name: string, formatCode: string | null) =>
   send<{ deck: Deck }>('/api/v1/decks', 'POST', { name, formatCode }).then((r) => r.deck);
 
-export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived' | 'templateId' | 'status'>>) =>
+export const updateDeck = (id: number, changes: Partial<Pick<Deck, 'name' | 'formatCode' | 'description' | 'notes' | 'isArchived' | 'templateId' | 'status' | 'homeLocationId'>>) =>
   send<{ deck: Deck }>(`/api/v1/decks/${id}`, 'PATCH', changes).then((r) => r.deck);
 
 export const duplicateDeck = (id: number) =>
@@ -700,6 +830,11 @@ export interface AppSettings {
   draftBoosterPriceUsd: number;
   /** Phase 23: the scope the deck builder's search pane opens in. */
   deckbuilderDefaultScope: 'all' | 'owned' | 'available';
+  /**
+   * Phase 25. Off, an assembly run is a checklist and touches no data. On,
+   * completing one physically relocates lots into the deck's home location.
+   */
+  assemblyMovesLots: boolean;
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>

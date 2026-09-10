@@ -15,7 +15,7 @@ const card: DeckCard = {
 };
 
 const deck: Deck = {
-  id: 1, name: 'Test Deck', formatCode: null, description: null, notes: null,
+  id: 1, name: 'Test Deck', formatCode: null, homeLocationId: null, description: null, notes: null,
   status: 'brew', statusChangedAt: null,
   isArchived: false, createdAt: '', updatedAt: '', templateId: null, cards: [card],
   validation: {

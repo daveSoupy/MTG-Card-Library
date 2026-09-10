@@ -385,6 +385,7 @@ export class DeckStore {
     changes: {
       name?: string; formatCode?: string | null; description?: string | null; notes?: string | null;
       isArchived?: boolean; templateId?: number | null; status?: DeckStatus;
+      homeLocationId?: number | null;
     },
   ): void {
     const existing = this.db.prepare('SELECT id, status FROM decks WHERE id = ?').get(id) as
@@ -398,6 +399,12 @@ export class DeckStore {
     if (changes.description !== undefined) { sets.push('description = ?'); params.push(changes.description); }
     if (changes.notes !== undefined) { sets.push('notes = ?'); params.push(changes.notes); }
     if (changes.isArchived !== undefined) { sets.push('is_archived = ?'); params.push(changes.isArchived ? 1 : 0); }
+    // Where the physical deck lives. Phase 25's assembly moves lots into it, so
+    // a deck without one can only ever produce a checklist.
+    if (changes.homeLocationId !== undefined) {
+      sets.push('home_location_id = ?');
+      params.push(changes.homeLocationId);
+    }
     // decks.template_id is ON DELETE SET NULL, so an explicit null here is
     // indistinguishable from "template was deleted" — both mean off.
     if (changes.templateId !== undefined) { sets.push('template_id = ?'); params.push(changes.templateId); }
