@@ -629,6 +629,14 @@ export interface AssemblyRun {
   lineCount: number;
   cardCount: number;
   pickedCount: number;
+  /**
+   * Copies the sheet sent you for that were not where it said — un-ticked when
+   * the assemble run was completed. Empty on an open run and on a disassembly.
+   * The durable record of a shortfall: the deck's claim is recomputed from the
+   * collection on every edit and cannot hold it, so the run does.
+   */
+  notFoundCount: number;
+  notFound: Array<{ oracleId: string; name: string; quantity: number }>;
 }
 
 export interface SheetLine {

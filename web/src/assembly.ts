@@ -1,4 +1,6 @@
-import type { AssemblyCompletion, AssemblySheet, AssemblyRun, SheetLine } from './api.ts';
+import type {
+  AssemblyCompletion, AssemblySheet, AssemblyRun, DeckStatus, SheetLine,
+} from './api.ts';
 import { money } from './buildability.ts';
 
 /**
@@ -109,9 +111,12 @@ export function completionFacts(result: AssemblyCompletion): CompletionFact[] {
   });
 
   if (result.notFoundCards > 0) {
+    // Recorded on the run, not on the deck's claim: the collection still says
+    // you own them, so the deck still counts them. The header notice keeps
+    // saying so until the deck is pulled again or put away.
     facts.push({
       key: 'notFound',
-      text: `${cards(result.notFoundCards)} not found — the deck no longer claims them`,
+      text: `${cards(result.notFoundCards)} not found where the sheet said`,
       tone: 'warn',
     });
   }
@@ -148,6 +153,41 @@ export function completionFacts(result: AssemblyCompletion): CompletionFact[] {
   return facts;
 }
 
+export interface NotFoundNotice {
+  text: string;
+  title: string;
+  run: AssemblyRun;
+}
+
+/**
+ * The deck-header notice for cards the last pull could not find.
+ *
+ * Read from the run rather than from the deck, because the deck's claim is
+ * recomputed from what the collection can spare and cannot remember that a
+ * copy was not where the sheet said. Shown only while the deck is still
+ * assembled off that run: once it is put away or pulled again, the shortfall
+ * belongs to a run that is no longer the one on the table.
+ */
+export function notFoundNotice(runs: AssemblyRun[], deckStatus: DeckStatus): NotFoundNotice | null {
+  if (deckStatus !== 'assembled') return null;
+  // Newest first, as the server orders them; the latest completed assemble is
+  // the one the deck was built from. Anything after it — a disassembly, a
+  // cancelled run — means that pull is no longer what is on the table.
+  const latest = runs.find((run) => run.status === 'completed');
+  if (!latest || latest.kind !== 'assemble' || latest.notFoundCount === 0) return null;
+
+  const count = latest.notFoundCount;
+  const names = latest.notFound
+    .map((line) => `${line.quantity}× ${line.name}`)
+    .join(', ');
+  return {
+    text: `${count} not found on last pull`,
+    title: `Not where the sheet said when this deck was assembled: ${names}. `
+      + 'The collection still counts them as yours, so check where they went.',
+    run: latest,
+  };
+}
+
 /** `12 Mar, 14 cards` — one line of run history. */
 export function runHistoryLabel(run: AssemblyRun): string {
   const when = new Date(run.completedAt ?? run.startedAt);
@@ -155,8 +195,9 @@ export function runHistoryLabel(run: AssemblyRun): string {
     ? ''
     : when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   const verb = run.kind === 'assemble' ? 'Assembled' : 'Put away';
+  const shortfall = run.notFoundCount > 0 ? `, ${run.notFoundCount} not found` : '';
   const state = run.status === 'completed'
-    ? `${run.pickedCount} of ${run.cardCount} cards`
+    ? `${run.pickedCount} of ${run.cardCount} cards${shortfall}`
     : run.status;
   return [date, `${verb} — ${state}`].filter(Boolean).join(' · ');
 }

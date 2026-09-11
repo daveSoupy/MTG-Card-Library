@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AssemblyCompletion, AssemblySheet, SheetLine } from './api.ts';
+import type { AssemblyCompletion, AssemblyRun, AssemblySheet, SheetLine } from './api.ts';
 import {
-  completionFacts, lineLabel, lineTraits, lineWarning, printingLabel, progressText, runIntent,
-  runHistoryLabel,
+  completionFacts, lineLabel, lineTraits, lineWarning, notFoundNotice, printingLabel,
+  progressText, runIntent, runHistoryLabel,
 } from './assembly.ts';
 
 /**
@@ -45,7 +45,7 @@ const sheet = (over: Partial<AssemblySheet> = {}): AssemblySheet => ({
   run: {
     id: 1, deckId: 1, kind: 'assemble', status: 'open', movesLots: false,
     sourceRunId: null, startedAt: '2025-03-12T10:00:00Z', completedAt: null, notes: null,
-    lineCount: 3, cardCount: 5, pickedCount: 2,
+    lineCount: 3, cardCount: 5, pickedCount: 2, notFoundCount: 0, notFound: [],
   },
   deck: {
     id: 1, name: 'Krenko', status: 'brew', homeLocationId: 5,
@@ -120,10 +120,10 @@ test('the completion summary leaves out its noughts', () => {
   assert.equal(facts[0].text, '5 cards pulled');
 });
 
-test('cards not found are reported as a claim the deck gave up', () => {
+test('cards not found are reported as such, not as a claim given up', () => {
   const facts = completionFacts(completion({ pulledCards: 4, notFoundCards: 1 }));
   const notFound = facts.find((fact) => fact.key === 'notFound')!;
-  assert.match(notFound.text, /no longer claims/);
+  assert.match(notFound.text, /not found where the sheet said/);
   assert.equal(notFound.tone, 'warn');
 });
 
@@ -150,12 +150,46 @@ test('a settled trade list is named, not merely counted', () => {
   assert.ok(texts.some((text) => /Llanowar Elves on “Bulk” reduced by 2/.test(text)));
 });
 
-test('history says what a run did, including that it moved nothing', () => {
-  const label = runHistoryLabel({
-    id: 3, deckId: 1, kind: 'assemble', status: 'completed', movesLots: false,
-    sourceRunId: null, startedAt: '2025-03-12T10:00:00Z',
-    completedAt: '2025-03-12T11:00:00Z', notes: null,
-    lineCount: 12, cardCount: 14, pickedCount: 13,
-  });
-  assert.match(label, /Assembled — 13 of 14 cards/);
+const run = (over: Partial<AssemblyRun> = {}): AssemblyRun => ({
+  id: 3, deckId: 1, kind: 'assemble', status: 'completed', movesLots: false,
+  sourceRunId: null, startedAt: '2025-03-12T10:00:00Z',
+  completedAt: '2025-03-12T11:00:00Z', notes: null,
+  lineCount: 12, cardCount: 14, pickedCount: 13,
+  notFoundCount: 1, notFound: [{ oracleId: 'o9', name: 'Sol Ring', quantity: 1 }],
+  ...over,
+});
+
+test('history says what a run did, including what it could not find', () => {
+  assert.match(runHistoryLabel(run()), /Assembled — 13 of 14 cards, 1 not found/);
+  assert.match(
+    runHistoryLabel(run({ pickedCount: 14, notFoundCount: 0, notFound: [] })),
+    /Assembled — 14 of 14 cards$/,
+    'a clean pull does not carry an empty shortfall',
+  );
+});
+
+test('the not-found notice names the cards and reads from the run, not the claim', () => {
+  const notice = notFoundNotice([run()], 'assembled')!;
+  assert.equal(notice.text, '1 not found on last pull');
+  assert.match(notice.title, /1× Sol Ring/);
+  assert.match(notice.title, /still counts them as yours/);
+  assert.equal(notice.run.id, 3);
+});
+
+test('the notice is silent once the pull is no longer what is on the table', () => {
+  assert.equal(notFoundNotice([run()], 'brew'), null, 'a deck that is not assembled');
+  assert.equal(notFoundNotice([run()], 'disassembled'), null);
+  assert.equal(notFoundNotice([run({ notFoundCount: 0, notFound: [] })], 'assembled'), null,
+    'a clean pull');
+  assert.equal(notFoundNotice([], 'assembled'), null, 'no runs at all');
+
+  // Newest first: a later put-away means that pull is history, even though the
+  // deck could have been re-marked assembled by hand since.
+  const putAway = run({ id: 4, kind: 'disassemble', notFoundCount: 0, notFound: [] });
+  assert.equal(notFoundNotice([putAway, run()], 'assembled'), null);
+
+  // But an open or cancelled run after it does not: the completed assemble is
+  // still the latest thing that actually happened to the cards.
+  const abandoned = run({ id: 5, status: 'cancelled', notFoundCount: 0, notFound: [] });
+  assert.equal(notFoundNotice([abandoned, run()], 'assembled')?.run.id, 3);
 });
