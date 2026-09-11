@@ -4,11 +4,13 @@ import {
   addDeckTag, removeDeckTag, imageUrl,
   createDeck, deleteDeck, duplicateDeck, fetchDecks,
   BUILDABILITY_SORTS, BUILDABILITY_SORT_LABEL,
-  DECK_STATUSES, DECK_STATUS_HINT, DECK_STATUS_LABEL,
+  DECK_STATUSES, DECK_STATUS_HINT, DECK_STATUS_LABEL, DECK_STATUS_RESERVES,
   type BuildabilitySort, type DeckStatus, type DeckSummary, type FormatRecord,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
 import { BuildabilityBar } from './Buildability.tsx';
+import { ContentionPanel } from './ContentionPanel.tsx';
+import { WhatIfDialog } from './WhatIfDialog.tsx';
 
 const COLOR_PIP: Record<string, string> = { W: 'W', U: 'U', B: 'B', R: 'R', G: 'G' };
 
@@ -34,6 +36,8 @@ export function DeckList({
   const [importing, setImporting] = useState(false);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [tagging, setTagging] = useState<number | null>(null);
+  const [contention, setContention] = useState(false);
+  const [whatIf, setWhatIf] = useState<number | null>(null);
   // Taken-apart decks are still decks — they keep their lists — but they are
   // not what you came to the page for, so they start out of the way.
   const [statuses, setStatuses] = useState<DeckStatus[]>(
@@ -71,6 +75,11 @@ export function DeckList({
   const [name, setName] = useState('');
   const [formatCode, setFormatCode] = useState('commander');
   const [confirming, setConfirming] = useState<number | null>(null);
+
+  const contestedDecks = useMemo(
+    () => (decks ?? []).filter((deck) => (deck.buildability?.contestedCount ?? 0) > 0).length,
+    [decks],
+  );
 
   const load = useCallback(() => {
     fetchDecks({ buildability: true, sort }).then(setDecks).catch((e) => setError(e.message));
@@ -157,6 +166,18 @@ export function DeckList({
               <span className="dim">{statusCounts.get(status) ?? 0}</span>
             </button>
           ))}
+          {/* Phase 26's door. The count is decks with a fight on, which is the
+              figure already on their tiles; the screen behind it is per card. */}
+          {contestedDecks > 0 && (
+            <button
+              className="status-chip contested"
+              onClick={() => setContention(true)}
+              title="Which decks are fighting over which copies"
+            >
+              Contested
+              <span className="dim">{contestedDecks}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -269,6 +290,16 @@ export function DeckList({
               <button className="linkish" onClick={() => run(() => duplicateDeck(deck.id))}>
                 Duplicate
               </button>
+              {/* Only a deck that holds cards has anything to free. */}
+              {DECK_STATUS_RESERVES[deck.status] && (
+                <button
+                  className="linkish"
+                  onClick={() => setWhatIf(deck.id)}
+                  title="What would breaking this deck up free for the others?"
+                >
+                  What if…
+                </button>
+              )}
               {confirming === deck.id ? (
                 <>
                   <button
@@ -294,6 +325,11 @@ export function DeckList({
           a deck immediately frees whatever it had claimed.
         </p>
       )}
+
+      {contention && (
+        <ContentionPanel onClose={() => { setContention(false); load(); }} onChanged={load} />
+      )}
+      {whatIf !== null && <WhatIfDialog deckId={whatIf} onClose={() => setWhatIf(null)} />}
 
       <BackToTop label="Back to the top of the deck list" />
     </main>

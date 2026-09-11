@@ -746,6 +746,98 @@ export const completeAssembly = (runId: number) =>
 export const cancelAssembly = (runId: number) =>
   send<{ run: AssemblyRun }>(`/api/v1/assembly/${runId}/cancel`, 'POST');
 
+
+// -- allocation contention (Phase 26) ------------------------------------------
+
+export interface HoldingDeck {
+  deckId: number;
+  deckName: string;
+  status: DeckStatus;
+  quantity: number;
+}
+
+export interface ShortDeck {
+  deckId: number;
+  deckName: string;
+  status: DeckStatus;
+  required: number;
+  covered: number;
+  missing: number;
+}
+
+export interface ContestedCard {
+  oracleId: string;
+  name: string;
+  owned: number;
+  tradeListed: number;
+  /** Σ (required − proxied) across reserving decks. */
+  wanted: number;
+  /** Σ claims across reserving decks. */
+  held: number;
+  /** Copies that would have to appear for every reserving deck to be whole. */
+  shortfall: number;
+  unitPriceUsd: number | null;
+  /** Stored claims exceed supply — the ground moved after a deck claimed. */
+  overAllocated: boolean;
+  holders: HoldingDeck[];
+  shortDecks: ShortDeck[];
+}
+
+export interface ReassignResult {
+  oracleId: string;
+  quantity: number;
+  from: DeckBuildability;
+  to: DeckBuildability;
+}
+
+export interface WhatIfDelta {
+  deckId: number;
+  deckName: string;
+  before: DeckBuildability;
+  after: DeckBuildability;
+}
+
+export interface WhatIfResult {
+  deckId: number;
+  deckName: string;
+  /** Decks whose figures would change, best improvement first. */
+  changed: WhatIfDelta[];
+  /** Contested cards this deck is currently holding copies of. */
+  freedCards: Array<{ oracleId: string; name: string; quantity: number }>;
+}
+
+export interface CardHolders {
+  oracleId: string;
+  name: string;
+  tracked: boolean;
+  owned: number;
+  reserved: number;
+  tradeListed: number;
+  available: number;
+  decks: Array<{
+    deckId: number; deckName: string; status: DeckStatus; quantity: number;
+    reserving: boolean; homeLocationName: string | null;
+  }>;
+  locations: Array<{ locationId: number; name: string; quantity: number }>;
+}
+
+/** The contested set, worst first. */
+export const fetchContention = (signal?: AbortSignal) =>
+  getJson<{ cards: ContestedCard[] }>('/api/v1/allocation/contention', signal).then((r) => r.cards);
+
+/** Moves a claim between two decks; both decks' figures come back with it. */
+export const reassignClaim = (input: {
+  oracleId: string; fromDeckId: number; toDeckId: number; quantity: number;
+}) => send<ReassignResult>('/api/v1/allocation/reassign', 'POST', input);
+
+/** What breaking a deck up would free. Reads only. */
+export const fetchWhatIf = (deckId: number, signal?: AbortSignal) =>
+  getJson<WhatIfResult>(`/api/v1/allocation/what-if?disassemble=${deckId}`, signal);
+
+/** Who holds a card and where its copies physically live. */
+export const fetchCardHolders = (oracleId: string, signal?: AbortSignal) =>
+  getJson<CardHolders>(`/api/v1/allocation/holders/${encodeURIComponent(oracleId)}`, signal);
+
 export const fetchDeck = (id: number, signal?: AbortSignal) =>
   getJson<{ deck: Deck }>(`/api/v1/decks/${id}`, signal).then((r) => r.deck);
 

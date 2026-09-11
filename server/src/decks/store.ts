@@ -14,7 +14,8 @@ import {
   allocationForMany, allocationSettings, assertSlotFits, availableFor,
   DECK_STATUSES, type DeckStatus,
 } from './allocation.ts';
-import { reconcileDeckClaims } from './reconcile.ts';
+import { decksSharingCards, reconcileDeckAndSharers, reconcileDeckClaims } from './reconcile.ts';
+import { reconcileAlerts } from './contention.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -424,7 +425,15 @@ export class DeckStore {
     if (sets.length === 0) return;
 
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
-    this.db.prepare(`UPDATE decks SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+    const statusMoved = sets.some((clause) => clause.startsWith('status ='));
+    this.db.transaction(() => {
+      this.db.prepare(`UPDATE decks SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+      // A status change alters what this deck reserves without editing a slot,
+      // which is the one write reconcile.ts could not see from inside a slot
+      // edit. Promoted, this deck yields to the decks already holding; demoted,
+      // what it held is spare for them. Either way the contested set moved.
+      if (statusMoved) reconcileDeckAndSharers(this.db, id);
+    })();
   }
 
   /**
@@ -469,8 +478,21 @@ export class DeckStore {
    * design — see CLAUDE.md's allocation-tracking rules.
    */
   delete(id: number): void {
-    const result = this.db.prepare('DELETE FROM decks WHERE id = ?').run(id);
-    if (result.changes === 0) throw new DeckNotFoundError(id);
+    this.db.transaction(() => {
+      // Collected before the cascade releases them: afterwards there is no row
+      // left to say which cards this deck was holding, and those are exactly
+      // the ones whose fight it may have just settled.
+      const oracles = (this.db.prepare(
+        `SELECT DISTINCT oracle_id FROM deck_cards WHERE deck_id = ?`,
+      ).all(id) as Array<{ oracle_id: string }>).map((row) => row.oracle_id);
+      const sharers = decksSharingCards(this.db, id);
+      const result = this.db.prepare('DELETE FROM decks WHERE id = ?').run(id);
+      if (result.changes === 0) throw new DeckNotFoundError(id);
+      // What this deck held is spare now; the decks that were short of it take
+      // it in id order rather than waiting for a coincidental edit.
+      for (const other of sharers) reconcileDeckClaims(this.db, other, { alerts: false });
+      reconcileAlerts(this.db, oracles);
+    })();
   }
 
   // -- card slots ------------------------------------------------------------
@@ -731,8 +753,13 @@ export class DeckStore {
   /** Sets an exact quantity; 0 removes the slot. */
   setQuantity(deckId: number, cardId: number, quantity: number): void {
     this.db.transaction(() => {
+      // Captured first, for the same reason removeCard does: a slot dropped to
+      // zero is gone, and its card's fight may have ended with it.
+      const slot = this.db.prepare('SELECT oracle_id FROM deck_cards WHERE id = ? AND deck_id = ?')
+        .get(cardId, deckId) as { oracle_id: string } | undefined;
       if (quantity <= 0) {
         this.db.prepare('DELETE FROM deck_cards WHERE id = ? AND deck_id = ?').run(cardId, deckId);
+        if (slot) reconcileAlerts(this.db, [slot.oracle_id]);
       } else {
         // Shrinking a slot is not an over-claim the user made, so both counts
         // are clamped into the smaller slot rather than the write being
@@ -897,10 +924,15 @@ export class DeckStore {
 
   removeCard(deckId: number, cardId: number): void {
     this.db.transaction(() => {
+      // Captured first: once the slot is gone, nothing in this deck names the
+      // card whose fight this may have just ended.
+      const removed = this.db.prepare('SELECT oracle_id FROM deck_cards WHERE id = ? AND deck_id = ?')
+        .get(cardId, deckId) as { oracle_id: string } | undefined;
       this.db.prepare('DELETE FROM deck_cards WHERE id = ? AND deck_id = ?').run(cardId, deckId);
       // The same card can sit on two boards, so dropping one slot can free a
       // copy for the other.
       reconcileDeckClaims(this.db, deckId);
+      if (removed) reconcileAlerts(this.db, [removed.oracle_id]);
       this.touch(deckId);
     })();
   }

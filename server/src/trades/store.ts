@@ -5,6 +5,7 @@ import {
 import type { CollectionStore, Finish, Condition } from '../collection/store.ts';
 import type { AlertStore } from '../alerts/store.ts';
 import { reconcileWants, type FulfilledWant } from '../collection/wants.ts';
+import { reconcileAlerts } from '../decks/contention.ts';
 
 /**
  * Recording trades.
@@ -599,43 +600,22 @@ export class TradeStore {
   }
 
   /**
-   * Brings `allocation_conflict` alerts in line with current availability.
+   * Brings `allocation_conflict` alerts in line with the contested set.
    *
-   * One alert per card, keyed `allocation_conflict:<oracle_id>`, so repeated
-   * disposals of the same card update a single row rather than piling up — and
-   * so the alert resolves itself the moment copies come back or a deck lets go
-   * of its claim. Call it after anything that moves owned or allocated counts.
+   * Phase 26 owns the definition (`contention.ts`), and this is the one path
+   * that has to call it by hand: the outgoing trade deliberately does not
+   * reconcile claims, so that shipping a claimed copy away leaves the deck
+   * over-allocated and *visible* rather than silently un-claimed. Returns the
+   * shortfalls in the shape the completion result has always reported.
    */
   reconcileAllocationAlerts(oracleIds: Iterable<string>): AllocationShortfall[] {
-    const shortfalls: AllocationShortfall[] = [];
-    for (const oracleId of new Set(oracleIds)) {
-      const row = this.db.prepare('SELECT name FROM oracle_cards WHERE oracle_id = ?')
-        .get(oracleId) as { name: string } | undefined;
-      if (!row) continue;
-
-      const { owned, reserved: allocated } = allocationFor(this.db, oracleId);
-      const dedupeKey = `allocation_conflict:${oracleId}`;
-      if (allocated <= owned) {
-        this.alerts.resolveByKey(dedupeKey);
-        continue;
-      }
-
-      const shortfall: AllocationShortfall = {
-        oracleId, name: row.name, owned, allocated,
-        short: allocated - owned,
-      };
-      this.alerts.raise({
-        kind: 'allocation_conflict',
-        dedupeKey,
-        subjectType: 'oracle_card',
-        title: `Decks claim more copies than you own: ${row.name}`,
-        message: `Decks claim ${allocated}, but you own ${owned}. ` +
-          `Free up ${shortfall.short} or reacquire.`,
-        payload: shortfall,
-      });
-      shortfalls.push(shortfall);
-    }
-    return shortfalls;
+    return reconcileAlerts(this.db, oracleIds).map((alert) => ({
+      oracleId: alert.oracleId,
+      name: alert.name,
+      owned: alert.owned,
+      allocated: alert.allocated,
+      short: alert.short,
+    }));
   }
 
   /** Stamps the outgoing trade rows with where the copies came from and what they were. */
