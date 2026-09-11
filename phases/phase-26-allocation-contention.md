@@ -1,6 +1,10 @@
 # Phase 26 — Allocation Contention
 
-**Depends on Phases 22 and 24.**
+**Depends on Phases 22 and 24.** Revised at build time (2026-09-11): between spec and
+build, `quantity_from_collection` became a derived figure — `reconcile.ts` sets it to what
+the collection can spare, first come first served, on every write — and two sections below
+were written for a claim the user set by hand. They are rewritten here rather than
+patched in code, so the definitions match what ships.
 
 ## Why
 
@@ -17,30 +21,59 @@ one you own.
 
 ### The contested set
 
-A card is contested when, across decks in a reserving status (Phase 22):
+The original definition was over-allocation alone:
 
 ```
-Σ quantity_from_collection > owned_qty − tradeListed_qty
+Σ quantity_from_collection > owned_qty − tradeListed_qty        (reserving decks)
 ```
 
-The right-hand side is Phase 22's `ownedFor − tradeListedFor` (with the trade-list term
-dropping out when `tradelist_reduces_available` is off). Contention is about declared
-claims exceeding what can honour them, and trade-listed copies can't.
+Under the derived claim that almost never holds. Reconciliation is first come first
+served: the deck that claimed a scarce copy keeps it, the next deck's claim comes out
+as 0, and the sum stays within what you own. The fight is just as real — the second
+deck *wants* the copy and can't have it — it is simply no longer visible as a sum. So
+a card is contested when **either** of two things is true:
 
-**Don't put the status filter in a view.** An earlier draft added
+1. **Over-allocation** — the sum above. It still happens, and means the ground moved
+   under a built deck after it made its claim: a trade shipped the copy out (the
+   outgoing path deliberately does not reconcile, so this is visible), a copy was put on
+   a trade list, a deck's status changed, or a setting flipped. Phase 0's trade alert
+   already fires on exactly this and its tests must keep passing.
+2. **Contention** — a deck in a reserving status is short of the card (Phase 24's
+   `missing > 0`) **while another reserving deck holds copies of it**
+   (`reservedByOthers > 0`). This is Phase 24's per-row `contested` flag, lifted to the
+   collection: the same figure, from the same engine, never re-derived.
+
+A deck that is merely incomplete — wants 4, you own 2, nobody else holds any — is
+neither. It reads "Buy 2" and stays out of this set; alerting on every unfinished deck
+would be noise.
+
+A contested card's **shortfall** is `Σ (required − proxied)` across reserving decks minus
+`owned − tradeListed` (the trade-list term dropping out when
+`tradelist_reduces_available` is off): the copies that would have to appear for every
+reserving deck to be whole. Not `Σ missing` — in the over-allocated case every deck reads
+short of the same copy and that sum double-counts it.
+
+**Don't put the status filter in a view, and don't re-derive.** An earlier draft added
 `v_allocation_contention` with `d.status IN ('building','assembled')` hardcoded, which
-silently disagrees with `RESERVING_STATUSES` the moment `brews_reserve_copies` is
-turned on. Compute the contested set in `contention.ts` using
-`allocation.reservedFor` / `ownedFor` / `tradeListedFor`, in one grouped query built
-with the status list injected as a parameter. Phase 23's `v_owned_by_oracle` is fine to
-read from for the owned side; if Phase 23 isn't built, inline the equivalent rollup and
-note it.
+silently disagrees with `RESERVING_STATUSES` the moment `brews_reserve_copies` is turned
+on. `contention.ts` computes the set from `buildability.ts`'s engine (which already
+excludes each deck's own claim, drops exempt basics and the maybeboard, and honours every
+setting) plus `allocation.ts`'s numbers for the over-allocation test. There is no third
+formula.
 
 ### Reassignment
 
 Move a claim from one deck to another: decrement `quantity_from_collection` on the
 losing deck's slot, increment on the winning one, in one transaction, bounded by each
 slot's `quantity − quantity_proxied`. This is the one-tap action the screen exists for.
+
+This survives the derived claim as written — and it is the *only* hand-write that does.
+Reconciliation never takes a copy from a deck already holding it, only fills what is
+spare; after a reassignment the winner holds the copy, so the loser's next
+reconciliation finds nothing spare and leaves its 0 alone. Two constraints follow:
+`quantity ≤` the loser's current claim (you can only give what you hold), and both decks
+must be in a reserving status (a brew holds nothing, so a copy "given" to it would be
+reclaimed by the loser on its next edit).
 
 The losing deck's slot becomes partially uncovered, which Phase 24 immediately reflects
 as a shortfall and a cost. That's correct and should be shown in the confirmation:
@@ -61,8 +94,10 @@ touches `decks`.
 
 Raise `kind = 'allocation_conflict'` with `dedupe_key = 'allocation_conflict:<oracle_id>'`
 when a card enters the contested set, and resolve it when the card leaves the set,
-which re-arms it — the same pattern `price_target` uses. `subject_type = 'deck'` with
-the deck that pushed it over, per the existing column's convention.
+which re-arms it — the same pattern `price_target` uses. Phase 0 already raises this
+alert from the trade path with `subject_type = 'oracle_card'`; keep that, and route the
+trade path through the one function below so there is one definition. The payload keeps
+Phase 0's `{ owned, allocated, short }` and adds the holders and the short decks.
 
 **When it's evaluated.** The contested set changes only when one of its inputs changes,
 so recompute it — for the affected oracle cards only, not the whole collection — from
@@ -76,8 +111,15 @@ one function, `contention.reconcileAlerts(oracleIds)`, called at these points:
 | `collection_items` quantity change, lot delete, location archive/unarchive | `CollectionStore` |
 | Trade completion (moves copies in and out) | `TradeStore.complete`, after the collection writes |
 | `trade_list_items` add / quantity change / delete | `TradeListStore` |
-| Phase 25 run completion (writes declared allocation and may move lots) | `assembly.ts`, after the transaction commits |
+| Phase 25 run completion (reconciles the claim and may move lots) | via `reconcile.ts` |
 | Phase 26 reassignment | `contention.ts`, after the transaction commits |
+| An allocation setting changes (`allocation_ignores_basics`, `brews_reserve_copies`, `tradelist_reduces_available`) | `PUT /settings`, for every card in a reserving-board slot |
+
+Most of these already funnel through `reconcile.ts` — every `DeckStore` and
+`CollectionStore` write that can change a claim ends there — so that is where the alert
+evaluation hangs for those rows, and the explicit calls are only for the paths that
+deliberately do *not* reconcile claims: the trade's outgoing path, trade-list changes, a
+deck delete, a reassignment, a settings change.
 
 A trigger you forget is a stale alert, so put the list above in a comment on
 `reconcileAlerts` and add a test per row. Do not use SQLite triggers for this — the rule

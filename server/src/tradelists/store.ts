@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { allocationForMany } from '../decks/allocation.ts';
+import { reconcileAlerts } from '../decks/contention.ts';
 import { ListNameTakenError } from '../collection/wants.ts';
 
 /**
@@ -117,7 +118,47 @@ export class TradeListStore {
     const row = this.db.prepare('SELECT is_default FROM trade_lists WHERE id = ?')
       .get(id) as { is_default: number } | undefined;
     if (row?.is_default) throw new Error('The default trade list cannot be deleted.');
-    this.db.prepare('DELETE FROM trade_lists WHERE id = ?').run(id);
+    this.db.transaction(() => {
+      // Every card this list was offering comes back off the market at once.
+      const oracles = this.oraclesOnList(id);
+      this.db.prepare('DELETE FROM trade_lists WHERE id = ?').run(id);
+      reconcileAlerts(this.db, oracles);
+    })();
+  }
+
+  /**
+   * A copy on a trade list is not a copy a deck can build with (while
+   * `tradelist_reduces_available` is on), so listing one can leave a deck short
+   * of a card another deck holds — Phase 26's contested set. Trade-list changes
+   * deliberately do not reconcile claims (the deck claimed first; the listing
+   * is the user's later choice and the list's own conflict badge says so), so
+   * the alert pass is called here by hand.
+   */
+  private oraclesOnList(listId: number): string[] {
+    return (this.db.prepare(`
+      SELECT DISTINCT p.oracle_id
+        FROM trade_list_items tli
+        JOIN collection_items ci ON ci.id = tli.collection_item_id
+        JOIN card_printings p ON p.id = ci.printing_id
+       WHERE tli.trade_list_id = ?`).all(listId) as Array<{ oracle_id: string }>)
+      .map((row) => row.oracle_id);
+  }
+
+  private oracleOfLot(collectionItemId: number): string | null {
+    const row = this.db.prepare(`
+      SELECT p.oracle_id FROM collection_items ci
+      JOIN card_printings p ON p.id = ci.printing_id WHERE ci.id = ?`)
+      .get(collectionItemId) as { oracle_id: string } | undefined;
+    return row?.oracle_id ?? null;
+  }
+
+  private oracleOfItem(itemId: number): string | null {
+    const row = this.db.prepare(`
+      SELECT p.oracle_id FROM trade_list_items tli
+      JOIN collection_items ci ON ci.id = tli.collection_item_id
+      JOIN card_printings p ON p.id = ci.printing_id WHERE tli.id = ?`)
+      .get(itemId) as { oracle_id: string } | undefined;
+    return row?.oracle_id ?? null;
   }
 
   reorderLists(orderedIds: number[]): void {
@@ -139,6 +180,8 @@ export class TradeListStore {
         notes = excluded.notes, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`).run(
       listId, collectionItemId, Math.max(1, fields.quantity ?? 1),
       fields.askingPriceUsd ?? null, fields.notes ?? null, order);
+    const oracleId = this.oracleOfLot(collectionItemId);
+    if (oracleId) reconcileAlerts(this.db, [oracleId]);
     return Number(result.lastInsertRowid);
   }
 
@@ -157,10 +200,16 @@ export class TradeListStore {
     if (sets.length === 0) return;
     sets.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')`);
     this.db.prepare(`UPDATE trade_list_items SET ${sets.join(', ')} WHERE id = ?`).run(...params, itemId);
+    if (changes.quantity !== undefined) {
+      const oracleId = this.oracleOfItem(itemId);
+      if (oracleId) reconcileAlerts(this.db, [oracleId]);
+    }
   }
 
   removeItem(itemId: number): void {
+    const oracleId = this.oracleOfItem(itemId);
     this.db.prepare('DELETE FROM trade_list_items WHERE id = ?').run(itemId);
+    if (oracleId) reconcileAlerts(this.db, [oracleId]);
   }
 
   reorderItems(listId: number, orderedIds: number[]): void {

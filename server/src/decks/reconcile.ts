@@ -3,6 +3,7 @@ import {
   RESERVING_BOARDS, allocationForMany, allocationSettings,
   type AllocationSettings,
 } from './allocation.ts';
+import { reconcileAlerts } from './contention.ts';
 
 /**
  * Keeping a deck's claim on the collection true.
@@ -32,13 +33,26 @@ import {
  * `availableFor` already excludes copies other reserving decks hold, the deck
  * that claimed a scarce copy first keeps it, and the second deck simply reads
  * as short — which is exactly what the app showed before.
+ *
+ * **It is also where Phase 26's alerts are evaluated.** The contested set can
+ * only change when a claim or the collection does, and every write that can
+ * do either ends here — so the alert pass hangs off the end of the claim pass
+ * rather than being wired into each store separately, where one forgotten
+ * call is one stale alert. The batch entry points below evaluate once for the
+ * whole set of cards touched rather than once per deck.
  */
 
-/** Where a slot's claim should sit, given what the collection can spare. */
+/**
+ * Where a slot's claim should sit, given what the collection can spare.
+ *
+ * `alerts: false` is for the batch callers below, which evaluate once at the
+ * end; the default evaluates for every card in the deck after its claims are
+ * settled.
+ */
 export function reconcileDeckClaims(
   db: Database.Database,
   deckId: number,
-  options: { settings?: AllocationSettings } = {},
+  options: { settings?: AllocationSettings; alerts?: boolean } = {},
 ): void {
   const settings = options.settings ?? allocationSettings(db);
   const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
@@ -83,6 +97,48 @@ export function reconcileDeckClaims(
     const claim = Math.max(0, Math.min(room, card.available));
     if (claim !== slot.quantity_from_collection) update.run(claim, slot.id);
   }
+
+  // Every slot, not only the reserving ones: a card just moved to the
+  // maybeboard is exactly one whose fight may have ended.
+  if (options.alerts !== false) {
+    reconcileAlerts(db, slots.map((slot) => slot.oracle_id));
+  }
+}
+
+/** The decks sharing at least one reserving-board card with this one. */
+export function decksSharingCards(db: Database.Database, deckId: number): number[] {
+  const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
+  const rows = db.prepare(`
+    SELECT DISTINCT other.deck_id
+      FROM deck_cards mine
+      JOIN deck_cards other ON other.oracle_id = mine.oracle_id
+     WHERE mine.deck_id = ? AND other.deck_id <> ?
+       AND mine.board IN (${boards}) AND other.board IN (${boards})`)
+    .all(deckId, deckId) as Array<{ deck_id: number }>;
+  return rows.map((row) => row.deck_id);
+}
+
+/**
+ * This deck and every deck it shares a card with, for a status change.
+ *
+ * A status change alters what this deck reserves without touching a slot, so
+ * the decks competing with it are the ones whose claims may now be wrong:
+ * promoted, this deck's stored claim may collide with a copy another deck
+ * holds; demoted, what it held is spare for the others to take. This deck
+ * goes first so that, promoted, it yields to the decks already holding rather
+ * than the other way round — the same first-come-first-served rule as
+ * everywhere else.
+ */
+export function reconcileDeckAndSharers(db: Database.Database, deckId: number): void {
+  const settings = allocationSettings(db);
+  const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
+  const touched = new Set<number>([deckId, ...decksSharingCards(db, deckId)]);
+  for (const id of touched) reconcileDeckClaims(db, id, { settings, alerts: false });
+  const oracles = db.prepare(`
+    SELECT DISTINCT oracle_id FROM deck_cards
+     WHERE deck_id IN (${[...touched].map(() => '?').join(',')}) AND board IN (${boards})`)
+    .all(...touched) as Array<{ oracle_id: string }>;
+  reconcileAlerts(db, oracles.map((row) => row.oracle_id));
 }
 
 /**
@@ -108,14 +164,21 @@ export function reconcileDecksHolding(
 ): void {
   const settings = options.settings ?? allocationSettings(db);
   for (const deckId of decksHolding(db, oracleId)) {
-    reconcileDeckClaims(db, deckId, { settings });
+    reconcileDeckClaims(db, deckId, { settings, alerts: false });
   }
+  // Once, for the card that moved: the decks holding it are exactly the ones
+  // whose fight over it may have started or ended.
+  reconcileAlerts(db, [oracleId]);
 }
 
-/** Every deck, for the one-time repair. */
+/** Every deck, for the one-time repair and for a location archive or move. */
 export function reconcileAllDecks(db: Database.Database): number {
   const settings = allocationSettings(db);
   const decks = db.prepare('SELECT id FROM decks').all() as Array<{ id: number }>;
-  for (const deck of decks) reconcileDeckClaims(db, deck.id, { settings });
+  for (const deck of decks) reconcileDeckClaims(db, deck.id, { settings, alerts: false });
+  const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
+  const oracles = db.prepare(`SELECT DISTINCT oracle_id FROM deck_cards WHERE board IN (${boards})`)
+    .all() as Array<{ oracle_id: string }>;
+  reconcileAlerts(db, oracles.map((row) => row.oracle_id));
   return decks.length;
 }

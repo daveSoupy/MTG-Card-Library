@@ -485,6 +485,46 @@ export function buildabilityForDecks(
   return result;
 }
 
+/** One reserving deck's rows and claims, for the contention set. */
+export interface ReservingDeckRows {
+  deckId: number;
+  deckName: string;
+  status: DeckStatus;
+  rows: BuildabilityRow[];
+  /** This deck's own claim per card — the figure `rows` deliberately excludes. */
+  claims: Map<string, number>;
+}
+
+/**
+ * Every deck that reserves, with its rows and its claims, from one gather.
+ *
+ * Phase 26's raw material. The contested set is "a deck is short of a card
+ * while another deck holds it", which is this module's `contested` flag lifted
+ * from one deck to the whole collection — so it is read from here rather than
+ * computed a second time from `deck_cards`. Decks that do not reserve under the
+ * effective statuses are left out: a brew can be short of anything and it is
+ * nobody's fight.
+ */
+export function reservingDeckRows(
+  db: Database.Database,
+  statusOverrides?: StatusOverrides,
+): { settings: AllocationSettings; decks: ReservingDeckRows[] } {
+  const engine = gather(db, undefined, statusOverrides);
+  const decks: ReservingDeckRows[] = [];
+  for (const meta of engine.decks.values()) {
+    const status = engine.effectiveStatus(meta.id);
+    if (!reserves(status, engine.settings)) continue;
+    decks.push({
+      deckId: meta.id,
+      deckName: meta.name,
+      status,
+      rows: rowsFor(engine, meta.id, true),
+      claims: engine.claims.get(meta.id) ?? new Map<string, number>(),
+    });
+  }
+  return { settings: engine.settings, decks };
+}
+
 /** One deck's per-card breakdown, with who else is holding what. */
 export function buildabilityDetail(
   db: Database.Database,

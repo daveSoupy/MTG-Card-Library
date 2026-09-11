@@ -7,6 +7,7 @@ import { CollectionStore } from '../collection/store.ts';
 import { TradeListStore } from '../tradelists/store.ts';
 import { shoppingList, pushToWantList } from '../collection/shopping.ts';
 import { DeckStore } from './store.ts';
+import { buildabilityDetail } from './buildability.ts';
 import {
   allocationFor, availableFor, RESERVING_STATUSES, SlotOverfilledError,
   ALLOCATION_IGNORES_BASICS, BREWS_RESERVE_COPIES, TRADELIST_REDUCES_AVAILABLE,
@@ -89,8 +90,15 @@ test('only a deck in a reserving status consumes copies', () => {
   // But the assembled deck does not compete with itself.
   assert.equal(cardIn(decks, real, 'o-ring').availableQuantity, 1);
 
-  // The brew is short, the assembled deck is not.
-  assert.ok(decks.get(brew)!.validation.issues.some((i) => i.code === 'over_allocated'));
+  // The brew is short, the assembled deck is not. The brew's *claim* was
+  // reconciled to 0 when the other deck was promoted — a status change is a
+  // write like any other — so neither deck is over-allocated; the brew simply
+  // cannot cover its slot, which Phase 24 says and Phase 26 does not call a
+  // fight, because a brew is an idea and holds nothing.
+  assert.equal(cardIn(decks, brew, 'o-ring').quantityFromCollection, 0);
+  assert.equal(buildabilityDetail(db, brew)!.rows[0].missing, 1);
+  assert.equal(buildabilityDetail(db, real)!.rows[0].missing, 0);
+  assert.ok(!decks.get(brew)!.validation.issues.some((i) => i.code === 'over_allocated'));
   assert.ok(!decks.get(real)!.validation.issues.some((i) => i.code === 'over_allocated'));
   db.close();
 });

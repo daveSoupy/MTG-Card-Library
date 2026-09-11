@@ -62,28 +62,30 @@ export function BuildabilityBar({ figures }: { figures: DeckBuildability | null 
 /**
  * `94% • 6 missing • $23 • 2 contested` for the deck header.
  *
- * The missing and cost segments go to the missing-card list; contested is
- * Phase 26's view and stays inert until that exists, so it is a plain chip
- * rather than a button that does nothing.
+ * The missing and cost segments go to the missing-card list; contested goes
+ * to Phase 26's contention screen, which is where the fight can actually be
+ * settled.
  */
 export function BuildabilityStrip({
   figures,
   onShowMissing,
+  onShowContention,
 }: {
   figures: DeckBuildability | null | undefined;
   onShowMissing: () => void;
+  onShowContention?: () => void;
 }) {
   if (!figures) return null;
 
   return (
     <span className="build-strip">
       {summarySegments(figures).map((segment) => (
-        segment.actionable && segment.key !== 'contested' ? (
+        segment.actionable && (segment.key !== 'contested' || onShowContention) ? (
           <button
             key={segment.key}
             className="build-seg linkish"
             title={segment.title}
-            onClick={onShowMissing}
+            onClick={segment.key === 'contested' ? onShowContention : onShowMissing}
           >
             {segment.text}
           </button>

@@ -17,6 +17,7 @@ import { PlaytestPanel } from './PlaytestPanel.tsx';
 import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import { BuildabilityStrip } from './Buildability.tsx';
 import { AssemblyPanel } from './AssemblyPanel.tsx';
+import { ContentionPanel } from './ContentionPanel.tsx';
 import { MissingCardsPanel } from './MissingCardsPanel.tsx';
 import { DeckGamesPanel } from './DeckGamesPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
@@ -74,6 +75,7 @@ export function DeckBuilder({
   // Phase 25. The sheet is only held here while it is on screen; its ticks live
   // on the server, so being interrupted costs nothing.
   const [sheet, setSheet] = useState<AssemblySheet | null>(null);
+  const [contention, setContention] = useState(false);
   const [runs, setRuns] = useState<AssemblyRun[]>([]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [exporting, setExporting] = useState(false);
@@ -446,6 +448,7 @@ export function DeckBuilder({
         <BuildabilityStrip
           figures={buildability?.summary}
           onShowMissing={() => setMissing(true)}
+          onShowContention={() => setContention(true)}
         />
         {/* Distinct from "missing": these are cards the collection says you own
             and the last pull sheet could not find. Nothing else on this screen
@@ -589,6 +592,9 @@ export function DeckBuilder({
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
       {missing && buildability && (
         <MissingCardsPanel detail={buildability} onClose={() => { setMissing(false); load(); }} />
+      )}
+      {contention && (
+        <ContentionPanel onClose={() => { setContention(false); load(); }} onChanged={load} />
       )}
       {sheet && (
         <AssemblyPanel

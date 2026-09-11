@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { fetchCard, setCardArt, imageUrl, type CardDetail } from '../api.ts';
+import { fetchCard, fetchCardHolders, setCardArt, imageUrl, type CardDetail, type CardHolders } from '../api.ts';
+import { holdersLine } from '../contention.ts';
 import { ManaCost } from './ManaCost.tsx';
 
 const RULING_SOURCE_LABEL: Record<string, string> = { wotc: 'WotC', scryfall: 'Scryfall' };
@@ -53,18 +54,24 @@ export function CardDetailPane({
   const [selectedPrinting, setSelectedPrinting] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
   const [rulingsOpen, setRulingsOpen] = useState(false);
+  // Who holds it and where it lives — its own fetch, and a swallowed failure:
+  // it depends on every deck and the whole collection, and a card's details
+  // are still worth reading without it.
+  const [holders, setHolders] = useState<CardHolders | null>(null);
 
   useEffect(() => {
-    if (!oracleId) { setCard(null); return; }
+    if (!oracleId) { setCard(null); setHolders(null); return; }
     const controller = new AbortController();
     setError(null);
     setRulingsOpen(false);
+    setHolders(null);
     fetchCard(oracleId, controller.signal)
       .then((detail) => {
         setCard(detail);
         setSelectedPrinting(detail.printingId);
       })
       .catch((e) => { if (e.name !== 'AbortError') setError(e.message); });
+    fetchCardHolders(oracleId, controller.signal).then(setHolders).catch(() => undefined);
     return () => controller.abort();
   }, [oracleId]);
 
@@ -176,6 +183,7 @@ export function CardDetailPane({
           {card.ownedQuantity > 0 && (
             <div className="kv"><span>In your collection</span><span>{card.ownedQuantity}</span></div>
           )}
+          <HeldBy holders={holders} />
 
           <div className="buylinks">
             <a href={tcgplayerUrl(card.name, printing?.tcgplayerId ?? null)} target="_blank" rel="noreferrer">
@@ -290,5 +298,32 @@ export function CardDetailPane({
         </>
       )}
     </aside>
+  );
+}
+
+/**
+ * "Deck A ×2 (home: Blue Tackle Box) · Binder 3 ×2 · 2 available"
+ *
+ * Which decks claim this card, how many, and where the copies physically live.
+ * Locations are reported as they are rather than as "available per location":
+ * a claim is a count, not a lot, and a line that guessed which binder a deck's
+ * copies came out of would read as fact.
+ */
+function HeldBy({ holders }: { holders: CardHolders | null }) {
+  if (!holders) return null;
+  const line = holdersLine(holders);
+  if (!line) return null;
+
+  return (
+    <div className="fgroup held-by">
+      <h3>Held by</h3>
+      {line.decks.length === 0
+        ? <div className="dim">No deck claims it.</div>
+        : line.decks.map((deck) => <div key={deck}>{deck}</div>)}
+      {line.locations.length > 0 && (
+        <div className="dim">{line.locations.join(' · ')}</div>
+      )}
+      <div className="dim">{line.figures.join(' · ')}</div>
+    </div>
   );
 }

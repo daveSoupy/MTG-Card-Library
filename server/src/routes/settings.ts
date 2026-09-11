@@ -10,6 +10,7 @@ import {
   TRADELIST_REDUCES_AVAILABLE,
 } from '../decks/allocation.ts';
 import { ASSEMBLY_MOVES_LOTS, ASSEMBLY_MOVES_LOTS_DEFAULT } from '../decks/assembly.ts';
+import { reconcileAllAlerts } from '../decks/contention.ts';
 import { FLAG, MONEY } from './schema.ts';
 
 /**
@@ -126,9 +127,11 @@ export function registerSettingsRoutes(app: FastifyInstance, db: Database.Databa
     '/api/v1/settings',
     { schema: { body: SETTINGS_BODY } },
     async (request, reply) => {
+      let allocationChanged = false;
       for (const [name, value] of Object.entries(request.body ?? {})) {
         if (BOOLEAN_SETTINGS[name]) {
           setSetting(db, BOOLEAN_SETTINGS[name].key, value ? '1' : '0');
+          if (ALLOCATION_KEYS.has(BOOLEAN_SETTINGS[name].key)) allocationChanged = true;
         } else if (ENUM_SETTINGS[name]) {
           setSetting(db, ENUM_SETTINGS[name].key, String(value));
         } else if (NUMBER_SETTINGS[name]) {
@@ -138,7 +141,17 @@ export function registerSettingsRoutes(app: FastifyInstance, db: Database.Databa
         }
       }
 
+      // The three allocation flags change what "available" means for every
+      // card at once, and with it which cards are contested. Claims are left
+      // to reconcile on their next write — a settings flip is not a reason to
+      // reorder who holds what — but the alerts must not go stale.
+      if (allocationChanged) reconcileAllAlerts(db);
+
       return { settings: readSettings(db) };
     },
   );
 }
+
+const ALLOCATION_KEYS = new Set([
+  ALLOCATION_IGNORES_BASICS, BREWS_RESERVE_COPIES, TRADELIST_REDUCES_AVAILABLE,
+]);

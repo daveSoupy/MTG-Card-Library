@@ -2432,3 +2432,59 @@ button.build-seg:hover { text-decoration: underline; }
   .assembly-line { font-size: 16px; min-height: 52px; }
   .assembly-actions .btn { flex: 1 1 auto; }
 }
+
+/* ---------------------------------------------------------------------
+   Contention (Phase 26): which decks are fighting over which copies
+   --------------------------------------------------------------------- */
+
+.status-chip.contested { color: var(--warn); border-color: var(--warn); }
+.status-chip.contested .dim { color: inherit; }
+
+.contention-card { width: min(760px, 100%); }
+.contention-rows { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+.contention-row {
+  padding: 12px 0; border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.contention-card-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+.contention-card-head strong { font-size: 15px; }
+.contention-decks { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.contention-deck {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; padding: 6px 10px; border-radius: 6px; background: var(--panel-2);
+  font-size: 13px;
+}
+.contention-deck.short { color: var(--text-2); }
+.contention-deck .status-dot { margin-right: 6px; }
+.contention-give { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.contention-confirm { width: min(460px, 100%); }
+.contention-confirm h3 { margin: 0 0 8px; font-size: 16px; }
+.contention-before {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 14px;
+}
+.contention-before > div { display: flex; flex-direction: column; gap: 2px; }
+.contention-before .dim { font-size: 12px; }
+.contention-before strong { font-variant-numeric: tabular-nums; }
+
+.whatif-card { width: min(640px, 100%); }
+.whatif-sentence { font-size: 15px; margin: 10px 0 14px; }
+.whatif-rows { display: flex; flex-direction: column; gap: 8px; }
+.whatif-row {
+  display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: baseline;
+  padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.whatif-arrow { color: var(--text-3); }
+.whatif-row .good { color: var(--good); }
+
+.held-by div { font-size: 13px; }
+.held-by .dim { font-size: 12px; }
+
+@media (max-width: 640px) {
+  .contention-before { grid-template-columns: 1fr; }
+  .whatif-row { grid-template-columns: 1fr; gap: 2px; }
+  .whatif-arrow { display: none; }
+}
