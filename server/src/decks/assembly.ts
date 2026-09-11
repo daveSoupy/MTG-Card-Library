@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { getSetting } from '../db/index.ts';
-import { RESERVING_BOARDS } from './allocation.ts';
+import { reconcileDeckClaims } from './reconcile.ts';
 import { buildabilityDetail, type BuildabilityRow } from './buildability.ts';
 
 /**
@@ -63,6 +63,17 @@ export interface RunSummary {
   lineCount: number;
   cardCount: number;
   pickedCount: number;
+  /**
+   * Copies the sheet sent you for that were not where it said — the lines still
+   * un-ticked when an assemble run was completed. Only ever non-empty on a
+   * completed assemble: while a run is open an un-ticked line is merely one you
+   * have not reached yet.
+   *
+   * This is the durable record of a shortfall. The deck's claim cannot hold it,
+   * being recomputed from the collection on every edit, so the run does.
+   */
+  notFoundCount: number;
+  notFound: Array<{ oracleId: string; name: string; quantity: number }>;
 }
 
 /** One line of the sheet: some copies of one printing, out of one lot. */
@@ -718,6 +729,19 @@ function runSummary(db: Database.Database, runId: number): RunSummary | null {
              WHERE i.run_id = r.id AND i.unavailable = 0 AND i.picked = 1) AS picked_count
       FROM deck_assembly_runs r WHERE r.id = ?`).get(runId) as any;
   if (!row) return null;
+
+  const notFound = row.kind === 'assemble' && row.status === 'completed'
+    ? (db.prepare(`
+        SELECT i.oracle_id, COALESCE(i.snapshot_name, o.name) AS name, SUM(i.quantity) AS quantity
+          FROM deck_assembly_items i
+          JOIN oracle_cards o ON o.oracle_id = i.oracle_id
+         WHERE i.run_id = ? AND i.unavailable = 0 AND i.picked = 0
+         GROUP BY i.oracle_id
+         ORDER BY name COLLATE NOCASE`).all(runId) as Array<{
+           oracle_id: string; name: string; quantity: number;
+         }>).map((line) => ({ oracleId: line.oracle_id, name: line.name, quantity: line.quantity }))
+    : [];
+
   return {
     id: row.id,
     deckId: row.deck_id,
@@ -731,6 +755,8 @@ function runSummary(db: Database.Database, runId: number): RunSummary | null {
     lineCount: row.line_count,
     cardCount: row.card_count,
     pickedCount: row.picked_count,
+    notFoundCount: notFound.reduce((total, line) => total + line.quantity, 0),
+    notFound,
   };
 }
 
@@ -1042,70 +1068,21 @@ function moveCopies(
 // -- completing a run ---------------------------------------------------------
 
 /**
- * Writes the deck's declared allocation from what was actually picked.
- *
- * This is the step that makes Phase 26's contention true: a deck assembled off
- * a pull sheet has now *claimed* those copies whether or not anyone ever
- * touched the from-collection stepper. A line the user un-ticked, because the
- * card was not where the sheet said, produces the lower figure and Phase 24
- * shows the gap.
- *
- * Only slots the run actually considered are rewritten. A basic land under the
- * exemption never became a requirement, so it is not in the run and its slot is
- * left exactly as the user set it.
- */
-function writeDeclaredAllocation(db: Database.Database, runId: number, deckId: number): void {
-  const picked = db.prepare(`
-    SELECT oracle_id, COALESCE(SUM(CASE WHEN picked = 1 THEN quantity ELSE 0 END), 0) AS qty
-      FROM deck_assembly_items
-     WHERE run_id = ? AND unavailable = 0
-     GROUP BY oracle_id`).all(runId) as Array<{ oracle_id: string; qty: number }>;
-
-  const shortfalls = db.prepare(`
-    SELECT DISTINCT oracle_id FROM deck_assembly_items WHERE run_id = ? AND unavailable = 1`)
-    .all(runId) as Array<{ oracle_id: string }>;
-
-  const claims = new Map<string, number>(picked.map((row) => [row.oracle_id, row.qty]));
-  // A card the run could not supply at all still had its slot considered, and
-  // "nothing was pulled" is the honest figure for it.
-  for (const row of shortfalls) if (!claims.has(row.oracle_id)) claims.set(row.oracle_id, 0);
-
-  const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
-  const slots = db.prepare(`
-    SELECT id, oracle_id, board, quantity, quantity_proxied
-      FROM deck_cards
-     WHERE deck_id = ? AND board IN (${boards})`).all(deckId) as Array<{
-       id: number; oracle_id: string; board: string; quantity: number; quantity_proxied: number;
-     }>;
-
-  // Command zone first, then main, then sideboard: a card in two boards is one
-  // card competing for one pool, and the copies you pulled go to the board that
-  // needs them soonest.
-  const boardOrder: Record<string, number> = { command: 0, main: 1, side: 2 };
-  slots.sort((a, b) => (boardOrder[a.board] ?? 9) - (boardOrder[b.board] ?? 9) || a.id - b.id);
-
-  const update = db.prepare('UPDATE deck_cards SET quantity_from_collection = ? WHERE id = ?');
-  for (const slot of slots) {
-    const left = claims.get(slot.oracle_id);
-    if (left === undefined) continue;
-    // Bounded by what the slot can hold: proxied copies already fill part of it,
-    // and the two together may never exceed the slot, which is the invariant
-    // DeckStore enforces everywhere else.
-    const take = Math.min(left, Math.max(0, slot.quantity - slot.quantity_proxied));
-    update.run(take, slot.id);
-    claims.set(slot.oracle_id, left - take);
-  }
-}
-
-/**
  * Finishes a run.
  *
- * One transaction, three effects for an assemble: the deck's status, the
- * declared allocation written from what was picked, and — only when the run was
- * opened with `assembly_moves_lots` on — the lot moves themselves. A
- * disassemble sets `disassembled`, moves what it moved forward back again, and
- * deliberately leaves `quantity_from_collection` alone: Phase 22's rule that a
- * status change never rewrites declared allocation still holds.
+ * One transaction. An assemble sets the deck to `assembled` and — only when the
+ * run was opened with `assembly_moves_lots` on — moves the lots. A disassemble
+ * sets `disassembled` and moves back what the forward run moved. Both end by
+ * reconciling the deck's claim, because completion is a write and every write
+ * that can change what a deck holds ends that way (`reconcile.ts`).
+ *
+ * What completion deliberately does *not* do is write the claim from the
+ * ticks. `quantity_from_collection` is a derived figure — what the collection
+ * can spare — and is never set by hand, so a lower number written here would
+ * be raised straight back by the next edit to the deck, taking "I could not
+ * find the second copy" with it. That fact lives on the run instead, as the
+ * un-ticked lines, where nothing recomputes it: `RunSummary.notFound` reads it
+ * back for as long as the run is the deck's latest.
  */
 export function completeRun(db: Database.Database, runId: number): CompletionSummary | null {
   const run = runSummary(db, runId);
@@ -1177,12 +1154,10 @@ export function completeRun(db: Database.Database, runId: number): CompletionSum
       }
     }
 
-    if (run.kind === 'assemble') {
-      writeDeclaredAllocation(db, runId, run.deckId);
-      setDeckStatus(db, run.deckId, 'assembled');
-    } else {
-      setDeckStatus(db, run.deckId, 'disassembled');
-    }
+    setDeckStatus(db, run.deckId, run.kind === 'assemble' ? 'assembled' : 'disassembled');
+    // Inside the transaction, after any lot moves, so the claim is settled
+    // against the collection as this run leaves it.
+    reconcileDeckClaims(db, run.deckId);
 
     db.prepare(`UPDATE deck_assembly_runs SET status = 'completed',
                   completed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(runId);

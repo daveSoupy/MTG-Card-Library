@@ -7,7 +7,6 @@ import { CollectionStore } from '../collection/store.ts';
 import { TradeListStore } from '../tradelists/store.ts';
 import { DeckStore } from './store.ts';
 import { availableFor } from './allocation.ts';
-import { buildabilityDetail } from './buildability.ts';
 import {
   ASSEMBLY_MOVES_LOTS, assemblySheet, cancelRun, completeRun, listRuns, openAssemblyRun,
   openDisassemblyRun, setItemPicked, type AssemblySheet,
@@ -285,7 +284,7 @@ test('the tick state is stored, so a reload mid-pull resumes where it left off',
 
 // -- completing a run ---------------------------------------------------------
 
-test('completing a run claims exactly what was picked', () => {
+test('completing a run settles the claim the way every other write does', () => {
   const { db, decks, collection, location } = fixture([
     { id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' },
   ]);
@@ -294,9 +293,9 @@ test('completing a run claims exactly what was picked', () => {
   collection.addLot({ printingId: 'p-b', locationId: binder, quantity: 2 });
 
   const deckId = deckOf(decks, 'Claimed', ['a', 'b'], 2);
-  // The precondition the phase names: a deck that claims nothing going in.
-  // Written directly rather than assumed, because what a freshly-added slot
-  // claims is a decision belonging to DeckStore, not to this test.
+  // A stale claim going in — the sort of thing a hand edit or an old import
+  // leaves behind — so the assertion below is about completion reconciling it,
+  // not about it already having been right.
   db.prepare('UPDATE deck_cards SET quantity_from_collection = 0 WHERE deck_id = ?').run(deckId);
   assert.ok(decks.get(deckId)!.cards.every((card) => card.quantityFromCollection === 0));
 
@@ -307,7 +306,7 @@ test('completing a run claims exactly what was picked', () => {
   const after = decks.get(deckId)!;
   assert.equal(after.status, 'assembled');
   assert.ok(after.cards.every((card) => card.quantityFromCollection === card.quantity),
-    'a deck assembled off the sheet has claimed every copy it pulled');
+    'the claim is what the collection can spare — here, everything');
   assert.ok(
     db.prepare('SELECT status_changed_at FROM decks WHERE id = ?').get(deckId),
     'the status change is stamped',
@@ -315,30 +314,54 @@ test('completing a run claims exactly what was picked', () => {
   db.close();
 });
 
-test('un-picking one line leaves that slot one short, and Phase 24 says so', () => {
-  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha', price: 5 }]);
+test('a card not found where the sheet said is recorded on the run, and stays recorded', () => {
+  const { db, decks, collection, location } = fixture([
+    { id: 'a', name: 'Alpha', price: 5 }, { id: 'b', name: 'Beta' },
+  ]);
   const binder = location('Binder');
   // Two separate lots, so one line can be un-ticked independently.
   collection.addLot({ printingId: 'p-a', locationId: binder, quantity: 1, acquiredUnitCost: 1 });
   collection.addLot({ printingId: 'p-a', locationId: binder, quantity: 1, acquiredUnitCost: 2 });
+  collection.addLot({ printingId: 'p-b', locationId: binder, quantity: 1 });
 
   const deckId = deckOf(decks, 'One short', ['a'], 2);
-  db.prepare('UPDATE deck_cards SET quantity_from_collection = 0 WHERE deck_id = ?').run(deckId);
   const sheet = pickAll(db, openAssemblyRun(db, deckId));
   const dropped = lines(sheet)[1];
   setItemPicked(db, sheet.run.id, dropped.id, false);
 
-  completeRun(db, sheet.run.id);
+  const summary = completeRun(db, sheet.run.id)!;
+  assert.equal(summary.notFoundCards, 1);
 
-  const slot = decks.get(deckId)!.cards[0];
-  assert.equal(slot.quantity, 2);
-  assert.equal(slot.quantityFromCollection, 1, 'only the copy actually found is claimed');
+  // The claim is derived from the collection, which still holds both copies,
+  // so it reads 2. That is deliberate: a hand-written 1 here would be raised
+  // straight back by the next edit, and the shortfall would vanish with it.
+  const slot = decks.get(deckId)!.cards.find((card) => card.oracleId === 'a')!;
+  assert.equal(slot.quantityFromCollection, 2);
 
-  const row = buildabilityDetail(db, deckId)!.rows.find((r) => r.oracleId === 'a')!;
-  // The second copy is still on the shelf, so the deck is not short of cardboard
-  // — it is short of a claim, which is what the un-picked line recorded.
-  assert.equal(row.required, 2);
-  assert.equal(row.owned, 2);
+  // The shortfall lives on the run instead, where nothing recomputes it.
+  const [latest] = listRuns(db, deckId);
+  assert.equal(latest.id, sheet.run.id);
+  assert.equal(latest.notFoundCount, 1);
+  assert.deepEqual(latest.notFound, [{ oracleId: 'a', name: 'Alpha', quantity: 1 }]);
+
+  // …including after an ordinary edit reconciles the deck's claims again.
+  decks.addCard(deckId, 'b', { quantity: 1, fromCollection: 0 });
+  assert.equal(listRuns(db, deckId)[0].notFoundCount, 1,
+    'the fact survives what the claim could not');
+  db.close();
+});
+
+test('an open run reports nothing as not found, whatever is un-ticked', () => {
+  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha' }]);
+  collection.addLot({ printingId: 'p-a', locationId: location('Binder'), quantity: 2 });
+  const deckId = deckOf(decks, 'In progress', ['a'], 2);
+  openAssemblyRun(db, deckId);
+
+  const [open] = listRuns(db, deckId);
+  assert.equal(open.status, 'open');
+  assert.equal(open.pickedCount, 0);
+  assert.equal(open.notFoundCount, 0);
+  assert.deepEqual(open.notFound, []);
   db.close();
 });
 
@@ -645,7 +668,7 @@ test('disassembly refuses when nothing was ever assembled', () => {
   db.close();
 });
 
-test('disassembly leaves declared allocation alone', () => {
+test('disassembly does not disturb the claim', () => {
   const f = movingFixture({ quantity: 2 });
   completeRun(f.db, pickAll(f.db, openAssemblyRun(f.db, f.deckId)).run.id);
   const claimed = f.decks.get(f.deckId)!.cards[0].quantityFromCollection;
@@ -653,8 +676,10 @@ test('disassembly leaves declared allocation alone', () => {
 
   completeRun(f.db, pickAll(f.db, openDisassemblyRun(f.db, f.deckId)).run.id);
 
-  // Phase 22's rule: a status change never rewrites what a deck says it draws
-  // from the collection. The claim survives so rebuilding it costs one click.
+  // The claim is a function of the collection and of the *other* decks, not of
+  // this deck's status, so putting the deck away moves the cards and changes
+  // nothing about what it could claim. Phase 22's rule that a status change
+  // never rewrites the claim falls out of that rather than being enforced.
   assert.equal(f.decks.get(f.deckId)!.cards[0].quantityFromCollection, 2);
   assert.equal(f.decks.get(f.deckId)!.status, 'disassembled');
   f.db.close();

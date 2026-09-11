@@ -27,7 +27,7 @@ import {
   type DeckSort, type PaneWidths,
 } from '../deckView.ts';
 import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
-import { runHistoryLabel } from '../assembly.ts';
+import { notFoundNotice } from '../assembly.ts';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import { useNarrow } from '../viewport.ts';
 import { type Density } from '../density.ts';
@@ -278,6 +278,9 @@ export function DeckBuilder({
   };
 
   const openRun = runs.find((run) => run.status === 'open') ?? null;
+  // Cards the last pull could not find. Read from the run: the deck's claim is
+  // recomputed from the collection on every edit and cannot remember this.
+  const shortfall = deck ? notFoundNotice(runs, deck.status) : null;
 
   const resizePane = (pane: keyof PaneWidths, width: number) =>
     setPaneWidths((current) => ({ ...current, [pane]: width }));
@@ -444,6 +447,19 @@ export function DeckBuilder({
           figures={buildability?.summary}
           onShowMissing={() => setMissing(true)}
         />
+        {/* Distinct from "missing": these are cards the collection says you own
+            and the last pull sheet could not find. Nothing else on this screen
+            can say that, because every other figure is derived from the
+            collection, which still counts them. */}
+        {shortfall && (
+          <button
+            className="shortfall-chip"
+            title={shortfall.title}
+            onClick={() => setHistory(true)}
+          >
+            {shortfall.text}
+          </button>
+        )}
         {/* Where the physical deck lives. Only meaningful once you have more
             than one place to keep cards, so it stays out of the way until then. */}
         {locations.length > 1 && (

@@ -144,12 +144,19 @@ Setting, in `BOOLEAN_SETTINGS`:
 Three things happen, in one transaction:
 
 1. **Status** → `assembled`, `status_changed_at` set.
-2. **Declared allocation is written from what was actually picked.** For each slot,
-   `quantity_from_collection = Σ picked quantity for that oracle_id in this run`, bounded
-   by `quantity − quantity_proxied`. This is the step that makes Phase 26 contention
-   true: a deck assembled via the pull sheet has now *claimed* those copies, whether or
-   not the user ever touched the from-collection stepper. Slots the user un-picked
-   (couldn't find the card) get the lower figure, and Phase 24 shows the gap.
+2. ~~**Declared allocation is written from what was actually picked.**~~ **Superseded
+   at build time (2026-09-11).** Between spec and build, `quantity_from_collection`
+   stopped being something the user sets: `server/src/decks/reconcile.ts` now derives it
+   — "claim what the collection can spare" — and recomputes it on every deck and
+   collection write. So the contention Phase 26 needs is already true for every deck
+   without this step, and a lower figure written here for an un-picked line would be
+   raised straight back by the next edit, erasing the one thing it recorded. Completion
+   therefore **reconciles** the claim like any other write, and the shortfall lives on
+   the run instead: `RunSummary.notFound` lists the un-ticked lines of a completed
+   assemble, and the deck header shows "N not found on last pull" from it for as long as
+   that run is the latest thing that happened to the deck. Phase 24's numbers do not
+   show this gap — from the collection's point of view there is none — which is exactly
+   why the run has to.
 3. **Lot moves**, only when `assembly_moves_lots` is on.
 
 **Moving lots must preserve cost basis.** A move is: decrement the source lot; insert or
@@ -205,9 +212,10 @@ sold it, or edited the lot by hand), mark the item `unavailable = 1` with a note
 return the rest; never invent a lot from nothing.
 
 With `assembly_moves_lots` off, disassembly is a checklist in reverse and touches no
-`collection_items`. Either way, completing it sets `status = 'disassembled'` and leaves
-`quantity_from_collection` untouched — Phase 22's rule that status change never rewrites
-declared allocation still holds.
+`collection_items`. Either way, completing it sets `status = 'disassembled'` and
+reconciles the claim, which — being a function of the collection and the *other* decks,
+not of this deck's status — comes out unchanged. Phase 22's rule that a status change
+never rewrites the claim now falls out of the derivation rather than being enforced.
 
 ## Client
 
@@ -226,10 +234,12 @@ declared allocation still holds.
 - Two runs over an unchanged collection produce identical sheets, line for line.
 - A card available in both a binder lot and a foil lot picks the cheaper non-foil one.
 - A card whose only lot is on a trade list is flagged, not silently pulled.
-- Completing a run sets `quantity_from_collection` on every slot to the picked
-  quantity; a deck whose slots were all at 0 before assembly is fully claimed after.
-- Un-picking one line before completing leaves that slot one short and Phase 24 shows
-  `need 1`.
+- Completing a run reconciles `quantity_from_collection` like any other write; a deck
+  whose slots were all at 0 before assembly is fully claimed after, because the
+  collection can spare every copy it pulled.
+- Un-picking one line before completing records that copy as not found **on the run**,
+  where it survives a later edit to the deck; the claim itself reads what the collection
+  can spare, and the deck header says "1 not found on last pull" from the run.
 - With `assembly_moves_lots` off, completing a run leaves `collection_items` byte-identical.
 - With it on: the source lot decrements, the destination lot carries the identical
   `acquired_unit_cost` and `acquired_at`, and total collection value and cost basis are
