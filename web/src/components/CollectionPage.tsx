@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   addCollectionLot, addTradeListItem, createLocation, deleteLocation, fetchCollection,
   fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets,
@@ -334,6 +334,12 @@ export function CollectionPage({
   };
 }) {
   const [tab, setTab] = useState<Tab>('browse');
+  const subtabs = useRef<HTMLElement>(null);
+  useEffect(() => {
+    // Optional chaining: jsdom has no scrollIntoView.
+    subtabs.current?.querySelector<HTMLElement>('button.on')
+      ?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+  }, [tab]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [sets, setSets] = useState<SetRecord[]>([]);
   const [value, setValue] = useState<CollectionValue | null>(null);
@@ -424,7 +430,10 @@ export function CollectionPage({
     <div className="deck-shell">
       <div className="deck-header">
         <div className="brand" style={{ marginRight: 8 }}>Collection</div>
-        <nav className="tabs small">
+        {/* One scrolling row on a phone (the CSS), so the active tab may sit
+            off the edge — bring it into view rather than leave "Wants" hidden
+            behind the fold after a tap on it. */}
+        <nav className="tabs small subtabs" ref={subtabs}>
           {(['browse', 'add', 'sets', 'value', 'wants', 'tradelists'] as Tab[]).map((t) => (
             <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
               {TAB_LABEL[t]}

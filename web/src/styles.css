@@ -133,6 +133,9 @@ button { cursor: pointer; }
   border-bottom: 1px solid var(--line);
 }
 
+/* Pushes the bell to the right edge on the pages without a search box. */
+.topbar-spacer { flex: 1; }
+
 /* Desktop width for the sort menu; the phone media query lets it shrink. */
 .sort-select { width: 140px; }
 
@@ -176,13 +179,24 @@ button { cursor: pointer; }
   min-height: 0;
 }
 
+/* Only where the panel is a sheet; the docked column has no Done to offer. */
+.filters-head {
+  display: none; position: sticky; top: 0; z-index: 1;
+  align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--panel); padding: 10px 0; margin-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
 @media (max-width: 1100px) {
   .panes { grid-template-columns: 200px minmax(0, 1fr); }
   .detail-pane { display: none; }
   .detail-pane.floating {
     display: block;
     position: fixed;
-    inset: 56px 0 0 auto;
+    /* Under the top bar, whose real height App measures into --topbar-h: one
+       row at this width, several once it wraps on a phone. A constant here
+       was right for exactly one of those. */
+    inset: var(--topbar-h, 56px) 0 0 auto;
     width: min(420px, 100%);
     z-index: 20;
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.4);
@@ -191,7 +205,19 @@ button { cursor: pointer; }
 @media (max-width: 760px) {
   .panes { grid-template-columns: minmax(0, 1fr); }
   .filters { display: none; }
-  .filters.open { display: block; position: fixed; inset: 56px 0 0 0; z-index: 15; }
+  /* A sheet under the top bar rather than over it: the search box stays
+     usable while filtering, and the Filters button that opened the sheet
+     stays reachable to close it again. The sheet's own Done button is the
+     other way out (.filters-head). */
+  .filters.open {
+    display: block; position: fixed; inset: var(--topbar-h, 56px) 0 0 0; z-index: 15;
+    padding-top: 0;
+  }
+  .filters-head { display: flex; }
+  /* The whole screen, the way the picker and stats panes already do it: a
+     sheet that started under a three-row top bar was half a screen with the
+     tab row poking out above it. */
+  .detail-pane.floating { inset: 0 0 0 auto; }
 }
 
 /* ---------- filters ---------- */
@@ -539,6 +565,9 @@ input[type='number'] { width: 72px; }
 .tabs button {
   background: none; border: 0; color: var(--text-3);
   padding: 6px 14px; border-radius: 6px; font-size: 13px;
+  /* A label that wraps ("Set / Completion") makes the strip two or three
+     lines tall on a phone; the strip scrolls sideways instead. */
+  white-space: nowrap;
 }
 .tabs button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.2); }
 
@@ -1747,12 +1776,38 @@ input[type='number'] { width: 72px; }
 
 /* Narrow widths: stack the topbar into tidy rows and go one-handed. */
 @media (max-width: 620px) {
-  .topbar { gap: 8px; padding: 8px 10px; }
+  .topbar { gap: 6px; padding: 8px; }
   .brand { margin-right: 0; }
-  /* Tabs and search each take a full-width row (DOM order gives brand, tabs,
-     search, then the controls). Tabs scroll sideways rather than widen the page. */
+  /* "MTG" alone: the word after it was a third of the row that the tabs
+     needed more than the brand did. */
+  .brand span { display: none; }
+  /* Sub-tab strips (collection, data) take a full-width row and scroll
+     sideways rather than widen the page. */
   .tabs { flex-basis: 100%; flex-wrap: nowrap; }
+  /* The main tabs share their row with the brand and the bell — the top bar
+     was three rows before the page had started, one of them holding only two
+     icon buttons. A phone's five tabs fit this row at the tighter padding;
+     an optional sixth (Games) scrolls, as the strip already did. */
+  .topbar .tabs { flex: 1 1 0; flex-basis: 0; min-width: 0; }
+  .topbar .tabs button { padding: 7px 8px; font-size: 12px; }
+  /* DOM order puts the bell last, after the Browse controls; `order` lifts
+     it into the first row on every page without moving it at desktop width. */
+  .topbar .brand { order: -3; }
+  .topbar .tabs { order: -2; }
+  .topbar .alerts-bell { order: -1; }
+  /* The tabs are the flexible item on this row; a spacer beside them would
+     take half of what they need. */
+  .topbar-spacer { display: none; }
+  /* The global default has a per-page control (View Style) on every page
+     with a card grid, and the toggle was the second of two icon buttons that
+     cost the top bar a row on their own. */
+  .topbar .density-toggle { display: none; }
+  .topbar .btn.secondary { padding: 7px 11px; font-size: 12.5px; }
+  .topbar .alerts-bell .btn { padding: 7px 9px; }
   .searchbox { flex-basis: 100%; }
+  /* The "syntax" link in the search box was a 21px target; the box is 40px
+     tall, so the button can be too without growing anything. */
+  .searchbox .hint { min-height: 40px; padding: 0 6px; }
   /* Sort menu shrinks and shares the controls row with the buttons. */
   .sort-select { flex: 1 1 auto; width: auto; min-width: 0; }
   .results { padding: 10px; }
@@ -1837,6 +1892,95 @@ input[type='number'] { width: 72px; }
   }
 }
 
+
+/* ---------- deck header on a phone ----------------------------------------
+   Two rows and a sheet. The first row is what you look at and undo on; the
+   second is what the deck needs. Everything else — the pickers, the flows
+   that open their own panel — waits behind More…, because a phone is for
+   checking a list and adding a card, not for re-templating a deck. The
+   breakpoint matches DeckBuilder's `compactHeader` and the filter sheet. */
+@media (max-width: 760px) {
+  .deck-header.compact { flex-direction: column; align-items: stretch; gap: 4px; }
+  /* Wrapping rather than nowrap: a row that cannot fit ("12 problems" beside
+     a strip with a contested count) drops a control to a third line instead
+     of pushing the page wider than the screen. */
+  .deck-header-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .deck-header.compact .deck-title,
+  .deck-header.compact .deck-title-input {
+    flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Its own row was the desktop strip wrapping under the title; here it is
+     a member of the second row. */
+  .deck-header.compact .build-strip { width: auto; flex: 0 1 auto; min-width: 0; }
+  /* Thumb-sized: every control on both rows is at least 40px tall, and the
+     text-only ones (the strip's segments, the chips) are lifted to the same
+     height rather than left as an 18px line among 40px buttons. */
+  .deck-header.compact .btn,
+  .deck-header.compact .build-seg,
+  .deck-header.compact .verdict-chip,
+  .deck-header.compact .shortfall-chip,
+  .deck-header.compact .status-pill {
+    min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .deck-header.compact .build-seg { padding: 0 2px; }
+  .deck-header.compact .status-pill { padding: 0 10px; }
+  .deck-header.compact .btn { padding: 5px 11px; }
+}
+.deck-more-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, .45); z-index: 30;
+  display: flex; align-items: flex-end;
+}
+.deck-more {
+  width: 100%; max-height: 82vh; overflow-y: auto;
+  background: var(--panel); border-radius: 14px 14px 0 0;
+  padding: 4px 14px 18px; box-shadow: 0 -12px 32px rgba(0, 0, 0, .4);
+}
+.deck-more .floating-head { padding-top: 10px; }
+.deck-more-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+/* Overrides both the inline width the pickers carry and the header's own
+   phone rule for them (`flex: 1 1 140px`, which in this column would be a
+   140px *height*) — hence the extra specificity. */
+.deck-more .deck-more-fields select { width: 100% !important; flex: none; min-height: 44px; }
+.deck-more .field { margin-bottom: 0; }
+.deck-more-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.deck-more-actions .btn { flex: 1 1 45%; min-height: 44px; }
+
+/* ---------- phone tap targets -----------------------------------------------
+   Anything you tap is at least 40px tall here (Apple's 44pt, less the gap
+   between neighbours). Hit area, mostly: a text link keeps its size and gains
+   padding; a chip grows a little. Layout only where the extra height fits. */
+@media (max-width: 620px) {
+  .topbar .tabs button { min-height: 36px; }
+  .topbar .btn { min-height: 36px; }
+  /* Collection's sub-tabs: one scrolling row, last in the header so the
+     count stays beside the title, with the active tab snapped into view
+     (CollectionPage scrolls it there on change). */
+  .subtabs { order: 10; scroll-snap-type: x proximity; }
+  .subtabs button { scroll-snap-align: start; min-height: 40px; padding: 4px 12px; }
+  /* Deck tiles' Tag / Duplicate / Delete were 18px of text. */
+  .deck-card-actions { padding: 0 12px 2px; gap: 4px; }
+  .deck-card-actions .linkish { min-height: 40px; padding: 0 8px; display: inline-flex; align-items: center; }
+  /* The want row's name is the button that opens the card. */
+  .want-name { min-height: 40px; }
+  /* Checkbox rows (the filter panel, add-by-set, settings): the label is
+     the target, the box just gets easier to see. "Save current filters…"
+     and "Clear all filters" are the filter panel's other text links. */
+  label.check { min-height: 40px; }
+  label.check input[type='checkbox'] { width: 22px; height: 22px; flex: none; }
+  .filters .linkish { min-height: 40px; display: inline-flex; align-items: center; }
+  .pill { min-height: 40px; padding: 6px 12px; }
+  .pill.color { width: 40px; height: 40px; }
+  /* The rest of what a thumb reaches for that was sized for a pointer: the
+     deck list's status filter, the small buttons on a trade-list toolbar,
+     View Style's choices, the deck toolbar's density segment and sort menu,
+     a want row's alert bell. Chips grow a little; nothing moves. */
+  .status-chip, .btn.small, .density-choice, .deck-toolbar .tabs.small button { min-height: 36px; }
+  .deck-sort select, .deck-toolbar select { min-height: 36px; }
+  .list-tabs button { min-height: 36px; }
+  .want-alert-toggle { min-height: 36px; min-width: 36px; }
+  /* Easier to see; the label around it is the hit area. */
+  input[type='checkbox'] { width: 20px; height: 20px; }
+}
 
 /* ---------- back to top ---------------------------------------------------
    Each list page scrolls inside its own container (Phase 6), so the control is
