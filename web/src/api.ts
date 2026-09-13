@@ -838,6 +838,68 @@ export const fetchWhatIf = (deckId: number, signal?: AbortSignal) =>
 export const fetchCardHolders = (oracleId: string, signal?: AbortSignal) =>
   getJson<CardHolders>(`/api/v1/allocation/holders/${encodeURIComponent(oracleId)}`, signal);
 
+// -- owned substitutes (Phase 27) -----------------------------------------------
+
+export type CategorySource = 'tagger' | 'heuristic';
+
+export interface SharedCategory {
+  category: string;
+  label: string;
+  source: CategorySource;
+}
+
+export interface SubstituteCandidate {
+  oracleId: string;
+  name: string;
+  printingId: string | null;
+  imageSmall: string | null;
+  cmc: number;
+  typeLine: string;
+  manaCost: string | null;
+  colorIdentity: string;
+  primaryType: string | null;
+  /** Roles shared with the target. Empty when the match is type and cost only. */
+  sharedCategories: SharedCategory[];
+  /** Free for this deck — its own claim excluded. */
+  available: number;
+  locations: Array<{ locationId: number; name: string; quantity: number }>;
+  edhrecRank: number | null;
+  score: {
+    total: number; category: number; type: number; cmc: number; edhrec: number; availability: number;
+  };
+  /** The server's reason line, one phrase per signal. Rendered, never rewritten. */
+  reasons: string[];
+}
+
+export interface SubstitutesResult {
+  target: {
+    oracleId: string; name: string; cmc: number; typeLine: string;
+    primaryType: string | null; categories: SharedCategory[];
+  };
+  context: {
+    deckId: number | null; deckName: string | null; formatCode: string | null;
+    /** 'WU', '' for colourless, or null when unconstrained. */
+    colorIdentity: string | null;
+  };
+  /** Null when the target has no role under any source: type and cost only. */
+  categorySource: CategorySource | null;
+  candidates: SubstituteCandidate[];
+  /** Hard-filter survivors, before the relevance floor and the cut. */
+  poolSize: number;
+}
+
+/** Owned stand-ins for a card, in a deck's colour identity and format. */
+export const fetchDeckSubstitutes = (deckId: number, oracleId: string, signal?: AbortSignal) =>
+  getJson<SubstitutesResult>(
+    `/api/v1/decks/${deckId}/cards/${encodeURIComponent(oracleId)}/substitutes`, signal);
+
+/** The same for a want, where the deck (if any) supplies the context. */
+export const fetchSubstitutes = (oracleId: string, deckId: number | null, signal?: AbortSignal) => {
+  const params = new URLSearchParams({ oracleId });
+  if (deckId != null) params.set('deckId', String(deckId));
+  return getJson<SubstitutesResult>(`/api/v1/substitutes?${params}`, signal);
+};
+
 export const fetchDeck = (id: number, signal?: AbortSignal) =>
   getJson<{ deck: Deck }>(`/api/v1/decks/${id}`, signal).then((r) => r.deck);
 
@@ -935,6 +997,8 @@ export interface AppSettings {
    * completing one physically relocates lots into the deck's home location.
    */
   assemblyMovesLots: boolean;
+  /** Phase 27: how many owned stand-ins the substitute sheet offers. */
+  substituteSuggestionCount: number;
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>

@@ -4,7 +4,7 @@ This file is auto-loaded by Claude Code at the start of every session. Keep it l
 
 ## Where the project stands
 
-Phases 0–11 and 22–26 are built and shipped. `schema.sql` is the complete schema at `PRAGMA user_version = 19`, designed up front against the full Data Model below — so most tables later phases need (`collection_disposals`, `printing_price_history`, `scan_sessions`, `alerts`, …) already exist. New phases extend the schema through migrations; they do not redesign it. Before assuming a table or column is missing, grep `schema.sql`.
+Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete schema at `PRAGMA user_version = 19`, designed up front against the full Data Model below — so most tables later phases need (`collection_disposals`, `printing_price_history`, `scan_sessions`, `alerts`, …) already exist. New phases extend the schema through migrations; they do not redesign it. Before assuming a table or column is missing, grep `schema.sql`.
 
 ## How to Build This
 
@@ -53,7 +53,7 @@ Phases 0–11 and 22–26 are built and shipped. `schema.sql` is the complete sc
 - `phases/phase-24-deck-buildability.md` (shipped — buildable %, missing count, cost to complete, deck-list sorting)
 - `phases/phase-25-assembly-pull-sheets.md` (shipped — resolves allocations to real lots at assembly time; pull sheets grouped by storage location, and disassembly that puts cards back. Its "write the claim from what was picked" step was superseded at build time, because the claim had become a derived figure; the doc says why and what replaced it)
 - `phases/phase-26-allocation-contention.md` (shipped — which decks are fighting over which copies, reassignment, teardown simulation. Its contested-set and alert sections were rewritten at build time for the derived claim; the doc carries both versions)
-- `phases/phase-27-owned-substitutes.md` (cards you already own that could fill a slot you're short on — depends on `card_categories` from Phase 7 **and** on that data source actually existing; verify both before starting)
+- `phases/phase-27-owned-substitutes.md` (shipped — owned cards that could fill a slot you're short on, ranked by shared Tagger role / type / CMC in `server/src/decks/substitutes.ts`, with a keyword-heuristic fallback in `roleHeuristics.ts` for a database whose tag sync has never run. Read-only endpoints; accepting one is two ordinary card edits from the client, never a server-side swap)
 
 
 ## Overview

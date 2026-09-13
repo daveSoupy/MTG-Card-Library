@@ -2,6 +2,33 @@
 
 **Depends on Phases 22 and 23.** Also depends on `card_categories` having rows in it.
 
+> **Built 2026-09-13 — what changed at build time.**
+>
+> - **The data source exists.** Scryfall now publishes `oracle_tags` in `/bulk-data`
+>   (alongside `art_tags`), Phase 7's `syncCardCategories` already loads it, and the live
+>   library had 20k rows over 16.5k cards. This shipped at **full ranking**, not degraded.
+>   The keyword heuristic below was built anyway (`server/src/decks/roleHeuristics.ts`) and
+>   is used only while `card_categories` is empty — never mixed with tagger data. Measured
+>   against the tagger over the 8k most-played cards: precision 91–100% per role, recall
+>   21–87%. It rarely lies; it mostly misses.
+> - **A relevance floor was added after the ranking.** CMC-only matches were the "five bad
+>   suggestions" this doc warns about ("Solemn Simulacrum · CMC 4" for Wrath of God). When
+>   the target has a role, a candidate must share one; when it has none, it must be the
+>   same primary type. Counterspell in a WR deck now honestly returns nothing.
+>   `poolSize` reports the hard-filter survivors so the empty state can say why.
+> - **The command zone is excluded.** A commander is the deck, not a slot; the deck tile
+>   and the Missing panel offer no swap for it, and `swapPlan` never touches that board.
+> - **Colour identity for a non-Commander deck** is the union of its non-maybeboard cards
+>   (an empty union means unconstrained). Commander decks use the command zone, as
+>   `validate.ts` does. Limited formats skip the legality test.
+> - **Query parameters are camelCase** (`oracleId`, `deckId`), matching every other route.
+> - **On a deck tile the action is a `⇄` in the hover control bar**, not the chip: the
+>   bar overlays the bottom of the art where the chip sits, so a chip-button there was
+>   unreachable (found in the browser). The text row's chip is the button.
+> - Final weights are in `substitutes.ts` with the reasoning; the "tuned against your own
+>   collection" step ran against a copy of the live library seeded with 400 well-played
+>   cards, since the real collection had 15 lots.
+
 ## Check this before starting — and it may fail
 
 `card_categories` is meant to be populated by the `syncCardCategories` step described

@@ -11,6 +11,9 @@ import {
 } from '../decks/allocation.ts';
 import { ASSEMBLY_MOVES_LOTS, ASSEMBLY_MOVES_LOTS_DEFAULT } from '../decks/assembly.ts';
 import { reconcileAllAlerts } from '../decks/contention.ts';
+import {
+  SUBSTITUTE_SUGGESTION_COUNT, SUBSTITUTE_SUGGESTION_COUNT_DEFAULT,
+} from '../decks/substitutes.ts';
 import { FLAG, MONEY } from './schema.ts';
 
 /**
@@ -80,6 +83,11 @@ const NUMBER_SETTINGS: Record<string, NumberSetting> = {
   defaultCostFixedUsd: { key: DEFAULT_COST_FIXED_USD, default: 0 },
   // Price of one booster pack; the Draft cost method defaults to 3× this.
   draftBoosterPriceUsd: { key: DRAFT_BOOSTER_PRICE_USD, default: 4 },
+  // Phase 27. How many owned stand-ins the substitute sheet offers for a
+  // missing card. The reader in substitutes.ts clamps it to 1..24.
+  substituteSuggestionCount: {
+    key: SUBSTITUTE_SUGGESTION_COUNT, default: SUBSTITUTE_SUGGESTION_COUNT_DEFAULT,
+  },
 };
 
 /**
