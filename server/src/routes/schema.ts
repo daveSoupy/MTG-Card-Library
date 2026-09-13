@@ -20,15 +20,30 @@ export const ID = { type: 'integer', minimum: 1 } as const;
 /** An id that may also be cleared: a destination not yet chosen, say. */
 export const ID_OR_NULL = { type: ['integer', 'null'], minimum: 1 } as const;
 
-/** A quantity of cards. Zero is meaningful — it usually means "remove". */
-export const COUNT = { type: 'integer', minimum: 0 } as const;
+/**
+ * A quantity of cards in a deck slot, a claim, a template ideal. Zero is
+ * meaningful — it usually means "remove". The ceiling is well above any
+ * format's deck size, so it only ever catches a typo or a hostile client; a
+ * billion-copy slot is accepted by SQLite without complaint and then reported
+ * as the deck's card count.
+ */
+export const COUNT = { type: 'integer', minimum: 0, maximum: 999 } as const;
+
+/**
+ * A quantity of cards in a collection lot. Higher than COUNT because a lot is
+ * a purchase, not a slot: two thousand basics from a bulk buy is one row.
+ */
+export const LOT_COUNT = { type: 'integer', minimum: 0, maximum: 9999 } as const;
 
 /** Dollars. Never negative; null where "unknown" differs from "nothing". */
 export const MONEY = { type: 'number', minimum: 0 } as const;
 export const MONEY_OR_NULL = { type: ['number', 'null'], minimum: 0 } as const;
 
-/** A name, tag or label the user typed. Blank is not a name. */
-export const NAME = { type: 'string', minLength: 1 } as const;
+/**
+ * A name, tag or label the user typed. Blank is not a name, and neither is a
+ * paragraph. Also carries Scryfall ids (36-character UUIDs), which fit easily.
+ */
+export const NAME = { type: 'string', minLength: 1, maxLength: 200 } as const;
 
 export const TEXT = { type: 'string' } as const;
 export const TEXT_OR_NULL = { type: ['string', 'null'] } as const;

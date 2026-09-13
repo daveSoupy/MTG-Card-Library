@@ -1,7 +1,7 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
 
 import { TradeNotFoundError, TradeNotDraftError } from '../trades/store.ts';
-import { DeckNotFoundError } from '../decks/store.ts';
+import { CardNotFoundError, DeckNotFoundError, UnknownFormatError } from '../decks/store.ts';
 import { LocationInUseError } from '../collection/store.ts';
 import { ListNameTakenError } from '../collection/wants.ts';
 import { InvalidBackupError } from '../porting/backup.ts';
@@ -20,6 +20,16 @@ import { ScryfallError } from '../sync/scryfall.ts';
  * place it is any use.
  */
 
+/**
+ * SQLite refusing a write because it points at a row that does not exist. The
+ * stores check the ids they are handed and raise a named error first; this is
+ * the backstop for the path nobody thought to check, so that an unknown id is
+ * a 400 everywhere rather than a 500 on the routes that missed it.
+ */
+function isForeignKeyFailure(error: unknown): boolean {
+  return (error as { code?: unknown })?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY';
+}
+
 /** Errors whose message is safe to hand back, and the status that fits them. */
 function knownStatus(error: FastifyError): number | undefined {
   // Schema validation: the body or params never matched, so no store method ran.
@@ -27,6 +37,8 @@ function knownStatus(error: FastifyError): number | undefined {
 
   if (error instanceof TradeNotFoundError) return 404;
   if (error instanceof DeckNotFoundError) return 404;
+  if (error instanceof CardNotFoundError) return 404;
+  if (error instanceof UnknownFormatError) return 400;
   if (error instanceof TradeNotDraftError) return 409;
   if (error instanceof ListNameTakenError) return 409;
   if (error instanceof LocationInUseError) return 409;
@@ -57,6 +69,17 @@ export function errorHandler(error: FastifyError, request: FastifyRequest, reply
     return reply.status(status).send({
       error: error.validation ? validationMessage(error) : error.message,
     });
+  }
+
+  if (isForeignKeyFailure(error)) {
+    // SQLite's own message ("FOREIGN KEY constraint failed") names no field,
+    // so it is replaced rather than forwarded. Logged as a warning because a
+    // route that let it through is a route missing a check.
+    request.log.warn(
+      { err: error, method: request.method, url: request.url },
+      'Foreign key failure reached the error handler',
+    );
+    return reply.status(400).send({ error: 'The request refers to a record that does not exist.' });
   }
 
   request.log.error(

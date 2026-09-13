@@ -9,7 +9,7 @@ import { pushToWantList, shoppingList, wantList } from '../collection/shopping.t
 import { reconcileWants } from '../collection/wants.ts';
 import { AlertStore } from '../alerts/store.ts';
 import {
-  ID, COUNT, MONEY, MONEY_OR_NULL, NAME, TEXT, TEXT_OR_NULL, FLAG, DATE_OR_NULL,
+  ID, LOT_COUNT, MONEY, MONEY_OR_NULL, NAME, TEXT, TEXT_OR_NULL, FLAG, DATE_OR_NULL,
   body as bodySchema, idParams,
 } from './schema.ts';
 
@@ -113,6 +113,11 @@ export function registerCollectionRoutes(
     async (request, reply) => {
       const { id } = request.params;
       const moveTo = asInt((request.query as any).moveTo);
+      // The store treats a missing location as nothing to do; at the edge that
+      // would be a 200 for an id that was never here.
+      if (!db.prepare('SELECT 1 FROM storage_locations WHERE id = ?').get(id)) {
+        return reply.status(404).send({ error: 'No location with that id.' });
+      }
       try {
         if (moveTo !== undefined) collection.moveLocationContents(id, moveTo);
         collection.deleteLocation(id);
@@ -169,7 +174,7 @@ export function registerCollectionRoutes(
             printingId: NAME,
             locationId: ID,
             // At least one copy: adding zero cards is not an addition.
-            quantity: { type: 'integer', minimum: 1 },
+            quantity: { ...LOT_COUNT, minimum: 1 },
             ...LOT_FIELDS,
             costMethod: COST_METHOD,
             fixedAmount: MONEY_OR_NULL,
@@ -285,7 +290,7 @@ export function registerCollectionRoutes(
       schema: {
         params: idParams('id'),
         // Quantity 0 is allowed and means "remove the lot".
-        body: bodySchema({ quantity: COUNT, locationId: ID, ...LOT_FIELDS }),
+        body: bodySchema({ quantity: LOT_COUNT, locationId: ID, ...LOT_FIELDS }),
       },
     },
     async (request, reply) => {

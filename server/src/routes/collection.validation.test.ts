@@ -72,6 +72,120 @@ test('a negative price and a missing locationId are both 400', async () => {
   db.close();
 });
 
+// -- upper bounds ----------------------------------------------------------------
+
+test('a lot quantity over 9999 is a 400 on add and on edit; 9999 itself is fine', async () => {
+  const { db, app, location, lots } = fixture();
+
+  const tooMany = await app.inject({
+    method: 'POST', url: '/api/v1/collection/items',
+    payload: { printingId: 'p-bolt', locationId: location, quantity: 10_000 },
+  });
+  assert.equal(tooMany.statusCode, 400);
+  assert.match(tooMany.json().error, /quantity.*<= 9999/);
+  assert.equal(lots(), 0);
+
+  // A collection lot may legitimately be far larger than any deck slot.
+  const bulk = await app.inject({
+    method: 'POST', url: '/api/v1/collection/items',
+    payload: { printingId: 'p-bolt', locationId: location, quantity: 2000 },
+  });
+  assert.equal(bulk.statusCode, 201);
+  const lotId = bulk.json().id;
+
+  const edit = await app.inject({
+    method: 'PATCH', url: `/api/v1/collection/items/${lotId}`, payload: { quantity: 1_000_000 },
+  });
+  assert.equal(edit.statusCode, 400);
+  assert.match(edit.json().error, /quantity/);
+  const row = db.prepare('SELECT quantity FROM collection_items WHERE id = ?').get(lotId) as any;
+  assert.equal(row.quantity, 2000);
+
+  const atCap = await app.inject({
+    method: 'PATCH', url: `/api/v1/collection/items/${lotId}`, payload: { quantity: 9999 },
+  });
+  assert.equal(atCap.statusCode, 200);
+  await app.close();
+  db.close();
+});
+
+test('a location name over 200 characters is a 400', async () => {
+  const { db, app, location } = fixture();
+  const long = 'x'.repeat(10_000);
+
+  const create = await app.inject({ method: 'POST', url: '/api/v1/locations', payload: { name: long } });
+  assert.equal(create.statusCode, 400);
+  assert.match(create.json().error, /name/);
+
+  const rename = await app.inject({
+    method: 'PATCH', url: `/api/v1/locations/${location}`, payload: { name: long },
+  });
+  assert.equal(rename.statusCode, 400);
+  assert.match(rename.json().error, /name/);
+  await app.close();
+  db.close();
+});
+
+// -- deleting a location -------------------------------------------------------
+
+test('deleting a location that does not exist is a 404', async () => {
+  const { db, app } = fixture();
+
+  const response = await app.inject({ method: 'DELETE', url: '/api/v1/locations/999' });
+
+  assert.equal(response.statusCode, 404);
+  assert.match(response.json().error, /location/i);
+  await app.close();
+  db.close();
+});
+
+test('deleting a location still holding cards is a 409; an empty one is a 200', async () => {
+  const { db, app, location } = fixture();
+  const spare = Number(db.prepare(
+    `INSERT INTO storage_locations (name, kind) VALUES ('Spare', 'box')`,
+  ).run().lastInsertRowid);
+  db.prepare(`INSERT INTO collection_items (printing_id, location_id, quantity)
+              VALUES ('p-bolt', ?, 3)`).run(spare);
+
+  const inUse = await app.inject({ method: 'DELETE', url: `/api/v1/locations/${spare}` });
+  assert.equal(inUse.statusCode, 409);
+  assert.equal(inUse.json().cardCount, 3);
+  assert.ok(db.prepare('SELECT 1 FROM storage_locations WHERE id = ?').get(spare), 'still there');
+
+  // Moving its contents first is the documented way through.
+  const moved = await app.inject({
+    method: 'DELETE', url: `/api/v1/locations/${spare}?moveTo=${location}`,
+  });
+  assert.equal(moved.statusCode, 200);
+  assert.equal(db.prepare('SELECT 1 FROM storage_locations WHERE id = ?').get(spare), undefined);
+  const row = db.prepare('SELECT location_id FROM collection_items').get() as any;
+  assert.equal(row.location_id, location, 'the cards went to the other location');
+  await app.close();
+  db.close();
+});
+
+test('moving a location\'s contents to a location that does not exist is a 400, not a 500', async () => {
+  // Nothing checks moveTo up front; this is the errorHandler catching the
+  // foreign-key failure and the transaction rolling the move back.
+  const { db, app } = fixture();
+  const spare = Number(db.prepare(
+    `INSERT INTO storage_locations (name, kind) VALUES ('Spare', 'box')`,
+  ).run().lastInsertRowid);
+  db.prepare(`INSERT INTO collection_items (printing_id, location_id, quantity)
+              VALUES ('p-bolt', ?, 3)`).run(spare);
+
+  const response = await app.inject({
+    method: 'DELETE', url: `/api/v1/locations/${spare}?moveTo=999`,
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().error, /does not exist/);
+  const row = db.prepare('SELECT location_id FROM collection_items').get() as any;
+  assert.equal(row.location_id, spare, 'the cards stayed put');
+  await app.close();
+  db.close();
+});
+
 test('a well-formed lot still lands, nulls and all', async () => {
   const { db, app, location } = fixture();
 
