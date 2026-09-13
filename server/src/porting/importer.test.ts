@@ -121,6 +121,42 @@ test('a CSV import can be undone, taking back exactly what it added', () => {
   assert.equal(collection.value().total_cards ?? 0, 0);
 });
 
+test('a headerless list of bare card names imports every line, the first included', () => {
+  const { db } = fixture();
+  const preview = previewCollectionCsv(db, 'Sol Ring\nLightning Bolt\n');
+  assert.deepEqual(preview.mapping, ['name']);
+  assert.deepEqual(preview.rows.map((r) => [r.lineNumber, r.name, r.quantity]),
+    [[1, 'Sol Ring', 1], [2, 'Lightning Bolt', 1]]);
+  assert.equal(preview.counts.resolved, 2);
+  assert.deepEqual(preview.headers, ['Column 1']);
+});
+
+test('a headerless list with leading counts maps quantity then name', () => {
+  const { db } = fixture();
+  const preview = previewCollectionCsv(db, '4,Lightning Bolt\n1,"Atraxa, Praetors\' Voice"\n');
+  assert.deepEqual(preview.mapping, ['quantity', 'name']);
+  assert.deepEqual(preview.rows.map((r) => [r.name, r.quantity]),
+    [['Lightning Bolt', 4], ["Atraxa, Praetors' Voice", 1]]);
+  assert.equal(preview.counts.resolved, 2);
+});
+
+test('a header is not demoted to data just because no column name is recognised', () => {
+  const { db } = fixture();
+  // "Karte" is nobody's card, so the first line stays a header and the user
+  // is left to map the columns by hand rather than being handed a phantom row.
+  const preview = previewCollectionCsv(db, 'Karte,Anzahl\nSol Ring,2\n');
+  assert.deepEqual(preview.headers, ['Karte', 'Anzahl']);
+  assert.deepEqual(preview.mapping, ['ignore', 'ignore']);
+  assert.equal(preview.rows.length, 0);
+});
+
+test('a user override still applies to a headerless file on re-preview', () => {
+  const { db } = fixture();
+  const preview = previewCollectionCsv(db, 'Sol Ring,3\nLightning Bolt,4\n', ['name', 'quantity']);
+  assert.deepEqual(preview.rows.map((r) => [r.name, r.quantity]),
+    [['Sol Ring', 3], ['Lightning Bolt', 4]]);
+});
+
 test('an undo leaves cards the import did not add alone', () => {
   const { db, collection } = fixture();
   const locationId = collection.createLocation({ name: 'Binder' });

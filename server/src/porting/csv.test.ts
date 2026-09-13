@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseCsv, guessMapping, applyMapping, normalizeCondition, normalizeFinish, normalizeLanguage, } from './csv.ts';
+  parseCsv, guessMapping, applyMapping, normalizeCondition, normalizeFinish, normalizeLanguage,
+  looksHeaderless, headerlessNameCell, headerlessMapping, withoutHeader,
+} from './csv.ts';
 
 test('quoted fields keep their commas', () => {
   // The reason a naive split(',') cannot be used: card names contain commas.
@@ -120,4 +122,33 @@ test('language spellings collapse to one code, so lots do not split', () => {
   assert.equal(normalizeLanguage('jp'), 'ja', "exporters write Japanese as 'jp'");
   // Not recognised, so kept rather than silently relabelled English.
   assert.equal(normalizeLanguage('Klingon'), 'klingon');
+});
+
+test('a first line naming no known column looks headerless; a real header does not', () => {
+  assert.equal(looksHeaderless(parseCsv('Sol Ring\nLightning Bolt').headers), true);
+  assert.equal(looksHeaderless(parseCsv('4,Sol Ring\n1,Lightning Bolt').headers), true);
+  assert.equal(looksHeaderless(parseCsv('Name,Count\nSol Ring,2').headers), false);
+  // One recognised column is enough to make it a header.
+  assert.equal(looksHeaderless(parseCsv('Karte,Qty\nSol Ring,2').headers), false);
+  assert.equal(looksHeaderless([]), false);
+});
+
+test('a headerless mapping is [name], or [quantity, name] after a leading count', () => {
+  assert.deepEqual(headerlessMapping(['Sol Ring']), ['name']);
+  assert.deepEqual(headerlessMapping(['4', 'Sol Ring']), ['quantity', 'name']);
+  // Trailing cells have no header to say what they are, so they are ignored.
+  assert.deepEqual(headerlessMapping(['4', 'Sol Ring', 'NM']), ['quantity', 'name', 'ignore']);
+  assert.equal(headerlessNameCell(['Sol Ring']), 'Sol Ring');
+  assert.equal(headerlessNameCell(['4', ' Sol Ring ']), 'Sol Ring');
+});
+
+test('a headerless table keeps its first line as data and numbers lines from one', () => {
+  const table = withoutHeader(parseCsv('4,Sol Ring\n,Counterspell\n2,Lightning Bolt'));
+  assert.deepEqual(table.headers, ['Column 1', 'Column 2']);
+  assert.equal(table.rows.length, 3);
+
+  const { rows, skipped } = applyMapping(table, headerlessMapping(table.rows[0]));
+  assert.deepEqual(rows.map((r) => [r.lineNumber, r.quantity, r.name]),
+    [[1, 4, 'Sol Ring'], [2, 1, 'Counterspell'], [3, 2, 'Lightning Bolt']]);
+  assert.deepEqual(skipped, []);
 });

@@ -2,7 +2,10 @@ import type Database from 'better-sqlite3';
 import type { DeckStore } from '../decks/store.ts';
 import type { CollectionStore } from '../collection/store.ts';
 import { parseDecklist, type ParsedBoard } from './decklist.ts';
-import { parseCsv, guessMapping, applyMapping, type ColumnRole } from './csv.ts';
+import {
+  parseCsv, guessMapping, applyMapping, looksHeaderless, headerlessNameCell, headerlessMapping,
+  withoutHeader, type ColumnRole, type CsvTable,
+} from './csv.ts';
 import { CardResolver, resolvePrinting, type ResolvedCard } from './resolve.ts';
 import { normalizeName } from '../model/mtg.ts';
 
@@ -139,15 +142,30 @@ export interface CsvPreview {
   counts: { total: number; resolved: number; uncertain: number; unresolved: number; cards: number };
 }
 
+/**
+ * A pasted list of bare card names has no header, and reading its first line
+ * as one loses a card and maps nothing. The tell is that no cell in that line
+ * names a column we know *and* the cell where a name would be is a real card —
+ * checked exactly, because a header in another language could fuzzy-match
+ * something and be imported as a phantom copy.
+ */
+function readTable(text: string, resolver: CardResolver): CsvTable {
+  const table = parseCsv(text);
+  if (!looksHeaderless(table.headers)) return table;
+  const match = resolver.resolve(headerlessNameCell(table.headers)).match;
+  return match && match.via !== 'fuzzy' ? withoutHeader(table) : table;
+}
+
 export function previewCollectionCsv(
   db: Database.Database,
   text: string,
   overrideMapping?: ColumnRole[],
 ): CsvPreview {
-  const table = parseCsv(text);
-  const mapping = overrideMapping ?? guessMapping(table.headers);
-  const { rows, skipped } = applyMapping(table, mapping);
   const resolver = new CardResolver(db);
+  const table = readTable(text, resolver);
+  const mapping = overrideMapping
+    ?? (table.hasHeader === false ? headerlessMapping(table.rows[0]) : guessMapping(table.headers));
+  const { rows, skipped } = applyMapping(table, mapping);
   const setCodes = setCodeLookup(db);
 
   const previewed: CsvPreviewRow[] = rows.map((row) => {

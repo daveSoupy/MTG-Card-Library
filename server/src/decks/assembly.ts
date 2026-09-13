@@ -937,13 +937,39 @@ export function setItemPicked(
   return assemblySheet(db, runId);
 }
 
-export function cancelRun(db: Database.Database, runId: number): RunSummary | null {
+/**
+ * Abandons an open run. `reason` lands in the run's notes so the history says
+ * why a sheet was never finished; a manual cancel from the sheet leaves it
+ * unset, since the user was there.
+ */
+export function cancelRun(
+  db: Database.Database,
+  runId: number,
+  reason: string | null = null,
+): RunSummary | null {
   const run = runSummary(db, runId);
   if (!run) return null;
   if (run.status !== 'open') throw new AssemblyError('This run is already finished.');
   db.prepare(`UPDATE deck_assembly_runs SET status = 'cancelled',
-                completed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`).run(runId);
+                completed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+                notes = COALESCE(?, notes)
+              WHERE id = ?`).run(reason, runId);
   return runSummary(db, runId);
+}
+
+/**
+ * Cancels whatever run the deck has open, if any. Called when the deck moves
+ * to a status that does not reserve: a brew or a disassembled deck has no
+ * business showing "Resume pull sheet", because the sheet was built against a
+ * claim the deck no longer makes.
+ */
+export function cancelOpenRunFor(
+  db: Database.Database,
+  deckId: number,
+  reason: string,
+): RunSummary | null {
+  const open = openRunFor(db, deckId);
+  return open ? cancelRun(db, open.id, reason) : null;
 }
 
 // -- moving copies ------------------------------------------------------------

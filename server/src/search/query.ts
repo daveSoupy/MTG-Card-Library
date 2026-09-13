@@ -231,8 +231,43 @@ function isFragment(value: string, context: SearchContext): Fragment | null {
   }
 }
 
-function clauseFor(term: Term, context: SearchContext): CollectionFragment | null {
+/** The term as the user typed it, for a warning to quote. */
+const spell = (term: Term) => `${term.negated ? '-' : ''}${term.key}${term.comparison}${term.value}`;
+
+/**
+ * A numeric comparison, or a warning when the value is not a number. Dropping
+ * the term silently is the worse failure: `cmc>>abc` (a doubled comparator, so
+ * the value is `>abc`) would widen the results and read as though the filter
+ * had been applied. Same shape as ./collection.ts's count warning.
+ */
+function numericFragment(term: Term, label: string, sql: (operator: string) => string): CollectionFragment {
   const numeric = Number.parseFloat(term.value);
+  if (!Number.isFinite(numeric)) {
+    return { sql: '', params: [], warning: `${label} needs a number, so "${spell(term)}" was ignored.` };
+  }
+  return { sql: sql(sqlOperator(term.comparison)), params: [numeric] };
+}
+
+/**
+ * Parentheses the tokenizer will read literally. This parser has no grouping —
+ * a `(` ends up inside a value or a free word — so an unbalanced pair is the
+ * clearest sign the query was written in a dialect this does not speak.
+ * Quoted phrases are skipped, since "Fire (Ice)" is a fine thing to search.
+ */
+function unbalancedParens(text: string): boolean {
+  let depth = 0;
+  let inQuotes = false;
+  for (const char of text) {
+    if (char === '"') inQuotes = !inQuotes;
+    else if (inQuotes) continue;
+    else if (char === '(') depth += 1;
+    else if (char === ')') depth -= 1;
+    if (depth < 0) return true;
+  }
+  return depth !== 0;
+}
+
+function clauseFor(term: Term, context: SearchContext): CollectionFragment | null {
 
   // Phase 23's collection terms compile in ./collection.ts, beside the
   // allocation expressions they are built from.
@@ -253,22 +288,18 @@ function clauseFor(term: Term, context: SearchContext): CollectionFragment | nul
       return colorFragment('o.color_identity_mask', term, true);
 
     case 'cmc': case 'mv': case 'manavalue':
-      return Number.isFinite(numeric)
-        ? { sql: `o.cmc ${sqlOperator(term.comparison)} ?`, params: [numeric] } : null;
+      return numericFragment(term, 'Mana value', (op) => `o.cmc ${op} ?`);
 
     // Power and toughness can be '*' or '1+*'; the GLOB keeps those out of a
     // numeric comparison rather than silently casting them to zero.
     case 'power': case 'pow':
-      return Number.isFinite(numeric)
-        ? { sql: `CAST(o.power AS REAL) ${sqlOperator(term.comparison)} ? AND o.power GLOB '*[0-9]*'`,
-            params: [numeric] } : null;
+      return numericFragment(term, 'Power',
+        (op) => `CAST(o.power AS REAL) ${op} ? AND o.power GLOB '*[0-9]*'`);
     case 'toughness': case 'tou':
-      return Number.isFinite(numeric)
-        ? { sql: `CAST(o.toughness AS REAL) ${sqlOperator(term.comparison)} ? AND o.toughness GLOB '*[0-9]*'`,
-            params: [numeric] } : null;
+      return numericFragment(term, 'Toughness',
+        (op) => `CAST(o.toughness AS REAL) ${op} ? AND o.toughness GLOB '*[0-9]*'`);
     case 'loyalty': case 'loy':
-      return Number.isFinite(numeric)
-        ? { sql: `CAST(o.loyalty AS REAL) ${sqlOperator(term.comparison)} ?`, params: [numeric] } : null;
+      return numericFragment(term, 'Loyalty', (op) => `CAST(o.loyalty AS REAL) ${op} ?`);
 
     case 'set': case 's': case 'e': case 'edition':
       return { sql: `EXISTS (SELECT 1 FROM card_printings sp WHERE sp.oracle_id = o.oracle_id
@@ -302,15 +333,19 @@ function clauseFor(term: Term, context: SearchContext): CollectionFragment | nul
                params: [term.value.toLowerCase()] };
 
     case 'year':
-      return Number.isFinite(numeric)
-        ? { sql: `CAST(substr(dp.released_at, 1, 4) AS INTEGER) ${sqlOperator(term.comparison)} ?`,
-            params: [numeric] } : null;
+      return numericFragment(term, 'Year',
+        (op) => `CAST(substr(dp.released_at, 1, 4) AS INTEGER) ${op} ?`);
     case 'lang':
       return { sql: 'dp.lang = ?', params: [term.value.toLowerCase()] };
 
     case 'is': case 'not': {
       const fragment = isFragment(term.value.toLowerCase(), context);
-      if (!fragment) return null;
+      // The same silent widening as a bad number: `is:cretaure` must not
+      // quietly become "every card".
+      if (!fragment) {
+        return { sql: '', params: [],
+                 warning: `"${term.key}:" does not know "${term.value}", so "${spell(term)}" was ignored.` };
+      }
       return term.key === 'not'
         ? { sql: `NOT (${fragment.sql})`, params: fragment.params }
         : fragment;
@@ -342,6 +377,10 @@ export function compileQuery(
     if (!fragment.sql) continue;
     where.push(term.negated ? `NOT (${fragment.sql})` : fragment.sql);
     params.push(...fragment.params);
+  }
+
+  if (unbalancedParens(text)) {
+    warnings.push('Unbalanced parentheses — this search does not group terms, so ( and ) are matched literally.');
   }
 
   const kept = words.filter((w) => w.length > 0);

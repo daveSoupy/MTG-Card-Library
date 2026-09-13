@@ -48,6 +48,13 @@ const ENTRY = new RegExp(
   '\\s*$',
 );
 
+/**
+ * Cockatrice and deckstats mark sideboard cards line by line — `SB: 2 Pyroblast`,
+ * sometimes without the colon — instead of with a section. The prefix only
+ * counts when an entry follows it, so it is anchored to the quantity.
+ */
+const SIDEBOARD_PREFIX = /^SB:?\s+(?=\d)/i;
+
 /** Trailing annotations some exporters add: *CMDR*, *F*, #tags. */
 const ANNOTATIONS = /\s*(\*[^*]+\*|#[^\s#]+)\s*/g;
 
@@ -99,7 +106,10 @@ export function parseDecklist(text: string): ParsedDecklist {
       return;
     }
 
-    const match = ENTRY.exec(line);
+    // A per-line sideboard marker applies to this entry alone; it does not
+    // move the running board the way a header does.
+    const prefixed = SIDEBOARD_PREFIX.test(line);
+    const match = ENTRY.exec(prefixed ? line.replace(SIDEBOARD_PREFIX, '') : line);
     if (!match) {
       unparsed.push({ lineNumber, raw });
       return;
@@ -117,7 +127,7 @@ export function parseDecklist(text: string): ParsedDecklist {
       name,
       setCode: setCode ? setCode.toLowerCase() : null,
       collectorNumber: collectorNumber ?? null,
-      board: inlineBoard ?? board,
+      board: inlineBoard ?? (prefixed ? 'side' : board),
       lineNumber,
       raw,
     });

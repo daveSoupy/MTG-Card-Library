@@ -73,6 +73,42 @@ test('a blank line does not start a sideboard when headers are in use', () => {
   ]);
 });
 
+test('Cockatrice style: an SB: prefix marks that line as sideboard, with or without the colon', () => {
+  // Cockatrice writes "SB:", deckstats sometimes omits the colon; both are
+  // per-line, so main and side can be interleaved and mixed with the other
+  // conventions without a header ever moving the running board.
+  const parsed = parseDecklist([
+    '4 Lightning Bolt',
+    'SB: 2 Pyroblast',
+    '20 Mountain',
+    'SB 1 Red Elemental Blast (4ED)',
+    'sb: 1x Smash to Smithereens',
+    '',
+    '3 Shatter',
+    'Sideboard',
+    '1 Blood Moon',
+  ].join('\n'));
+  assert.deepEqual(parsed.unparsed, []);
+  assert.deepEqual(parsed.entries.map((e) => [e.board, e.quantity, e.name]), [
+    ['main', 4, 'Lightning Bolt'],
+    ['side', 2, 'Pyroblast'],
+    ['main', 20, 'Mountain'],
+    ['side', 1, 'Red Elemental Blast'],
+    ['side', 1, 'Smash to Smithereens'],
+    ['side', 3, 'Shatter'],          // the MTGO blank line still counts
+    ['side', 1, 'Blood Moon'],       // and so does the header
+  ]);
+  assert.equal(parsed.entries[3].setCode, '4ed');
+});
+
+test('an SB prefix that is not followed by an entry is not a sideboard marker', () => {
+  // A card could conceivably start with "Sb" — the prefix must lead into a
+  // quantity to count, so a bare "SB: Pyroblast" is reported, not guessed at.
+  const parsed = parseDecklist('SB: Pyroblast');
+  assert.equal(parsed.entries.length, 0);
+  assert.equal(parsed.unparsed.length, 1);
+});
+
 test('a card whose name starts like a header is still a card', () => {
   // "Deck" alone is a header; "Deckbuilder's Vault" is not.
   const parsed = parseDecklist("1 Commander's Sphere\n1 Sideboard Shuffle");
