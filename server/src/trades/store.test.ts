@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { SCHEMA_PATH } from '../db/index.ts';
 import { CollectionStore } from '../collection/store.ts';
 import { AlertStore } from '../alerts/store.ts';
-import { TradeStore, TradeNotDraftError } from './store.ts';
+import { TradeStore, TradeNotDraftError, TradeShortfallError } from './store.ts';
 
 /**
  * Trades: a draft leaves the collection alone; completion moves cards, logs a
@@ -291,5 +291,133 @@ test('disposeFromLot draws lots oldest-first and logs one disposal per lot', () 
   assert.equal(rows[0].counterparty, 'Card shop');
   assert.equal(rows[0].trade_id, null, 'a sale has no trade behind it');
   assert.equal(owned(db, 'goyf'), 1);
+  db.close();
+});
+
+// -- shortfalls: the copies a trade says are leaving must actually be there ---
+
+const lotRows = (db: Database.Database) =>
+  db.prepare('SELECT id, quantity, finish, condition FROM collection_items ORDER BY id').all();
+const disposalCount = (db: Database.Database) =>
+  (db.prepare('SELECT COUNT(*) AS n FROM collection_disposals').get() as { n: number }).n;
+
+test('completion takes from the chosen lot even when the item no longer matches its condition', () => {
+  const { db, collection, trades } = fixture();
+  // Two lots of the same printing; the trade names the LP one, then that lot
+  // is regraded to NM before the trade completes. The item still says LP.
+  const nm = collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 2, condition: 'NM', acquiredAt: '2020-01-01' });
+  const chosen = collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 2, condition: 'LP', acquiredAt: '2024-01-01' });
+
+  const id = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 1, sourceCollectionItemId: chosen });
+  collection.updateLot(chosen, { condition: 'NM' });
+  assert.equal(trades.get(id).items[0].condition, 'LP', 'the draft still describes the copies as drafted');
+
+  const result = trades.complete(id);
+  assert.equal(result.completed, true);
+  assert.deepEqual(lotRows(db), [
+    { id: nm, quantity: 2, finish: 'nonfoil', condition: 'NM' },
+    { id: chosen, quantity: 1, finish: 'nonfoil', condition: 'NM' },
+  ], 'the named lot was drawn down, not the older matching one');
+  const disposal = db.prepare('SELECT source_lot_id, quantity, condition FROM collection_disposals').get() as any;
+  assert.deepEqual(disposal, { source_lot_id: chosen, quantity: 1, condition: 'NM' },
+    'the disposal records the copy that actually left, not the stale draft');
+  db.close();
+});
+
+test('a lot deleted after drafting refuses to complete, and leaves everything as it was', () => {
+  const { db, collection, trades } = fixture();
+  const lot = collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 2, condition: 'NM' });
+  collection.addLot({ printingId: 'p-bolt', locationId: binderId(db), quantity: 4, condition: 'NM' });
+
+  const id = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 2, sourceCollectionItemId: lot });
+  // A second outgoing card whose lot is fine — it must not leave either.
+  trades.addItem(id, { direction: 'out', printingId: 'p-bolt', quantity: 1, condition: 'NM' });
+  trades.addItem(id, { direction: 'in', printingId: 'p-bs', quantity: 1 });
+  collection.removeLot(lot);
+  const before = lotRows(db);
+
+  const result = trades.complete(id);
+  assert.equal(result.completed, false);
+  assert.equal(result.needsConfirmation, undefined, 'not something confirmation can fix');
+  assert.deepEqual(result.shortfalls, [{
+    itemId: trades.get(id).items.find((i) => i.oracleId === 'goyf')!.id,
+    oracleId: 'goyf', name: 'Tarmogoyf', requested: 2, found: 0,
+  }]);
+  assert.deepEqual(result.conflicts, [], 'no deck is involved, so this is not a conflict');
+
+  assert.equal(trades.get(id).status, 'draft');
+  assert.deepEqual(lotRows(db), before, 'nothing left the collection');
+  assert.equal(owned(db, 'brainstorm'), 0, 'nothing arrived either');
+  assert.equal(disposalCount(db), 0);
+  db.close();
+});
+
+test('force does not complete a trade with a shortfall', () => {
+  const { db, collection, trades } = fixture();
+  const lot = collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
+  const id = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 1, sourceCollectionItemId: lot });
+  collection.removeLot(lot);
+
+  const forced = trades.complete(id, { force: true });
+  assert.equal(forced.completed, false);
+  assert.equal(forced.shortfalls?.length, 1);
+  assert.equal(trades.get(id).status, 'draft');
+  assert.equal(disposalCount(db), 0);
+
+  // The non-interactive path has nobody to show the shortfall to, so it throws.
+  assert.throws(() => trades.complete(id, { conflictMode: 'alert' }), TradeShortfallError);
+  assert.equal(trades.get(id).status, 'draft');
+  db.close();
+});
+
+test('disposeFromLot throws inside its transaction when a request cannot be met in full', () => {
+  const { db, collection, trades } = fixture();
+  collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
+  collection.addLot({ printingId: 'p-bolt', locationId: binderId(db), quantity: 4, condition: 'NM' });
+  const before = lotRows(db);
+
+  // Bolt is fine and is processed first; Goyf is short by one. Neither leaves.
+  assert.throws(
+    () => trades.disposeFromLot([
+      { printingId: 'p-bolt', quantity: 2, condition: 'NM' },
+      { printingId: 'p-goyf', quantity: 2, condition: 'NM' },
+    ], { kind: 'sale' }),
+    (error: unknown) => error instanceof TradeShortfallError
+      && error.message === '1 copy of Tarmogoyf is not in your collection.'
+      && error.shortfalls[0].found === 1 && error.shortfalls[0].requested === 2,
+  );
+  assert.deepEqual(lotRows(db), before, 'the Bolt decrement rolled back with the Goyf failure');
+  assert.equal(disposalCount(db), 0);
+  db.close();
+});
+
+test('an item drafted from a lot describes that lot, not a default', () => {
+  const { db, collection, trades } = fixture();
+  const lot = collection.addLot({
+    printingId: 'p-goyf', locationId: binderId(db), quantity: 3, finish: 'foil', condition: 'LP', language: 'ja',
+  });
+  const other = collection.addLot({ printingId: 'p-goyf', locationId: binderId(db), quantity: 1, condition: 'NM' });
+
+  const id = trades.create({ counterpartyName: 'Dave' });
+  const itemId = trades.addItem(id, { direction: 'out', printingId: 'p-goyf', quantity: 2, sourceCollectionItemId: lot });
+  let item = trades.get(id).items[0];
+  assert.equal(item.id, itemId);
+  assert.deepEqual([item.finish, item.condition, item.language], ['foil', 'LP', 'ja']);
+  assert.equal(item.ownedQuantity, 3, 'owned counts the copies the lot holds, not a phantom unknown row');
+
+  // Re-pointing at another lot re-describes the item the same way.
+  trades.updateItem(id, itemId, { sourceCollectionItemId: other });
+  item = trades.get(id).items[0];
+  assert.deepEqual([item.finish, item.condition, item.language], ['nonfoil', 'NM', 'en']);
+  assert.equal(item.quantity, 1, 're-clamped to what the new lot holds');
+
+  // An explicit field wins over the lot's.
+  trades.updateItem(id, itemId, { sourceCollectionItemId: lot, condition: 'MP' });
+  item = trades.get(id).items[0];
+  assert.deepEqual([item.finish, item.condition, item.language], ['foil', 'MP', 'ja']);
+  assert.equal(item.ownedQuantity, 3, 'still reaches the chosen lot through the id, whatever its condition');
   db.close();
 });

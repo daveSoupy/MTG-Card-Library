@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  TradeStore, TradeNotFoundError, TradeNotDraftError,
+  TradeStore, TradeNotFoundError, TradeNotDraftError, TradeShortfallError,
   type Direction, type TradeItemUpdate, type TradeUpdate,
 } from '../trades/store.ts';
 import { CONDITIONS, FINISHES } from '../collection/store.ts';
@@ -46,6 +46,9 @@ export function registerTradeRoutes(app: FastifyInstance, trades: TradeStore): v
     } catch (error) {
       if (error instanceof TradeNotFoundError) return reply.status(404).send({ error: error.message });
       if (error instanceof TradeNotDraftError) return reply.status(409).send({ error: error.message });
+      if (error instanceof TradeShortfallError) {
+        return reply.status(409).send({ error: error.message, shortfalls: error.shortfalls });
+      }
       throw error;
     }
   };
