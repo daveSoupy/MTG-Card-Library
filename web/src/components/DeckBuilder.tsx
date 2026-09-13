@@ -97,6 +97,10 @@ export function DeckBuilder({
   // pane. The overlays are opened from buttons in the header.
   const pickerFloating = useNarrow(860);
   const statsFloating = useNarrow(1200);
+  // A phone: the header keeps to two rows and everything else moves behind
+  // More…. The breakpoint is the one styles.css uses for the filter sheet.
+  const compactHeader = useNarrow(760);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [paneWidths, setPaneWidths] = useState<PaneWidths>(loadPaneWidths);
@@ -389,88 +393,42 @@ export function DeckBuilder({
 
   return (
     <div className="deck-shell">
-      <div className="deck-header">
-        <button className="btn secondary" onClick={onBack}>← Decks</button>
-
-        {renaming ? (
-          <input
-            className="deck-title-input"
-            defaultValue={deck.name}
-            autoFocus
-            onBlur={(e) => { setRenaming(false); apply(() => updateDeck(deck.id, { name: e.target.value })); }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              if (e.key === 'Escape') setRenaming(false);
-            }}
-          />
-        ) : (
-          <button className="deck-title" onClick={() => setRenaming(true)} title="Click to rename">
-            {deck.name}
-          </button>
-        )}
-
-        <DeckStatusPill
-          status={deck.status}
-          disabled={busy}
-          // No undo label: undo replays card slots, and a status change edits
-          // none of them. Putting it on the stack would make Undo look like it
-          // had done nothing.
-          onChange={(status) => apply(() => updateDeck(deck.id, { status }))}
-        />
-
-        <select
-          value={deck.formatCode ?? ''}
-          onChange={(e) => apply(() => updateDeck(deck.id, { formatCode: e.target.value || null }))}
-          style={{ width: 190 }}
-        >
-          <option value="">No format</option>
-          {formats.map((f) => (
-            <option key={f.code} value={f.code}>{f.display_name}</option>
-          ))}
-        </select>
-
-        {settings?.showDeckTemplates && (
+      {/* Every control is built once and then placed: inline at desktop
+          width, or split between the two header rows and the More… sheet on
+          a phone. One element per control means the two layouts cannot
+          disagree about what a button does. */}
+      {(() => {
+        const formatSelect = (
+          <select
+            value={deck.formatCode ?? ''}
+            onChange={(e) => apply(() => updateDeck(deck.id, { formatCode: e.target.value || null }))}
+            style={{ width: 190 }}
+            aria-label="Format"
+          >
+            <option value="">No format</option>
+            {formats.map((f) => (
+              <option key={f.code} value={f.code}>{f.display_name}</option>
+            ))}
+          </select>
+        );
+        const templateSelect = settings?.showDeckTemplates && (
           <select
             value={deck.templateId ?? ''}
             onChange={(e) =>
               apply(() => updateDeck(deck.id, { templateId: e.target.value ? Number(e.target.value) : null }))}
             style={{ width: 190 }}
             title="Track this deck against a template — a starting point, not a rule"
+            aria-label="Template"
           >
             <option value="">No template</option>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
           </select>
-        )}
-
-        <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
-          {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
-        </span>
-        {/* Whether the deck is legal and whether you can physically build it
-            are different questions; they sit side by side because you need
-            both before sleeving anything. */}
-        <BuildabilityStrip
-          figures={buildability?.summary}
-          onShowMissing={() => setMissing(true)}
-          onShowContention={() => setContention(true)}
-        />
-        {/* Distinct from "missing": these are cards the collection says you own
-            and the last pull sheet could not find. Nothing else on this screen
-            can say that, because every other figure is derived from the
-            collection, which still counts them. */}
-        {shortfall && (
-          <button
-            className="shortfall-chip"
-            title={shortfall.title}
-            onClick={() => setHistory(true)}
-          >
-            {shortfall.text}
-          </button>
-        )}
-        {/* Where the physical deck lives. Only meaningful once you have more
-            than one place to keep cards, so it stays out of the way until then. */}
-        {locations.length > 1 && (
+        );
+        // Where the physical deck lives. Only meaningful once you have more
+        // than one place to keep cards, so it stays out of the way until then.
+        const homeSelect = locations.length > 1 && (
           <select
             value={deck.homeLocationId ?? ''}
             onChange={(e) => apply(() => updateDeck(deck.id, {
@@ -478,18 +436,18 @@ export function DeckBuilder({
             }))}
             style={{ width: 170 }}
             title="Where this deck physically lives — an assembly run moves its cards here"
+            aria-label="Home location"
           >
             <option value="">No home location</option>
             {locations.filter((location) => !location.is_archived).map((location) => (
               <option key={location.id} value={location.id}>{location.name}</option>
             ))}
           </select>
-        )}
-
-        {/* The button this phase is really about. Prominent when the deck is
-            close to buildable, quiet when it is not: offering to go and pull a
-            deck you are twenty cards short of is offering the wrong job. */}
-        {openRun ? (
+        );
+        // The button this phase is really about. Prominent when the deck is
+        // close to buildable, quiet when it is not: offering to go and pull a
+        // deck you are twenty cards short of is offering the wrong job.
+        const resumeButton = openRun && (
           <button
             className="btn"
             onClick={() => resumeRun(openRun.id)}
@@ -499,7 +457,8 @@ export function DeckBuilder({
             Resume {openRun.kind === 'assemble' ? 'pull sheet' : 'put-away'}
             <span className="record-chip">{openRun.pickedCount}/{openRun.cardCount}</span>
           </button>
-        ) : (
+        );
+        const assembleButtons = !openRun && (
           <>
             <button
               className={(buildability?.summary.buildablePct ?? 0) >= 0.9 ? 'btn' : 'btn secondary'}
@@ -520,57 +479,202 @@ export function DeckBuilder({
               </button>
             )}
           </>
-        )}
-
-        <button
-          className="btn secondary"
-          onClick={() => apply(() => addRecommendedLands(deck.id), 'add lands')}
-          title="Fill the deck to a recommended land count with basics, split by colour"
-        >
-          Add lands
-        </button>
-        <button className="btn secondary" onClick={() => setPlaytesting(true)}>
-          Playtest
-        </button>
-        {showGameLog && (
-          <button
-            className="btn secondary"
-            onClick={() => setGames(true)}
-            title="Games played with this deck, and its lifetime record"
-          >
-            Games
-            {record && record.games > 0 && <span className="record-chip">{formatRecord(record)}</span>}
-          </button>
-        )}
-        <button className="btn secondary" onClick={() => setShopping(true)}>
-          Shopping list
-          {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
-        </button>
-        <button className="btn secondary" onClick={() => setHistory(true)}>History</button>
-        <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
-        <button className="btn secondary" onClick={() => setImporting(true)}>Import</button>
-
-        {pickerFloating && (
+        );
+        const toolButtons = (
+          <>
+            <button
+              className="btn secondary"
+              onClick={() => apply(() => addRecommendedLands(deck.id), 'add lands')}
+              title="Fill the deck to a recommended land count with basics, split by colour"
+            >
+              Add lands
+            </button>
+            <button className="btn secondary" onClick={() => setPlaytesting(true)}>
+              Playtest
+            </button>
+            {showGameLog && (
+              <button
+                className="btn secondary"
+                onClick={() => setGames(true)}
+                title="Games played with this deck, and its lifetime record"
+              >
+                Games
+                {record && record.games > 0 && <span className="record-chip">{formatRecord(record)}</span>}
+              </button>
+            )}
+            <button className="btn secondary" onClick={() => setShopping(true)}>
+              Shopping list
+              {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
+            </button>
+            <button className="btn secondary" onClick={() => setHistory(true)}>History</button>
+            <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
+            <button className="btn secondary" onClick={() => setImporting(true)}>Import</button>
+          </>
+        );
+        const addCardsButton = pickerFloating && (
           <button className="btn" onClick={() => { setPickerOpen(true); searchInput.current?.focus(); }}>
             Add cards
           </button>
-        )}
-        {statsFloating && (
+        );
+        const statsButton = statsFloating && (
           <button className="btn secondary" onClick={() => setStatsOpen(true)}>Stats</button>
-        )}
+        );
+        const undoRedo = (
+          <UndoRedo
+            canUndo={undoStack.canUndo}
+            canRedo={undoStack.canRedo}
+            undoLabel={undoStack.undoLabel}
+            redoLabel={undoStack.redoLabel}
+            busy={undoStack.busy || busy}
+            // A failed replay has already put its reason in the error banner.
+            onUndo={() => { undoStack.undo().catch(() => undefined); }}
+            onRedo={() => { undoStack.redo().catch(() => undefined); }}
+          />
+        );
+        const title = renaming ? (
+          <input
+            className="deck-title-input"
+            defaultValue={deck.name}
+            autoFocus
+            onBlur={(e) => { setRenaming(false); apply(() => updateDeck(deck.id, { name: e.target.value })); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') setRenaming(false);
+            }}
+          />
+        ) : (
+          <button className="deck-title" onClick={() => setRenaming(true)} title="Click to rename">
+            {deck.name}
+          </button>
+        );
+        const statusPill = (
+          <DeckStatusPill
+            status={deck.status}
+            disabled={busy}
+            // No undo label: undo replays card slots, and a status change edits
+            // none of them. Putting it on the stack would make Undo look like it
+            // had done nothing.
+            onChange={(status) => apply(() => updateDeck(deck.id, { status }))}
+          />
+        );
+        const verdict = (
+          <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
+            {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
+          </span>
+        );
+        // Whether the deck is legal and whether you can physically build it
+        // are different questions; they sit side by side because you need
+        // both before sleeving anything.
+        const strip = (
+          <BuildabilityStrip
+            figures={buildability?.summary}
+            onShowMissing={() => setMissing(true)}
+            onShowContention={() => setContention(true)}
+          />
+        );
+        // Distinct from "missing": these are cards the collection says you own
+        // and the last pull sheet could not find. Nothing else on this screen
+        // can say that, because every other figure is derived from the
+        // collection, which still counts them.
+        const shortfallChip = shortfall && (
+          <button
+            className="shortfall-chip"
+            title={shortfall.title}
+            onClick={() => setHistory(true)}
+          >
+            {shortfall.text}
+          </button>
+        );
+        const saving = busy && <span className="count">saving…</span>;
 
-        <UndoRedo
-          canUndo={undoStack.canUndo}
-          canRedo={undoStack.canRedo}
-          undoLabel={undoStack.undoLabel}
-          redoLabel={undoStack.redoLabel}
-          busy={undoStack.busy || busy}
-          // A failed replay has already put its reason in the error banner.
-          onUndo={() => { undoStack.undo().catch(() => undefined); }}
-          onRedo={() => { undoStack.redo().catch(() => undefined); }}
-        />
-        {busy && <span className="count">saving…</span>}
-      </div>
+        if (!compactHeader) {
+          return (
+            <div className="deck-header">
+              <button className="btn secondary" onClick={onBack}>← Decks</button>
+              {title}
+              {statusPill}
+              {formatSelect}
+              {templateSelect}
+              {verdict}
+              {strip}
+              {shortfallChip}
+              {homeSelect}
+              {resumeButton}
+              {assembleButtons}
+              {toolButtons}
+              {addCardsButton}
+              {statsButton}
+              {undoRedo}
+              {saving}
+            </div>
+          );
+        }
+
+        // Two rows: what you look at and undo on the first, what the deck
+        // needs on the second. The pickers and the flows that open their own
+        // panel wait in the sheet — a phone is for checking a list and
+        // adding a card, not for re-templating a deck. Resume stays out
+        // here because it is a job half done, and one the phone is usually
+        // what you are holding for.
+        return (
+          <div className="deck-header compact">
+            <div className="deck-header-row">
+              <button className="btn secondary" onClick={onBack} aria-label="Back to decks" title="Back to decks">←</button>
+              {title}
+              {statusPill}
+              {undoRedo}
+              <button
+                className="btn secondary"
+                aria-label="More deck actions"
+                aria-expanded={moreOpen}
+                title="More"
+                onClick={() => setMoreOpen(true)}
+              >
+                ⋯
+              </button>
+            </div>
+            <div className="deck-header-row">
+              {verdict}
+              {strip}
+              {shortfallChip}
+              {resumeButton}
+              {addCardsButton}
+              {saving}
+            </div>
+            {moreOpen && (
+              <div className="deck-more-backdrop" onClick={() => setMoreOpen(false)}>
+                <div
+                  className="deck-more"
+                  role="dialog"
+                  aria-label="Deck actions"
+                  // Any button in here opens a panel or runs an action, and
+                  // either way the sheet's job is done. The pickers are
+                  // selects, which fall through and keep it open.
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if ((e.target as HTMLElement).closest('button')) setMoreOpen(false);
+                  }}
+                >
+                  <div className="floating-head">
+                    <span className="count">{deck.name}</span>
+                    <button className="btn secondary">Close</button>
+                  </div>
+                  <div className="deck-more-fields">
+                    <label className="field"><span>Format</span>{formatSelect}</label>
+                    {templateSelect && <label className="field"><span>Template</span>{templateSelect}</label>}
+                    {homeSelect && <label className="field"><span>Home location</span>{homeSelect}</label>}
+                  </div>
+                  <div className="deck-more-actions">
+                    {assembleButtons}
+                    {toolButtons}
+                    {statsButton}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {error && <div className="error">{error}</div>}
 

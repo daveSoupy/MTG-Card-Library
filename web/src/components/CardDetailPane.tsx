@@ -90,10 +90,13 @@ export function CardDetailPane({
 
   return (
     <aside className={`detail-pane${floating ? ' floating' : ''}`}>
+      {/* The sheet covers the whole screen on a phone, so its way out stays
+          pinned to the top rather than scrolling away with the card text. */}
       {floating && (
-        <button className="btn secondary" onClick={onClose} style={{ marginBottom: 10 }}>
-          Close
-        </button>
+        <div className="floating-head">
+          <span className="count">Card</span>
+          <button className="btn secondary" onClick={onClose}>Close</button>
+        </div>
       )}
 
       {error && <div className="error">{error}</div>}

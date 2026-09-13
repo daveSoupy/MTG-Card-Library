@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchSettings, fetchStatus,
   fetchWantItemsForOracle, fetchWantList, fetchWantLists, imageUrl, removeWantItem, searchCards,
@@ -162,6 +162,21 @@ export default function App() {
 
   const searchInput = useRef<HTMLInputElement>(null);
 
+  // The top bar's height, published to CSS as --topbar-h so the overlays that
+  // start beneath it (the filter sheet, the tablet detail pane) can be pinned
+  // to where it actually ends. It is one row at desktop width and three or
+  // four once it wraps on a phone, so no constant is right at both. The
+  // fallback in CSS covers a browser without ResizeObserver (and jsdom).
+  const topbar = useRef<HTMLElement>(null);
+  const [topbarHeight, setTopbarHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const el = topbar.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setTopbarHeight(Math.ceil(el.getBoundingClientRect().height)));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const onResize = () => setWide(window.innerWidth > 1100);
     window.addEventListener('resize', onResize);
@@ -307,8 +322,12 @@ export default function App() {
   }, []);
 
   return (
-    <div className="app" data-density={density}>
-      <header className="topbar">
+    <div
+      className="app"
+      data-density={density}
+      style={topbarHeight == null ? undefined : { '--topbar-h': `${topbarHeight}px` } as CSSProperties}
+    >
+      <header className="topbar" ref={topbar}>
         <div className="brand">MTG <span>Library</span></div>
 
         <nav className="tabs">
@@ -390,7 +409,7 @@ export default function App() {
             </button>
           </>
         )}
-        {view.name !== 'browse' && <div style={{ flex: 1 }} />}
+        {view.name !== 'browse' && <div className="topbar-spacer" />}
         {view.name === 'browse' && (
           <button
             className="btn secondary"
@@ -478,6 +497,7 @@ export default function App() {
           sets={sets}
           formats={formats}
           open={filtersOpen}
+          onClose={() => setFiltersOpen(false)}
           queryText={text}
           onApplyPreset={(nextFilters, nextQuery) => {
             setFilters(nextFilters);

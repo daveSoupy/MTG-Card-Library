@@ -79,6 +79,7 @@ export function FilterPanel({
   sets,
   formats,
   open,
+  onClose,
   queryText,
   onApplyPreset,
 }: {
@@ -87,6 +88,8 @@ export function FilterPanel({
   sets: SetRecord[];
   formats: FormatRecord[];
   open: boolean;
+  /** Closes the panel where it is a sheet (phone widths); a no-op elsewhere. */
+  onClose: () => void;
   queryText: string;
   onApplyPreset: (filters: Filters, queryText: string) => void;
 }) {
@@ -100,6 +103,17 @@ export function FilterPanel({
 
   return (
     <aside className={`filters${open ? ' open' : ''}`}>
+      {/* Only where the panel is a sheet over the results. On a phone the
+          sheet fills everything under the top bar, so there is no page edge
+          to tap to dismiss it — this is the way out, pinned to the top so it
+          never scrolls away. Hidden by CSS at widths where the panel is a
+          docked column. */}
+      {open && (
+        <div className="filters-head">
+          <span className="count">Filters</span>
+          <button type="button" className="btn secondary" onClick={onClose}>Done</button>
+        </div>
+      )}
       <PresetBar filters={filters} queryText={queryText} onApply={onApplyPreset} />
 
       <div className="fgroup">
