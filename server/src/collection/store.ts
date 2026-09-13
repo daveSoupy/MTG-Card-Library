@@ -352,6 +352,14 @@ export class CollectionStore {
     // running cost has moved — match without the cost predicate for pool adds.
     const poolManaged = input.costMethod === 'box' && input.importBatchId != null;
 
+    // "The same lot" here means the same fourteen columns assembly's `lotKey`
+    // compares — every column an existing lot could differ on and still be
+    // this printing at this location. Provenance (who it came from, how, and
+    // any note) is part of that: a signed copy from Alice merged into Bob's
+    // lot loses the note and misattributes the copy, and the fold can never
+    // be undone. The three columns addLot never sets are pinned to the values
+    // the INSERT below would write, so a lot someone later marks signed or
+    // altered stays its own row.
     return this.db.transaction(() => {
       const existing = this.db.prepare(`
         SELECT id, quantity FROM collection_items
@@ -360,13 +368,19 @@ export class CollectionStore {
           ${poolManaged ? '' : 'AND COALESCE(acquired_unit_cost, -1) = COALESCE(?, -1)'}
           AND COALESCE(acquired_at, '') = COALESCE(?, '')
           AND COALESCE(price_override, -1) = COALESCE(?, -1)
+          AND acquisition_kind = ?
+          AND COALESCE(acquired_from, '') = COALESCE(?, '')
+          AND COALESCE(notes, '') = COALESCE(?, '')
+          AND is_signed = 0 AND is_altered = 0 AND acquired_trade_id IS NULL
           -- Batch is part of the identity so an import stays undoable: merging
           -- its rows into pre-existing ones would make the undo take copies
           -- the import never added.
           AND COALESCE(import_batch_id, -1) = COALESCE(?, -1)`)
         .get(input.printingId, input.locationId, finish, condition, language,
              ...(poolManaged ? [] : [unitCost]), input.acquiredAt ?? null,
-             input.priceOverride ?? null, input.importBatchId ?? null,
+             input.priceOverride ?? null,
+             input.acquisitionKind ?? 'unknown', input.acquiredFrom ?? null, input.notes ?? null,
+             input.importBatchId ?? null,
         ) as { id: number; quantity: number } | undefined;
 
       let lotId: number;
