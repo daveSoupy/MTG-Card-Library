@@ -32,6 +32,18 @@ export interface SlotAction {
 const copies = (n: number) => `${n} cop${n === 1 ? 'y' : 'ies'}`;
 
 /**
+ * Whether the chip can open Phase 27's substitutes sheet. Exactly the two
+ * cases where the deck cannot field the card: buy it, or another deck has it.
+ * A card you have needs no stand-in, and a basic is outside all of this.
+ */
+export const canSwap = (action: SlotAction | null): boolean =>
+  action !== null && (action.kind === 'buy' || action.kind === 'held');
+
+/** The chip's tooltip once it is also a button. */
+export const swapTitle = (action: SlotAction): string =>
+  `${action.title} Click to swap for something you own.`;
+
+/**
  * Null while the deck's figures are still loading, so the cell is briefly
  * blank rather than briefly wrong.
  */

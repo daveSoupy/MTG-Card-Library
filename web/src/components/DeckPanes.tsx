@@ -116,6 +116,7 @@ export function DeckPanes({
   paneWidths,
   onPaneResize,
   onPaneCommit,
+  onSwap,
 }: {
   deck: Deck;
   /** A label makes the mutation undoable; unlabelled calls are not recorded. */
@@ -131,6 +132,9 @@ export function DeckPanes({
   /** Phase 24's per-card coverage, keyed by oracle id. Omitted while the deck's
    *  figures are in flight, which simply means no shortfall chips yet. */
   coverage?: Map<string, BuildabilityRow>;
+  /** Phase 27: opens the substitutes sheet for a card the deck is short of.
+   *  Never offered for the command zone — a commander is the deck, not a slot. */
+  onSwap?: (card: DeckCard) => void;
   /** The decklist's whole layout, not a size within one: Ultra-compact is the
    *  text list that used to be its own "List" view mode. */
   density: Density;
@@ -282,6 +286,7 @@ export function DeckPanes({
                             `removing ${card.name}`,
                           )}
                           coverage={coverage.get(card.oracleId) ?? null}
+                          onSwap={onSwap && card.board !== 'command' ? () => onSwap(card) : undefined}
                         />
                       ))}
                     </div>
@@ -323,6 +328,7 @@ export function DeckPanes({
                           onArt={() => setArtFor(card)}
                           categoryLabels={categoryLabels}
                           coverage={coverage.get(card.oracleId) ?? null}
+                          onSwap={onSwap && card.board !== 'command' ? () => onSwap(card) : undefined}
                         />
                       </div>
                     ))
@@ -345,6 +351,7 @@ export function DeckPanes({
                             `removing ${card.name}`,
                           )}
                           coverage={coverage.get(card.oracleId) ?? null}
+                          onSwap={onSwap && card.board !== 'command' ? () => onSwap(card) : undefined}
                         />
                       ))}
                     </div>

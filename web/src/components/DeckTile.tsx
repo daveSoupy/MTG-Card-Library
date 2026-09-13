@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { imageUrl, type BuildabilityRow, type DeckCard } from '../api.ts';
-import { slotAction } from '../deckSlot.ts';
+import { canSwap, slotAction } from '../deckSlot.ts';
 import type { Density } from '../density.ts';
 
 export function DeckTile({
@@ -14,6 +14,7 @@ export function DeckTile({
   tapOpensPreview = false,
   cascade,
   coverage,
+  onSwap,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -35,6 +36,8 @@ export function DeckTile({
   /** Phase 24's coverage for this card, when the deck's figures are loaded.
    *  Absent while they are in flight — the tile simply shows no chip. */
   coverage?: BuildabilityRow | null;
+  /** Phase 27: opens the substitutes sheet. Adds a ⇄ control for a Buy/held card. */
+  onSwap?: () => void;
 }) {
   // The same chip the text row shows, so every density finally says the same
   // thing about a card. Absent while the deck's figures are still loading.
@@ -106,6 +109,19 @@ export function DeckTile({
         <button onClick={() => onQuantity(-1)} aria-label={`One fewer ${card.name}`}>−</button>
         <button onClick={() => onQuantity(1)} aria-label={`One more ${card.name}`}>+</button>
         <button onClick={onArt} aria-label={`Choose art for ${card.name}`} title="Choose printing / art">◆</button>
+        {/* The chip on a tile stays a label: this bar covers the bottom of the
+            art, so a button under it could never be reached. The action lives
+            here instead, beside the others, and only for a card you are short of. */}
+        {onSwap && canSwap(action) && (
+          <button
+            className="tile-swap"
+            onClick={onSwap}
+            aria-label={`Swap ${card.name} for something you own`}
+            title="Swap for something you own"
+          >
+            ⇄
+          </button>
+        )}
         <button onClick={onRemove} aria-label={`Remove ${card.name}`}>×</button>
       </div>
     </div>

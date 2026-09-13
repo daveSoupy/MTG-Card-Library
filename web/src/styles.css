@@ -2488,3 +2488,60 @@ button.build-seg:hover { text-decoration: underline; }
   .whatif-row { grid-template-columns: 1fr; gap: 2px; }
   .whatif-arrow { display: none; }
 }
+
+/* ---------- owned substitutes (Phase 27) ---------- */
+
+/* The chip is also the way in to what you own that would do instead. A button
+   dressed as the chip, so nothing on the row moves when it becomes one. */
+.slot-chip.swappable { cursor: pointer; font: inherit; font-size: 11px; line-height: inherit; }
+.slot-chip.swappable:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+/* On a tile the action is a control in the hover bar, beside ± ◆ ×. */
+.tile-controls .tile-swap { color: var(--warn); }
+
+/* The missing-cards list gained a Swap button per row. */
+.missing-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+.substitutes-card { width: min(980px, 100%); }
+.substitutes-context { margin: 4px 0 0; font-size: 13px; }
+.substitutes-notice { margin: 8px 0 0; }
+
+.substitutes-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px; margin-top: 14px;
+}
+.substitute-tile {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; border-radius: 10px; background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.substitute-tile[data-busy] { opacity: .6; }
+.substitute-art { position: relative; }
+.substitute-art img,
+.substitute-art .placeholder {
+  width: 100%; aspect-ratio: 488 / 680; border-radius: 7px; display: block;
+  background: var(--panel); object-fit: cover;
+}
+.substitute-art .placeholder {
+  display: grid; place-items: center; padding: 8px; text-align: center;
+  font-size: 11px; color: var(--text-3); border: 1px solid var(--line);
+}
+/* The availability badge, over the art the way the deck tile wears its chip. */
+.substitute-available {
+  position: absolute; top: 6px; right: 6px;
+  font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: var(--good); color: var(--bg);
+}
+.substitute-name {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  font-size: 13px; min-width: 0;
+}
+.substitute-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The reason line: the server's words, one phrase per signal. */
+.substitute-reason { font-size: 11.5px; color: var(--text-2); line-height: 1.35; }
+.substitute-actions { display: flex; flex-direction: column; gap: 4px; margin-top: auto; }
+.substitute-actions .btn { width: 100%; }
+
+@media (max-width: 620px) {
+  .substitutes-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .substitute-tile { padding: 6px; }
+}

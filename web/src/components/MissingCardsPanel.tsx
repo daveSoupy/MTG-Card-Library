@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { pushMissingToWantList, type BuildabilityDetail } from '../api.ts';
+import { pushMissingToWantList, type BuildabilityDetail, type BuildabilityRow } from '../api.ts';
 import { money, missingRows } from '../buildability.ts';
 
 /**
@@ -15,9 +15,15 @@ import { money, missingRows } from '../buildability.ts';
 export function MissingCardsPanel({
   detail,
   onClose,
+  onSwap,
+  swappable,
 }: {
   detail: BuildabilityDetail;
   onClose: () => void;
+  /** Phase 27: "Swap for something I own" on a missing card. */
+  onSwap?: (row: BuildabilityRow) => void;
+  /** Rows the swap is offered on; default all. The deck builder says no for a commander. */
+  swappable?: (row: BuildabilityRow) => boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pushed, setPushed] = useState<string | null>(null);
@@ -103,6 +109,17 @@ export function MissingCardsPanel({
                       ? <span className="tag warn">no price</span>
                       : money(row.extendedUsd)}
                   </span>
+                  {/* The alternative to buying: something you already own
+                      that does the same job. Never automatic. */}
+                  {onSwap && (swappable?.(row) ?? true) && (
+                    <button
+                      className="btn secondary small"
+                      onClick={() => onSwap(row)}
+                      title="Cards you own that could fill this slot"
+                    >
+                      Swap
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

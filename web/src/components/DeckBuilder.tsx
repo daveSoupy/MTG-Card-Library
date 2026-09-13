@@ -3,7 +3,7 @@ import {
   addRecommendedLands, fetchBuildability, fetchDeck, fetchDeckGames, fetchLocations,
   fetchRunHistory, fetchSettings, fetchSheet, fetchTemplates, formatRecord,
   imageUrl, resolveCategories, searchCards, startAssembly, startDisassembly, updateDeck,
-  type AppSettings, type AssemblyRun, type AssemblySheet, type BuildabilityDetail,
+  type AppSettings, type AssemblyRun, type AssemblySheet, type Board, type BuildabilityDetail,
   type BuildabilityRow, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
   type MatchRecord, type StorageLocation,
 } from '../api.ts';
@@ -19,6 +19,8 @@ import { BuildabilityStrip } from './Buildability.tsx';
 import { AssemblyPanel } from './AssemblyPanel.tsx';
 import { ContentionPanel } from './ContentionPanel.tsx';
 import { MissingCardsPanel } from './MissingCardsPanel.tsx';
+import { SubstitutesSheet } from './SubstitutesSheet.tsx';
+import { hasSwappableSlot, performSwap, swapPlan } from '../substitutes.ts';
 import { DeckGamesPanel } from './DeckGamesPanel.tsx';
 import { DeckArtDialog } from './DeckArtDialog.tsx';
 import { DeckStatusPill } from './DeckStatusPill.tsx';
@@ -72,6 +74,9 @@ export function DeckBuilder({
   const [shopping, setShopping] = useState(false);
   const [buildability, setBuildability] = useState<BuildabilityDetail | null>(null);
   const [missing, setMissing] = useState(false);
+  // Phase 27. The card a "Swap for something I own" sheet is open for, and the
+  // board it was asked from — so the copies leave and arrive on the same board.
+  const [swapFor, setSwapFor] = useState<{ oracleId: string; name: string; board?: Board } | null>(null);
   // Phase 25. The sheet is only held here while it is on screen; its ticks live
   // on the server, so being interrupted costs nothing.
   const [sheet, setSheet] = useState<AssemblySheet | null>(null);
@@ -591,7 +596,37 @@ export function DeckBuilder({
       )}
       {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
       {missing && buildability && (
-        <MissingCardsPanel detail={buildability} onClose={() => { setMissing(false); load(); }} />
+        <MissingCardsPanel
+          detail={buildability}
+          onClose={() => { setMissing(false); load(); }}
+          onSwap={(row) => setSwapFor({ oracleId: row.oracleId, name: row.name })}
+          swappable={(row) => hasSwappableSlot(deck, row.oracleId)}
+        />
+      )}
+      {swapFor && (
+        <SubstitutesSheet
+          oracleId={swapFor.oracleId}
+          targetName={swapFor.name}
+          deckId={deck.id}
+          onClose={() => setSwapFor(null)}
+          actions={[{
+            label: 'Swap it in',
+            title: 'Take the missing copies out and put this card in their place',
+            // An ordinary edit through the ordinary routes, recorded as one
+            // undo step. Only the copies the deck cannot field move.
+            run: async (candidate) => {
+              const plan = swapPlan(
+                deck, swapFor.oracleId, coverage.get(swapFor.oracleId)?.missing, swapFor.board,
+              );
+              await apply(
+                () => performSwap(deck.id, plan, candidate.oracleId, candidate.printingId),
+                `swapping ${swapFor.name} for ${candidate.name}`,
+              );
+              setSwapFor(null);
+              load();
+            },
+          }]}
+        />
       )}
       {contention && (
         <ContentionPanel onClose={() => { setContention(false); load(); }} onChanged={load} />
@@ -632,6 +667,7 @@ export function DeckBuilder({
         setCardSort={setCardSort}
         categoryLabels={categoryLabels}
         coverage={coverage}
+        onSwap={(card) => setSwapFor({ oracleId: card.oracleId, name: card.name, board: card.board })}
         density={density}
         onDensity={onDensity}
         listRef={listRef}

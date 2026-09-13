@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  addWantItem, createWantList, deleteWantList, fetchWantLists, fetchWantList, removeWantItem,
-  renameWantList, reorderWantItems, updateWantItem,
+  addWantItem, createWantList, deleteWantList, fetchBuildability, fetchDeck, fetchWantLists,
+  fetchWantList, removeWantItem, renameWantList, reorderWantItems, updateWantItem,
   type NamedList, type WantList, type WantListItem,
 } from '../api.ts';
+import { SubstitutesSheet } from './SubstitutesSheet.tsx';
+import { performSwap, swapPlan } from '../substitutes.ts';
 import { CardPicker } from './CardPicker.tsx';
 import { CardDetailPane } from './CardDetailPane.tsx';
 import { CustomizeView } from './CustomizeView.tsx';
@@ -48,6 +50,10 @@ export function WantListsPage({
   useUndoShortcuts(undoStack);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Phase 27. The want a "something I own" sheet is open for. The deck behind
+  // the want (its first, if several) supplies colour and format, and is where
+  // the stand-in goes if you choose to play it.
+  const [substituting, setSubstituting] = useState<WantListItem | null>(null);
 
   const loadLists = useCallback(() => {
     fetchWantLists().then((ls) => {
@@ -447,11 +453,64 @@ export function WantListsPage({
               <button className="btn secondary small" onClick={() => { removeItem(detailItem); setDetailId(null); }}>
                 Remove from want list
               </button>
+              {/* The alternative to waiting for a price drop: what you already
+                  own that would do the same job. */}
+              <button
+                className="btn secondary small"
+                onClick={() => setSubstituting(detailItem)}
+                title={detailItem.neededFor.length > 0
+                  ? `Owned cards that fit ${detailItem.neededFor[0].deckName}`
+                  : 'Owned cards that play the same role'}
+              >
+                Find something I own
+              </button>
             </div>
             <CardDetailPane oracleId={detailItem.oracleId} floating={false} onClose={() => setDetailId(null)} />
           </div>
         </div>
       )}
+
+      {substituting && (() => {
+        const need = substituting.neededFor[0] ?? null;
+        /** Swaps the stand-in into the deck behind the want — an ordinary edit. */
+        const playInDeck = async (oracleId: string, printingId: string | null) => {
+          if (!need) return;
+          const [deck, figures] = await Promise.all([fetchDeck(need.deckId), fetchBuildability(need.deckId)]);
+          const missing = figures.rows.find((row) => row.oracleId === substituting.oracleId)?.missing;
+          await performSwap(need.deckId, swapPlan(deck, substituting.oracleId, missing), oracleId, printingId);
+        };
+        return (
+          <SubstitutesSheet
+            oracleId={substituting.oracleId}
+            targetName={substituting.name}
+            deckId={need?.deckId ?? null}
+            onClose={() => setSubstituting(null)}
+            // With no deck behind the want there is nothing to swap into; the
+            // list is still worth seeing, so the sheet opens with no buttons.
+            actions={need ? [
+              {
+                label: 'Play this instead',
+                title: `Put it in ${need.deckName} and take ${substituting.name} off the list`,
+                run: async (candidate) => {
+                  await playInDeck(candidate.oracleId, candidate.printingId);
+                  await removeItem(substituting);
+                  setSubstituting(null);
+                  setDetailId(null);
+                },
+              },
+              {
+                label: 'Keep it on the list, play this for now',
+                title: `Put it in ${need.deckName}; keep looking for ${substituting.name}`,
+                run: async (candidate) => {
+                  await playInDeck(candidate.oracleId, candidate.printingId);
+                  setSubstituting(null);
+                  reload();
+                },
+              },
+            ] : []}
+          />
+        );
+      })()}
 
       <UndoToast stack={undoStack} />
       <BackToTop label="Back to the top of the list" />

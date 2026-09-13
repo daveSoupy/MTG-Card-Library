@@ -446,6 +446,23 @@ export function DataPage({
         </p>
 
         {settings && (
+          <label className="cost-fixed">
+            <span className="dim">Substitutes to suggest</span>
+            <input
+              type="number" min="1" max="24" step="1"
+              value={settings.substituteSuggestionCount}
+              onChange={(e) => saveSetting('substituteSuggestionCount',
+                Math.min(24, Math.max(1, Math.round(Number(e.target.value) || 6))))}
+            />
+          </label>
+        )}
+        <p className="hint">
+          How many cards you already own the <strong>Swap</strong> sheet offers for a card a
+          deck is short of. Fewer is usually better: the list is ranked, and the honest
+          answer is sometimes that nothing you own fills the role.
+        </p>
+
+        {settings && (
           <div className="cost-default">
             <label>
               <span className="dim">Deck builder search opens in</span>

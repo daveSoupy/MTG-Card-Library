@@ -1,6 +1,6 @@
 import type { Board, BuildabilityRow, DeckCard } from '../api.ts';
 import { effectiveCategories, identityKey } from '../deckView.ts';
-import { slotAction } from '../deckSlot.ts';
+import { canSwap, slotAction, swapTitle } from '../deckSlot.ts';
 import { ManaCost } from './ManaCost.tsx';
 
 export function DeckRow({
@@ -13,6 +13,7 @@ export function DeckRow({
   onArt,
   categoryLabels,
   coverage,
+  onSwap,
 }: {
   card: DeckCard;
   problem: 'error' | 'warning' | null;
@@ -25,6 +26,8 @@ export function DeckRow({
   categoryLabels: Record<string, string>;
   /** Phase 24's coverage for this card, when the deck's figures are loaded. */
   coverage?: BuildabilityRow | null;
+  /** Phase 27: opens the substitutes sheet. Makes a Buy/held chip a button. */
+  onSwap?: () => void;
 }) {
   const action = slotAction(card, coverage);
   const categories = effectiveCategories(card, categoryLabels);
@@ -64,11 +67,22 @@ export function DeckRow({
           shift every column after it. Empty while the deck's figures load: a
           blank cell for a moment beats a wrong one. */}
       <div className="slot-alloc">
-        {action && (
+        {/* A chip you cannot act on is a label; one that says "Buy 2" is also
+            the way in to what you already own that would do instead. */}
+        {action && (onSwap && canSwap(action) ? (
+          <button
+            className="slot-chip swappable"
+            data-kind={action.kind}
+            title={swapTitle(action)}
+            onClick={onSwap}
+          >
+            {action.label}
+          </button>
+        ) : (
           <span className="slot-chip" data-kind={action.kind} title={action.title}>
             {action.label}
           </span>
-        )}
+        ))}
       </div>
 
       <select

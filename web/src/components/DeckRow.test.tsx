@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DeckRow } from './DeckRow.tsx';
-import type { DeckCard } from '../api.ts';
+import type { BuildabilityRow, DeckCard } from '../api.ts';
 
 const labels = { removal: 'Removal', draw: 'Card draw', sweeper: 'Board wipes' };
 
@@ -19,6 +19,7 @@ const card: DeckCard = {
 function row(
   overrides: Partial<DeckCard> = {},
   onQuantity = vi.fn(),
+  extra: { coverage?: BuildabilityRow | null; onSwap?: () => void } = {},
 ) {
   const view = render(
     <DeckRow
@@ -30,10 +31,17 @@ function row(
       onPreview={() => {}}
       onArt={() => {}}
       categoryLabels={labels}
+      {...extra}
     />,
   );
   return { ...view, onQuantity };
 }
+
+const short: BuildabilityRow = {
+  oracleId: 'ORACLE-1', name: 'Sol Ring', required: 1, owned: 0, available: 0, tradeListed: 0,
+  proxied: 0, covered: 0, missing: 1, unitPriceUsd: 2, extendedUsd: 2, contested: false,
+  holdingDecks: [],
+};
 
 describe('DeckRow', () => {
   it('renders the card name and reports a quantity bump', () => {
@@ -87,6 +95,30 @@ describe('DeckRow', () => {
     const chip = container.querySelector('.slot-chip');
     expect(chip?.textContent).toBe('basic');
     expect(chip?.getAttribute('data-kind')).toBe('untracked');
+  });
+
+  // Phase 27. The chip is a label until a host offers a way to act on it;
+  // then a "Buy" is also the door to what you already own.
+  it('a Buy chip is a button only when a swap is offered, and never for a card you have', () => {
+    const onSwap = vi.fn();
+    const { container, unmount } = row({}, vi.fn(), { coverage: short, onSwap });
+    const chip = container.querySelector('button.slot-chip')!;
+    expect(chip?.textContent).toBe('Buy 1');
+    expect(chip.getAttribute('title')).toContain('swap for something you own');
+    fireEvent.click(chip);
+    expect(onSwap).toHaveBeenCalledTimes(1);
+    unmount();
+
+    const plain = row({}, vi.fn(), { coverage: short });
+    expect(plain.container.querySelector('button.slot-chip')).toBeNull();
+    expect(plain.container.querySelector('span.slot-chip')?.textContent).toBe('Buy 1');
+    plain.unmount();
+
+    const have = row({}, vi.fn(), {
+      coverage: { ...short, owned: 1, available: 1, covered: 1, missing: 0 }, onSwap,
+    });
+    expect(have.container.querySelector('button.slot-chip')).toBeNull();
+    expect(have.container.querySelector('span.slot-chip')?.textContent).toBe('Have it');
   });
 
   it('stays blank until the deck figures arrive, rather than guessing', () => {
