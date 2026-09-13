@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
+import Database from 'better-sqlite3';
 import Fastify from 'fastify';
 
 import { errorHandler } from './errorHandler.ts';
@@ -66,6 +67,26 @@ test('a body that fails its schema is a 400 naming the field', async () => {
   assert.match(response.json().error, /^body\/quantity /);
   assert.equal(ran, false, 'the handler never ran');
   await app.close();
+});
+
+test('a SQLite foreign-key failure is a 400 with a generic message, never a 500', async () => {
+  const { app, lines } = appWithLog();
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  db.exec(`CREATE TABLE parent (id INTEGER PRIMARY KEY);
+           CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));`);
+  app.post('/child', async () => {
+    db.prepare('INSERT INTO child (parent_id) VALUES (?)').run(999);
+    return { ok: true };
+  });
+
+  const response = await app.inject({ method: 'POST', url: '/child' });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.json().error, /does not exist/);
+  assert.doesNotMatch(response.body, /FOREIGN KEY/, 'SQLite\'s own wording is not forwarded');
+  assert.equal(lines.length, 0, 'a warning, not an error — the error-level log stays quiet');
+  await app.close();
+  db.close();
 });
 
 test('malformed JSON is a 400, not a 500', async () => {

@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
-import { DeckNotFoundError, type DeckStore } from '../decks/store.ts';
+import {
+  CardNotFoundError, DeckNotFoundError, UnknownFormatError, type DeckStore,
+} from '../decks/store.ts';
 import { DECK_STATUSES, SlotOverfilledError, type DeckStatus } from '../decks/allocation.ts';
 import {
   buildabilityDetail, buildabilityForDecks, compareBuildability, isBuildabilitySort,
@@ -26,15 +28,18 @@ export function registerDeckRoutes(
   db: Database.Database,
 ): void {
   /**
-   * Turns a missing deck into a 404 and an impossible slot into a 400, rather
-   * than either into a 500. An over-filled slot is rejected outright — clamping
-   * it would leave the client showing a number the user never asked for.
+   * Turns a missing deck or card into a 404 and an impossible slot or unknown
+   * format into a 400, rather than any into a 500. An over-filled slot is
+   * rejected outright — clamping it would leave the client showing a number
+   * the user never asked for.
    */
   const guard = async <T>(reply: any, run: () => T) => {
     try {
       return run();
     } catch (error) {
       if (error instanceof DeckNotFoundError) return reply.status(404).send({ error: error.message });
+      if (error instanceof CardNotFoundError) return reply.status(404).send({ error: error.message });
+      if (error instanceof UnknownFormatError) return reply.status(400).send({ error: error.message });
       if (error instanceof SlotOverfilledError) return reply.status(400).send({ error: error.message });
       throw error;
     }
@@ -119,14 +124,14 @@ export function registerDeckRoutes(
   app.post<{ Body: { name: string; formatCode?: string | null; description?: string | null } }>(
     '/api/v1/decks',
     { schema: { body: body({ name: NAME, formatCode: TEXT_OR_NULL, description: TEXT_OR_NULL }, ['name']) } },
-    async (request, reply) => {
+    async (request, reply) => guard(reply, () => {
       const id = decks.create({
         name: request.body.name,
         formatCode: request.body.formatCode ?? null,
         description: request.body.description ?? null,
       });
       return reply.status(201).send({ deck: decks.get(id) });
-    },
+    }),
   );
 
   app.get<{ Params: { id: number } }>(
@@ -208,7 +213,10 @@ export function registerDeckRoutes(
         params: idParams('id'),
         body: body(
           {
-            oracleId: NAME, board: BOARD, quantity: COUNT, fromCollection: COUNT,
+            oracleId: NAME, board: BOARD, fromCollection: COUNT,
+            // Adding zero copies is not an addition. Rejected rather than
+            // rounded up to one, which the store would otherwise do silently.
+            quantity: { ...COUNT, minimum: 1 },
             // The printing the client was looking at. Pins a new slot's art,
             // and is the printing a limited deck's add puts in the collection.
             printingId: TEXT_OR_NULL,
