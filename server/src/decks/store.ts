@@ -16,6 +16,7 @@ import {
 } from './allocation.ts';
 import { decksSharingCards, reconcileDeckAndSharers, reconcileDeckClaims } from './reconcile.ts';
 import { reconcileAlerts } from './contention.ts';
+import { cancelOpenRunFor } from './assembly.ts';
 import type { Color } from '../model/mtg.ts';
 import type {
   Board, CommanderRole, Deck, DeckCard, DeckStats, DeckValidation, DeckWithCards, FormatRules,
@@ -31,6 +32,22 @@ export class DeckNotFoundError extends Error {
   constructor(id: number) {
     super(`No deck with id ${id}.`);
     this.name = 'DeckNotFoundError';
+  }
+}
+
+/** A format code with no row in `formats` — the client's mistake, so a 400. */
+export class UnknownFormatError extends Error {
+  constructor(code: string) {
+    super(`No format with code "${code}".`);
+    this.name = 'UnknownFormatError';
+  }
+}
+
+/** An oracle id the card database has never heard of — a 404, like a deck. */
+export class CardNotFoundError extends Error {
+  constructor(oracleId: string) {
+    super(`No card with oracle id "${oracleId}".`);
+    this.name = 'CardNotFoundError';
   }
 }
 
@@ -376,9 +393,15 @@ export class DeckStore {
   }
 
   create(input: { name: string; formatCode?: string | null; description?: string | null }): number {
+    const formatCode = input.formatCode ?? null;
+    // Checked here rather than left to the foreign key, so the failure has a
+    // name: the constraint error carries no hint of which field was wrong.
+    if (formatCode !== null && !this.formatRules(formatCode)) {
+      throw new UnknownFormatError(formatCode);
+    }
     const result = this.db.prepare(
       `INSERT INTO decks (name, format_code, description) VALUES (?,?,?)`,
-    ).run(input.name.trim() || 'Untitled deck', input.formatCode ?? null, input.description ?? null);
+    ).run(input.name.trim() || 'Untitled deck', formatCode, input.description ?? null);
     return Number(result.lastInsertRowid);
   }
 
@@ -433,6 +456,15 @@ export class DeckStore {
       // edit. Promoted, this deck yields to the decks already holding; demoted,
       // what it held is spare for them. Either way the contested set moved.
       if (statusMoved) reconcileDeckAndSharers(this.db, id);
+      // A pull sheet is a plan to make the claim physical. Stepping the deck
+      // out of a reserving status withdraws the claim, so a half-ticked sheet
+      // would be resuming towards a pile the deck no longer intends to hold.
+      // Cancel it, and say so on the run; completing a run is the only path
+      // that moves status the other way (to assembled), and it stays as is.
+      if (statusMoved && (changes.status === 'brew' || changes.status === 'disassembled')) {
+        cancelOpenRunFor(this.db, id,
+          `Cancelled automatically: deck status changed to ${changes.status}.`);
+      }
     })();
   }
 
@@ -524,6 +556,11 @@ export class DeckStore {
       'SELECT id, format_code, home_location_id FROM decks WHERE id = ?',
     ).get(deckId) as LimitedDeckRow | undefined;
     if (!deck) throw new DeckNotFoundError(deckId);
+    // Same reason as create(): the foreign key would refuse this too, but
+    // without saying which of deck, card or printing was the problem.
+    if (!this.db.prepare('SELECT 1 FROM oracle_cards WHERE oracle_id = ?').get(oracleId)) {
+      throw new CardNotFoundError(oracleId);
+    }
 
     const quantity = Math.max(1, options.quantity ?? 1);
 

@@ -30,6 +30,12 @@ const HEADER_PATTERNS: Array<[ColumnRole, RegExp]> = [
 export interface CsvTable {
   headers: string[];
   rows: string[][];
+  /**
+   * False when the file had no header line and the first row is data. Line
+   * numbers reported back to the user depend on it. Absent means true, since
+   * `parseCsv` always assumes a header — see `withoutHeader`.
+   */
+  hasHeader?: boolean;
 }
 
 /**
@@ -77,6 +83,46 @@ export function parseCsv(text: string): CsvTable {
 
   const headers = (rows.shift() ?? []).map((h) => h.trim());
   return { headers, rows };
+}
+
+/**
+ * Whether a parsed table looks like it never had a header: nothing in the
+ * first line is a column name we know. Not sufficient on its own — a file with
+ * unrecognised headers looks the same — so the caller also checks that the
+ * would-be name cell is a real card before demoting the line to data.
+ */
+export function looksHeaderless(headers: string[]): boolean {
+  return headers.length > 0 && guessMapping(headers).every((role) => role === 'ignore');
+}
+
+/** In a headerless file, the cell that would hold the card name. */
+export function headerlessNameCell(row: string[]): string {
+  return (isCount(row[0]) ? row[1] : row[0])?.trim() ?? '';
+}
+
+const isCount = (value: string | undefined) => /^\d+$/.test((value ?? '').trim());
+
+/**
+ * The mapping for a bare list of names: `[name]`, or `[quantity, name]` when
+ * the line starts with a number. Anything past that is ignored — there is no
+ * header to say what it is.
+ */
+export function headerlessMapping(row: string[]): ColumnRole[] {
+  const leading: ColumnRole[] = isCount(row[0]) ? ['quantity', 'name'] : ['name'];
+  return row.map((_, index) => leading[index] ?? 'ignore');
+}
+
+/**
+ * Re-reads a parsed table as headerless: the line taken for a header goes back
+ * to being the first row, and the columns get placeholder labels so the
+ * mapping editor still has something to put beside each select.
+ */
+export function withoutHeader(table: CsvTable): CsvTable {
+  return {
+    headers: table.headers.map((_, index) => `Column ${index + 1}`),
+    rows: [table.headers, ...table.rows],
+    hasHeader: false,
+  };
 }
 
 /** Best-guess role for each column, which the user can then correct. */
@@ -172,9 +218,11 @@ export function applyMapping(table: CsvTable, mapping: ColumnRole[]): {
   const rows: MappedRow[] = [];
   const skipped: Array<{ lineNumber: number; reason: string }> = [];
 
+  // One because humans count from 1, and one more for the header line if
+  // there was one.
+  const firstLine = table.hasHeader === false ? 1 : 2;
   table.rows.forEach((row, index) => {
-    // +2: one for the header line, one because humans count from 1.
-    const lineNumber = index + 2;
+    const lineNumber = index + firstLine;
     const at = (role: ColumnRole) => {
       const column = indexOf(role);
       return column === -1 ? '' : (row[column] ?? '').trim();

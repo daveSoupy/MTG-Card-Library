@@ -9,7 +9,7 @@ import { DeckStore } from './store.ts';
 import { availableFor } from './allocation.ts';
 import {
   ASSEMBLY_MOVES_LOTS, assemblySheet, cancelRun, completeRun, listRuns, openAssemblyRun,
-  openDisassemblyRun, setItemPicked, type AssemblySheet,
+  openDisassemblyRun, openRunFor, setItemPicked, type AssemblySheet,
 } from './assembly.ts';
 
 /**
@@ -740,6 +740,72 @@ test('a cancelled run changes nothing and frees the deck for another', () => {
   assert.notEqual(next.run.id, sheet.run.id);
   assert.equal(listRuns(f.db, f.deckId).length, 2);
   f.db.close();
+});
+
+test('moving a deck to brew cancels its open run and says why on the run', () => {
+  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha' }]);
+  collection.addLot({ printingId: 'p-a', locationId: location('Binder'), quantity: 1 });
+  const deckId = deckOf(decks, 'Eric', ['a']);
+  decks.update(deckId, { status: 'building' });
+  const sheet = openAssemblyRun(db, deckId);
+  assert.equal(openRunFor(db, deckId)?.id, sheet.run.id);
+
+  decks.update(deckId, { status: 'brew' });
+
+  assert.equal(openRunFor(db, deckId), null);
+  const run = listRuns(db, deckId).find((candidate) => candidate.id === sheet.run.id)!;
+  assert.equal(run.status, 'cancelled');
+  assert.match(run.notes ?? '', /status changed to brew/);
+  assert.ok(run.completedAt);
+  db.close();
+});
+
+test('moving a deck to disassembled cancels its open run too', () => {
+  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha' }]);
+  collection.addLot({ printingId: 'p-a', locationId: location('Binder'), quantity: 1 });
+  const deckId = deckOf(decks, 'Eric', ['a']);
+  decks.update(deckId, { status: 'building' });
+  openAssemblyRun(db, deckId);
+
+  decks.update(deckId, { status: 'disassembled' });
+
+  assert.equal(openRunFor(db, deckId), null);
+  assert.match(listRuns(db, deckId)[0].notes ?? '', /status changed to disassembled/);
+  db.close();
+});
+
+test('moving a deck between reserving statuses leaves its open run alone', () => {
+  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha' }]);
+  collection.addLot({ printingId: 'p-a', locationId: location('Binder'), quantity: 1 });
+  const deckId = deckOf(decks, 'Eric', ['a']);
+  const sheet = openAssemblyRun(db, deckId);
+
+  // brew → building is a promotion; the sheet is exactly what it is for.
+  decks.update(deckId, { status: 'building' });
+  assert.equal(openRunFor(db, deckId)?.id, sheet.run.id);
+  // A rename with no status change is not a status change.
+  decks.update(deckId, { name: 'Eric v2' });
+  assert.equal(openRunFor(db, deckId)?.id, sheet.run.id);
+  // And a no-op status write does not cancel either.
+  decks.update(deckId, { status: 'building' });
+  assert.equal(openRunFor(db, deckId)?.id, sheet.run.id);
+
+  // Completing still sets assembled, and a completed run is not "open".
+  completeRun(db, sheet.run.id);
+  assert.equal(decks.get(deckId)!.status, 'assembled');
+  assert.equal(openRunFor(db, deckId), null);
+  db.close();
+});
+
+test('a manual cancel leaves the run notes empty', () => {
+  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha' }]);
+  collection.addLot({ printingId: 'p-a', locationId: location('Binder'), quantity: 1 });
+  const deckId = deckOf(decks, 'Eric', ['a']);
+  const sheet = openAssemblyRun(db, deckId);
+  const run = cancelRun(db, sheet.run.id)!;
+  assert.equal(run.status, 'cancelled');
+  assert.equal(run.notes, null);
+  db.close();
 });
 
 test('deleting a deck with an open run leaves no orphan items', () => {
