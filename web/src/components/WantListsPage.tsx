@@ -18,6 +18,15 @@ import { useNarrow } from '../viewport.ts';
 const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const PRIORITY = ['—', 'Low', 'Medium', 'High'];
 
+/** One pointer's drag, from pointerdown to release. `lift` is null until the
+ *  hold registers (immediately for a mouse, after the long-press for touch). */
+interface DragMeta {
+  pointerId: number; startX: number; startY: number; rowHeight: number;
+  lift: { id: number; startIndex: number; shift: number } | null;
+  longPress: number | null;
+  release: () => void;
+}
+
 /**
  * Want lists — cards you're looking for, in any number of named lists, each with
  * its own priority order. A deck-linked entry shows "needed for: Deck A ×2" as a
@@ -132,31 +141,54 @@ export function WantListsPage({
     loadLists();
   };
 
-  const move = async (index: number, delta: number) => {
-    if (activeId == null || !list) return;
-    const ids = list.items.map((i) => i.id);
-    const target = index + delta;
-    if (target < 0 || target >= ids.length) return;
-    [ids[index], ids[target]] = [ids[target], ids[index]];
-    setList(await reorderWantItems(activeId, ids));
-  };
-
   const active = list?.items.filter((i) => i.status === 'active') ?? [];
   const fulfilled = list?.items.filter((i) => i.status === 'fulfilled') ?? [];
+
+  /**
+   * Persists a new order of the active rows. The server gets the whole list
+   * every time — the active ids as reordered, then the fulfilled ones as they
+   * were — so it never has to guess where the rows the drag did not show go.
+   */
+  const persistOrder = (activeIds: number[]) => {
+    if (activeId == null || !list) return;
+    const ids = [...activeIds, ...fulfilled.map((i) => i.id)];
+    // Shown in the new order straight away, so a dropped row does not snap
+    // back to its old place for the round trip; the server's answer replaces it.
+    const byId = new Map(list.items.map((i) => [i.id, i]));
+    setList({ ...list, items: ids.map((id) => byId.get(id)!).filter(Boolean) });
+    reorderWantItems(activeId, ids).then(setList).catch((e) => setError(e.message));
+  };
+
+  /** Arrow-key reorder. `index` is a position in `active` — the rows that have
+   *  handles — not in `list.items`, which also holds the fulfilled ones. */
+  const move = (index: number, delta: number) => {
+    const ids = active.map((i) => i.id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    persistOrder(ids);
+  };
 
   // Drag-to-reorder. `drag` (state, drives rendering) tracks which row is
   // lifted, how many row-slots it has moved (`shift`, snapped for the actual
   // reorder), and the sub-slot pixel remainder (`offset`) so the row still
   // visually tracks the pointer between snaps instead of jumping in whole
-  // row-height steps. `dragMeta` (ref) holds pointer bookkeeping that never
+  // row-height steps. `dragMeta` (ref) holds the pointer bookkeeping that never
   // needs to trigger a render — including the long-press timer that, on
   // touch, gates a hold from an ordinary scroll: a touch that moves before
   // the timer fires cancels the drag rather than starting one.
+  //
+  // The pointer is followed from the window, not the handle. Reordering moves
+  // the lifted row's DOM node, and a moved node loses any pointer capture it
+  // held — so a handle that captured the pointer would stop hearing it the
+  // moment the row first changed place, and the pointerup that ends the drag
+  // would land on whatever was under it instead. The window hears every
+  // pointer event wherever it lands; the handle's only job is to start one.
+  // The snapped shift is kept on the ref as well as in state because a
+  // pointerup can arrive before React has rendered the last pointermove, and
+  // the commit must use where the row actually is, not where it was last drawn.
   const [drag, setDrag] = useState<{ id: number; startIndex: number; shift: number; offset: number } | null>(null);
-  const dragMeta = useRef<{
-    pointerId: number; startX: number; startY: number; rowHeight: number;
-    activated: boolean; longPress: number | null;
-  } | null>(null);
+  const dragMeta = useRef<DragMeta | null>(null);
 
   const displayItems = useMemo(() => {
     if (!drag) return active;
@@ -168,57 +200,69 @@ export function WantListsPage({
     return rest;
   }, [active, drag]);
 
-  const beginDrag = (id: number, index: number, clientX: number, clientY: number, pointerId: number, rowHeight: number) => {
-    dragMeta.current = { pointerId, startX: clientX, startY: clientY, rowHeight, activated: true, longPress: null };
+  const trackDrag = (meta: DragMeta, clientY: number) => {
+    if (!meta.lift) return;
+    const dy = clientY - meta.startY;
+    const shift = Math.round(dy / meta.rowHeight);
+    meta.lift.shift = shift;
+    setDrag((d) => (d ? { ...d, shift, offset: dy - shift * meta.rowHeight } : d));
+  };
+
+  const finishDrag = (commit: boolean) => {
+    const meta = dragMeta.current;
+    if (!meta) return;
+    dragMeta.current = null;
+    if (meta.longPress) clearTimeout(meta.longPress);
+    meta.release();
+    const lift = meta.lift;
+    if (commit && lift && lift.shift !== 0) {
+      const ids = active.map((i) => i.id).filter((id) => id !== lift.id);
+      const targetIndex = Math.min(ids.length, Math.max(0, lift.startIndex + lift.shift));
+      ids.splice(targetIndex, 0, lift.id);
+      persistOrder(ids);
+    }
+    setDrag(null);
+  };
+  // The window listeners are attached once per drag and outlive several
+  // renders; they reach the current closure (with this render's `active` and
+  // `activeId`) through the ref rather than the one they were created in.
+  const finishDragRef = useRef(finishDrag);
+  finishDragRef.current = finishDrag;
+  useEffect(() => () => dragMeta.current?.release(), []);
+
+  const beginDrag = (meta: DragMeta, id: number, index: number) => {
+    meta.lift = { id, startIndex: index, shift: 0 };
     setDrag({ id, startIndex: index, shift: 0, offset: 0 });
   };
 
   const onDragPointerDown = (item: WantListItem, index: number) => (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-    const handle = event.currentTarget;
-    const rowHeight = (handle.closest('.want-row') as HTMLElement | null)?.offsetHeight ?? 52;
-    const clientX = event.clientX, clientY = event.clientY, pointerId = event.pointerId;
-    if (event.pointerType === 'mouse') {
-      handle.setPointerCapture(pointerId);
-      beginDrag(item.id, index, clientX, clientY, pointerId, rowHeight + 4);
-    } else {
-      const timer = window.setTimeout(() => {
-        handle.setPointerCapture(pointerId);
-        beginDrag(item.id, index, clientX, clientY, pointerId, rowHeight + 4);
-      }, 250);
-      dragMeta.current = { pointerId, startX: clientX, startY: clientY, rowHeight: rowHeight + 4, activated: false, longPress: timer };
-    }
-  };
-
-  const onDragPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const meta = dragMeta.current;
-    if (!meta || meta.pointerId !== event.pointerId) return;
-    if (!meta.activated) {
+    if (dragMeta.current) return; // a second finger while one is already down
+    const rowHeight = ((event.currentTarget.closest('.want-row') as HTMLElement | null)?.offsetHeight || 52) + 4;
+    const meta: DragMeta = {
+      pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, rowHeight,
+      lift: null, longPress: null, release: () => {},
+    };
+    const mine = (e: PointerEvent) => e.pointerId === meta.pointerId;
+    const onMove = (e: PointerEvent) => {
+      if (!mine(e)) return;
+      if (meta.lift) { trackDrag(meta, e.clientY); return; }
       // Moved before the hold registered — that's a scroll, not a drag.
-      if (Math.hypot(event.clientX - meta.startX, event.clientY - meta.startY) > 8) {
-        if (meta.longPress) clearTimeout(meta.longPress);
-        dragMeta.current = null;
-      }
-      return;
-    }
-    event.preventDefault();
-    const dy = event.clientY - meta.startY;
-    const shift = Math.round(dy / meta.rowHeight);
-    const offset = dy - shift * meta.rowHeight;
-    setDrag((d) => (d ? { ...d, shift, offset } : d));
-  };
-
-  const finishDrag = (commit: boolean) => {
-    const meta = dragMeta.current;
-    dragMeta.current = null;
-    if (meta?.longPress) clearTimeout(meta.longPress);
-    if (commit && drag && meta?.activated && drag.shift !== 0 && activeId != null) {
-      const ids = active.map((i) => i.id).filter((id) => id !== drag.id);
-      const targetIndex = Math.min(ids.length, Math.max(0, drag.startIndex + drag.shift));
-      ids.splice(targetIndex, 0, drag.id);
-      reorderWantItems(activeId, ids).then(setList).catch((e) => setError(e.message));
-    }
-    setDrag(null);
+      if (Math.hypot(e.clientX - meta.startX, e.clientY - meta.startY) > 8) finishDragRef.current(false);
+    };
+    const onUp = (e: PointerEvent) => { if (mine(e)) finishDragRef.current(true); };
+    const onCancel = (e: PointerEvent) => { if (mine(e)) finishDragRef.current(false); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    meta.release = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+    };
+    dragMeta.current = meta;
+    if (event.pointerType === 'mouse') beginDrag(meta, item.id, index);
+    else meta.longPress = window.setTimeout(() => beginDrag(meta, item.id, index), 250);
   };
 
   const [openTarget, setOpenTarget] = useState<Set<number>>(new Set());
@@ -291,9 +335,6 @@ export function WantListsPage({
                   className="want-drag"
                   aria-label={`Reorder ${item.name} — drag, or use the up/down arrow keys`}
                   onPointerDown={onDragPointerDown(item, index)}
-                  onPointerMove={onDragPointerMove}
-                  onPointerUp={() => finishDrag(true)}
-                  onPointerCancel={() => finishDrag(false)}
                   onKeyDown={(e) => {
                     if (e.key === 'ArrowUp') { e.preventDefault(); move(index, -1); }
                     if (e.key === 'ArrowDown') { e.preventDefault(); move(index, 1); }

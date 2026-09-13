@@ -13,7 +13,7 @@ function fixture() {
   const db = new Database(':memory:');
   db.exec(SCHEMA);
   db.prepare(`INSERT INTO sets (code,name) VALUES ('tst','Test')`).run();
-  for (const [oid, name, pid, n] of [['bolt', 'Lightning Bolt', 'p1', '1'], ['goyf', 'Tarmogoyf', 'p2', '2']]) {
+  for (const [oid, name, pid, n] of [['bolt', 'Lightning Bolt', 'p1', '1'], ['goyf', 'Tarmogoyf', 'p2', '2'], ['snap', 'Snapcaster Mage', 'p3', '3']]) {
     db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout)
                 VALUES (?,?,?,1,'Instant','x','normal')`).run(oid, name, name.toLowerCase());
     db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,rarity,price_usd)
@@ -51,6 +51,63 @@ test('each list keeps its own item order', () => {
   const orderB = wants.get(b)!.items.map((i) => i.oracleId);
   assert.deepEqual(orderA, ['goyf', 'bolt']);
   assert.deepEqual(orderB, ['bolt', 'goyf'], 'B keeps its own independent order');
+  db.close();
+});
+
+test('reorderItems: a partial payload keeps the omitted rows after it, in their old order', () => {
+  const { db, wants } = fixture();
+  const a = wants.createList('A');
+  const bolt = wants.addItem(a, 'bolt');
+  const goyf = wants.addItem(a, 'goyf');
+  const snap = wants.addItem(a, 'snap');
+
+  // Only two of the three rows named — the third must not collide with them.
+  wants.reorderItems(a, [snap, bolt]);
+  assert.deepEqual(wants.get(a)!.items.map((i) => i.id), [snap, bolt, goyf]);
+  const orders = db.prepare('SELECT sort_order FROM want_list_items WHERE want_list_id = ? ORDER BY sort_order')
+    .all(a).map((r: any) => r.sort_order);
+  assert.deepEqual(orders, [0, 1, 2], 'every row renumbered, none sharing a slot');
+
+  // The rows the drag never showed keep their relative order — the client
+  // only sends the active ones followed by the fulfilled ones, but even a
+  // client that sent only what it displayed leaves the rest as they were.
+  wants.reorderItems(a, [goyf]);
+  assert.deepEqual(wants.get(a)!.items.map((i) => i.id), [goyf, snap, bolt]);
+  db.close();
+});
+
+test('reorderItems ignores ids from another list, unknown ids and repeats', () => {
+  const { db, wants } = fixture();
+  const a = wants.createList('A');
+  const b = wants.createList('B');
+  const aBolt = wants.addItem(a, 'bolt');
+  const aGoyf = wants.addItem(a, 'goyf');
+  const bBolt = wants.addItem(b, 'bolt');
+  const bGoyf = wants.addItem(b, 'goyf');
+
+  wants.reorderItems(a, [bGoyf, 999999, aGoyf, aGoyf, aBolt]);
+  assert.deepEqual(wants.get(a)!.items.map((i) => i.id), [aGoyf, aBolt]);
+  assert.deepEqual(wants.get(b)!.items.map((i) => i.id), [bBolt, bGoyf], 'B untouched');
+  const bOrders = db.prepare('SELECT id, sort_order FROM want_list_items WHERE want_list_id = ? ORDER BY id')
+    .all(b) as Array<{ id: number; sort_order: number }>;
+  assert.deepEqual(bOrders.map((r) => r.sort_order), [1, 2], "B's stored order is exactly as addItem left it");
+  db.close();
+});
+
+test('reorderItems renumbers active and fulfilled rows together', () => {
+  const { db, wants } = fixture();
+  const a = wants.createList('A');
+  const bolt = wants.addItem(a, 'bolt');
+  const goyf = wants.addItem(a, 'goyf');
+  const snap = wants.addItem(a, 'snap');
+  wants.updateItem(bolt, { status: 'fulfilled' });
+
+  // What the client sends after an arrow-key swap of the two active rows:
+  // active ids in their new order, then the fulfilled ones as they were.
+  wants.reorderItems(a, [snap, goyf, bolt]);
+  const items = wants.get(a)!.items;
+  assert.deepEqual(items.map((i) => i.id), [snap, goyf, bolt]);
+  assert.deepEqual(items.filter((i) => i.status === 'active').map((i) => i.id), [snap, goyf]);
   db.close();
 });
 
