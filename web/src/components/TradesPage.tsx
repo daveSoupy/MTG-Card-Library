@@ -14,6 +14,17 @@ const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFix
 const sumValue = (items: Trade['items'], dir: 'out' | 'in') =>
   items.filter((i) => i.direction === dir).reduce((t, i) => t + (i.unitValueUsd ?? 0) * i.quantity, 0);
 
+/**
+ * An outgoing card the collection can't supply — its lot was edited or deleted
+ * after the trade was drafted. Not a deck conflict: there is nothing to
+ * "complete anyway" past, so the server refuses and this page says why.
+ */
+interface TradeShortfall { itemId?: number; oracleId: string; name: string; requested: number; found: number; }
+type CompleteResult = CompleteTradeResult & { shortfalls?: TradeShortfall[] };
+
+const isShort = (item: Trade['items'][number]) =>
+  item.direction === 'out' && item.quantity > item.ownedQuantity;
+
 export function TradesPage({ onAlertsChanged }: { onAlertsChanged?: () => void }) {
   const [trades, setTrades] = useState<TradeSummary[]>([]);
   const [openId, setOpenId] = useState<number | null>(null);
@@ -83,8 +94,8 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const [error, setError] = useState<string | null>(null);
   const [addingOut, setAddingOut] = useState(false);
   const [addingIn, setAddingIn] = useState(false);
-  const [confirm, setConfirm] = useState<CompleteTradeResult | null>(null);
-  const [done, setDone] = useState<CompleteTradeResult | null>(null);
+  const [confirm, setConfirm] = useState<CompleteResult | null>(null);
+  const [done, setDone] = useState<CompleteResult | null>(null);
   const [editingItem, setEditingItem] = useState<Trade['items'][number] | null>(null);
   // Taking a card back off a trade used to be final. One stack per open
   // trade, reached by ⌘Z and — the only undo a phone has — the toast.
@@ -164,13 +175,20 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   };
 
   const complete = async (force: boolean) => {
+    setError(null);
     try {
-      const { result } = await completeTrade(tradeId, force);
-      if (result.needsConfirmation) { setConfirm(result); return; }
+      const { result } = await completeTrade(tradeId, force) as { result: CompleteResult };
+      if (result.needsConfirmation || result.shortfalls?.length) { setConfirm(result); return; }
       setConfirm(null); setDone(result);
       setTrade(await fetchTrade(tradeId));
       onCompleted();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) {
+      // A 409 from the server — including a shortfall it only found while
+      // disposing — lands here with its message.
+      setError(e.message);
+      setConfirm(null);
+      setTrade(await fetchTrade(tradeId).catch(() => trade));
+    }
   };
 
   if (!trade) return <div className="list-page"><p className="loading">Loading…</p></div>;
@@ -179,6 +197,11 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const incoming = trade.items.filter((i) => i.direction === 'in');
   const valueOut = sumValue(trade.items, 'out');
   const valueIn = sumValue(trade.items, 'in');
+  // Rows asking for copies that aren't there. The server would refuse the
+  // completion anyway; disabling the button says so before the attempt.
+  const shortRows = out.filter(isShort);
+  const shortReason = shortRows.length === 0 ? null
+    : `Can't complete: you don't own ${shortRows.map((i) => `${i.quantity} ${i.name} (own ${i.ownedQuantity})`).join(', ')}.`;
 
   return (
     <div className="list-page trade-editor">
@@ -223,7 +246,9 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                       {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {item.condition} · {money(item.unitValueUsd)}
                     </button>
                   : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
-                <span className="dim"> own {item.ownedQuantity}</span>
+                {isShort(item)
+                  ? <span className="conflict-flag" title="The lot this came from has changed since you drafted the trade."> only own {item.ownedQuantity}</span>
+                  : <span className="dim"> own {item.ownedQuantity}</span>}
               </span>
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
@@ -280,7 +305,21 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
         </section>
       </div>
 
-      {confirm?.needsConfirmation && (
+      {confirm?.shortfalls?.length ? (
+        <div className="conflict-panel">
+          <strong>You don't own some of the cards you're giving away:</strong>
+          <ul>{confirm.shortfalls.map((s) => (
+            <li key={s.itemId ?? s.oracleId}>
+              {s.name} — giving {s.requested}, but only {s.found} in your collection.
+              The lot it came from has changed or been removed since you drafted this trade.
+            </li>
+          ))}</ul>
+          <p className="dim">Lower the quantity, pick a different lot, or remove the card. The trade can't complete as it stands.</p>
+          <div className="btnrow">
+            <button className="btn secondary" onClick={() => setConfirm(null)}>OK</button>
+          </div>
+        </div>
+      ) : confirm?.needsConfirmation && (
         <div className="conflict-panel">
           <strong>Some cards you're trading away are used by a deck:</strong>
           <ul>{confirm.conflicts?.map((c) => (
@@ -295,9 +334,12 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
 
       {!readOnly && !confirm && (
         <div className="trade-actions">
-          <button className="btn primary" onClick={() => complete(false)} disabled={out.length === 0 && incoming.length === 0}>
+          <button className="btn primary" onClick={() => complete(false)}
+            disabled={(out.length === 0 && incoming.length === 0) || shortReason != null}
+            title={shortReason ?? undefined}>
             Complete trade
           </button>
+          {shortReason && <span className="conflict-flag">{shortReason}</span>}
           <button className="btn secondary" onClick={async () => { if (confirmDelete()) { await deleteTrade(tradeId); onClose(); } }}>Delete draft</button>
         </div>
       )}

@@ -27,6 +27,38 @@ export class TradeNotDraftError extends Error {
   constructor() { super('Only a draft trade can be changed.'); this.name = 'TradeNotDraftError'; }
 }
 
+/** An outgoing card the collection cannot supply enough copies of. */
+export interface Shortfall {
+  /** The trade item that came up short (absent when raised by a bare disposal). */
+  itemId?: number;
+  oracleId: string;
+  name: string;
+  /** Copies the trade wants to give away. */
+  requested: number;
+  /** Copies actually there to draw from. */
+  found: number;
+}
+
+/**
+ * Thrown before anything commits when copies leaving are not there to leave.
+ *
+ * A trade item names a lot, but the lot can change or vanish while the trade
+ * is still a draft. Refusing here — rather than completing with nothing
+ * disposed — is what keeps the trade's `value_out_usd`, the collection and the
+ * disposal log agreeing with each other.
+ */
+export class TradeShortfallError extends Error {
+  readonly shortfalls: Shortfall[];
+  constructor(shortfalls: Shortfall[]) {
+    super(shortfalls.map(({ name, requested, found }) => {
+      const missing = requested - found;
+      return `${missing} ${missing === 1 ? 'copy' : 'copies'} of ${name} ${missing === 1 ? 'is' : 'are'} not in your collection.`;
+    }).join(' '));
+    this.name = 'TradeShortfallError';
+    this.shortfalls = shortfalls;
+  }
+}
+
 export interface TradeItemInput {
   direction: Direction;
   printingId: string;
@@ -94,6 +126,11 @@ export interface CompleteResult {
   completed: boolean;
   needsConfirmation?: boolean;
   conflicts?: Conflict[];
+  /**
+   * Outgoing copies that are not in the collection. Unlike a conflict this is
+   * not a decision — `force` cannot complete past it.
+   */
+  shortfalls?: Shortfall[];
   fulfilledWants?: FulfilledWant[];
   clampedTradeListItems?: number;
   resolvedConflicts?: Conflict[];
@@ -202,12 +239,36 @@ export class TradeStore {
     this.db.prepare(`UPDATE trades SET status = 'cancelled' WHERE id = ?`).run(id);
   }
 
-  /** Copies of a printing/finish/condition currently in the collection. */
-  private ownedFor(printingId: string, finish: string, condition: string): number {
+  /**
+   * Copies an outgoing item can actually draw from: its chosen lot, whatever
+   * that lot's finish/condition/language now are, plus every other lot of the
+   * same printing/finish/condition/language. The same set `disposeFromLot`
+   * walks, so the cap and the "own N" figure agree with what completion does.
+   */
+  private ownedFor(
+    printingId: string, finish: string, condition: string, language: string,
+    sourceLotId: number | null,
+  ): number {
     return (this.db.prepare(
       `SELECT COALESCE(SUM(quantity),0) AS n FROM collection_items
-       WHERE printing_id = ? AND finish = ? AND condition = ?`,
-    ).get(printingId, finish, condition) as { n: number }).n;
+       WHERE printing_id = ?
+         AND ((finish = ? AND condition = ? AND language = ?) OR id = ?)`,
+    ).get(printingId, finish, condition, language, sourceLotId ?? -1) as { n: number }).n;
+  }
+
+  /** What a chosen lot is, so an item drafted from it describes the same copies. */
+  private lotIdentity(lotId: number | null | undefined):
+    | { printingId: string; finish: Finish; condition: Condition; language: string }
+    | undefined {
+    if (lotId == null) return undefined;
+    const row = this.db.prepare(
+      'SELECT printing_id, finish, condition, language FROM collection_items WHERE id = ?',
+    ).get(lotId) as
+      | { printing_id: string; finish: Finish; condition: Condition; language: string }
+      | undefined;
+    return row && {
+      printingId: row.printing_id, finish: row.finish, condition: row.condition, language: row.language,
+    };
   }
 
   /**
@@ -216,12 +277,16 @@ export class TradeStore {
    * One row per printing/finish/condition per side — re-adding the same card
    * increases its quantity rather than stacking duplicate rows. Outgoing is
    * capped at what you own, so a trade can never give away more than the
-   * collection holds; incoming is uncapped.
+   * collection holds; incoming is uncapped. An outgoing item that names a lot
+   * takes that lot's finish/condition/language unless told otherwise — a
+   * default of 'unknown' would describe copies the lot does not hold.
    */
   addItem(tradeId: number, item: TradeItemInput): number {
     this.requireDraft(tradeId);
-    const finish = item.finish ?? 'nonfoil';
-    const condition = item.condition ?? 'unknown';
+    const lot = this.lotIdentity(item.sourceCollectionItemId);
+    const finish = item.finish ?? lot?.finish ?? 'nonfoil';
+    const condition = item.condition ?? lot?.condition ?? 'unknown';
+    const language = item.language ?? lot?.language ?? 'en';
     const add = Math.max(1, Math.trunc(item.quantity));
 
     const existing = this.db.prepare(
@@ -231,7 +296,8 @@ export class TradeStore {
       | { id: number; quantity: number } | undefined;
 
     const cap = (n: number) => item.direction === 'out'
-      ? Math.max(1, Math.min(n, this.ownedFor(item.printingId, finish, condition)))
+      ? Math.max(1, Math.min(n, this.ownedFor(
+          item.printingId, finish, condition, language, item.sourceCollectionItemId ?? null)))
       : n;
 
     if (existing) {
@@ -246,7 +312,7 @@ export class TradeStore {
          source_collection_item_id, destination_location_id, unit_value_usd, notes)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
       tradeId, item.direction, item.printingId, cap(add),
-      finish, condition, item.language ?? 'en',
+      finish, condition, language,
       item.sourceCollectionItemId ?? null, item.destinationLocationId ?? null,
       item.unitValueUsd ?? null, item.notes ?? null);
     return Number(result.lastInsertRowid);
@@ -258,6 +324,16 @@ export class TradeStore {
     const values: Record<string, unknown> = { ...changes };
     if (values.quantity !== undefined) {
       values.quantity = Math.max(1, Math.trunc(Number(values.quantity)));
+    }
+    // Pointing the item at a different lot re-describes it as that lot's
+    // copies, for any of finish/condition/language the caller left unsaid.
+    if (changes.sourceCollectionItemId != null) {
+      const lot = this.lotIdentity(changes.sourceCollectionItemId);
+      if (lot) {
+        values.finish ??= lot.finish;
+        values.condition ??= lot.condition;
+        values.language ??= lot.language;
+      }
     }
 
     const columns: Record<string, string> = {
@@ -280,12 +356,17 @@ export class TradeStore {
     // Re-clamp an outgoing item to what's owned — the printing/finish/condition
     // may have just changed, so the cap can be different from before.
     const row = this.db.prepare(
-      `SELECT direction, printing_id, finish, condition, quantity FROM trade_items WHERE id = ? AND trade_id = ?`,
+      `SELECT direction, printing_id, finish, condition, language, quantity, source_collection_item_id
+       FROM trade_items WHERE id = ? AND trade_id = ?`,
     ).get(itemId, tradeId) as
-      | { direction: Direction; printing_id: string; finish: string; condition: string; quantity: number }
+      | {
+          direction: Direction; printing_id: string; finish: string; condition: string;
+          language: string; quantity: number; source_collection_item_id: number | null;
+        }
       | undefined;
     if (row?.direction === 'out') {
-      const cap = Math.max(1, this.ownedFor(row.printing_id, row.finish, row.condition));
+      const cap = Math.max(1, this.ownedFor(
+        row.printing_id, row.finish, row.condition, row.language, row.source_collection_item_id));
       if (row.quantity > cap) {
         this.db.prepare('UPDATE trade_items SET quantity = ? WHERE id = ?').run(cap, itemId);
       }
@@ -342,11 +423,15 @@ export class TradeStore {
              CASE ti.finish WHEN 'foil' THEN p.price_usd_foil
                             WHEN 'etched' THEN p.price_usd_etched
                             ELSE p.price_usd END AS market_usd,
-             -- Owned copies of this exact printing/finish/condition — the ceiling
-             -- for how many may be given away (meaningful for outgoing items).
+             -- Owned copies this item can draw from — its chosen lot as it now
+             -- is, plus other lots of the same printing/finish/condition/language.
+             -- The ceiling for how many may be given away (outgoing items), and
+             -- the same set disposeFromLot walks at completion.
              (SELECT COALESCE(SUM(ci.quantity),0) FROM collection_items ci
-              WHERE ci.printing_id = ti.printing_id AND ci.finish = ti.finish
-                AND ci.condition = ti.condition) AS owned_qty
+              WHERE ci.printing_id = ti.printing_id
+                AND ((ci.finish = ti.finish AND ci.condition = ti.condition
+                      AND ci.language = ti.language)
+                     OR ci.id = ti.source_collection_item_id)) AS owned_qty
       FROM trade_items ti
       JOIN card_printings p ON p.id = ti.printing_id
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id
@@ -406,6 +491,11 @@ export class TradeStore {
    * clamps the deck's claim. Under `'alert'` the trade always completes, decks
    * are left exactly as they are, and each affected card gets an
    * `allocation_conflict` alert to sort out later.
+   *
+   * A shortfall — outgoing copies the collection does not hold — is neither a
+   * prompt nor an alert: there is nothing to give. 'prompt' reports it so the
+   * UI can say so; 'alert' has nobody to tell and throws. Either way nothing
+   * is written, and `force` does not apply.
    */
   complete(id: number, options: { force?: boolean; conflictMode?: ConflictMode } = {}): CompleteResult {
     const trade = this.requireDraft(id);
@@ -414,7 +504,11 @@ export class TradeStore {
     const incoming = items.filter((i) => i.direction === 'in');
     const conflictMode = options.conflictMode ?? 'prompt';
 
-    const conflicts = this.detectConflicts(out);
+    const { conflicts, shortfalls } = this.detectConflicts(out);
+    if (shortfalls.length > 0) {
+      if (conflictMode === 'alert') throw new TradeShortfallError(shortfalls);
+      return { completed: false, shortfalls, conflicts };
+    }
     if (conflictMode === 'prompt' && conflicts.length > 0 && !options.force) {
       return { completed: false, needsConfirmation: true, conflicts };
     }
@@ -495,8 +589,31 @@ export class TradeStore {
     return { completed: true, fulfilledWants, clampedTradeListItems, resolvedConflicts, allocationAlerts };
   }
 
-  /** Outgoing cards that a deck is currently using. */
-  private detectConflicts(out: ReturnType<TradeStore['itemsFor']>): Conflict[] {
+  /**
+   * What stands in the way of the outgoing side leaving.
+   *
+   * Two different problems, kept apart because they call for different
+   * answers. A *shortfall* is an item wanting more copies than its lots hold
+   * (the lot was edited or deleted after drafting) — not a decision, just
+   * copies that are not there. A *conflict* is a deck using copies that are
+   * there — a decision, which `force` makes. Reporting a shortfall as a
+   * conflict with nothing allocated would invite the user to "complete anyway"
+   * a trade that cannot complete.
+   *
+   * Shortfalls are judged per item; `disposeFromLot` is the guarantee behind
+   * this pre-check, and throws if two items turn out to be drawing on the
+   * same copies.
+   */
+  private detectConflicts(
+    out: ReturnType<TradeStore['itemsFor']>,
+  ): { conflicts: Conflict[]; shortfalls: Shortfall[] } {
+    const shortfalls: Shortfall[] = out
+      .filter((item) => item.quantity > item.ownedQuantity)
+      .map((item) => ({
+        itemId: item.id, oracleId: item.oracleId, name: item.name,
+        requested: item.quantity, found: item.ownedQuantity,
+      }));
+
     const byOracle = new Map<string, { name: string; qty: number }>();
     for (const item of out) {
       const entry = byOracle.get(item.oracleId) ?? { name: item.name, qty: 0 };
@@ -507,13 +624,15 @@ export class TradeStore {
     const conflicts: Conflict[] = [];
     for (const [oracleId, { name, qty }] of byOracle) {
       // allocation.ts owns what "claimed" means: only decks in a reserving
-      // status count, and an exempt basic land is claimed by nobody.
+      // status count, and an exempt basic land is claimed by nobody. With no
+      // claim at all there is no deck to be in conflict with — copies simply
+      // missing are the shortfall above, not this.
       const { owned, reserved: allocated } = allocationFor(this.db, oracleId);
-      if (owned - qty < allocated) {
+      if (allocated > 0 && owned - qty < allocated) {
         conflicts.push({ oracleId, name, owned, allocated, tradingAway: qty });
       }
     }
-    return conflicts;
+    return { conflicts, shortfalls };
   }
 
   /**
@@ -526,12 +645,17 @@ export class TradeStore {
    * becomes an `allocation_conflict` alert, one per card, keyed so it resolves
    * itself once availability catches up.
    *
+   * Every request must be met in full. One that cannot be — the lots hold
+   * fewer copies than asked — throws `TradeShortfallError` inside the
+   * transaction, so no lot, disposal or trade row is left half-applied.
+   *
    * Trade completion calls this; so do Phase 13's sales and Phase 20's offline
    * replay, which have no one to prompt.
    */
   disposeFromLot(requests: DisposalRequest[], context: DisposalContext): DisposeResult {
     return this.db.transaction((): DisposeResult => {
       const consumed: LotConsumption[] = [];
+      const shortfalls: Shortfall[] = [];
       const oracleIds = new Set<string>();
       const disposedOn = context.disposedOn ?? new Date().toISOString().slice(0, 10);
 
@@ -542,18 +666,25 @@ export class TradeStore {
         const oracleId = this.oracleIdFor(request.printingId);
         if (oracleId) oracleIds.add(oracleId);
 
-        let remaining = Math.max(0, Math.trunc(request.quantity));
+        const wanted = Math.max(0, Math.trunc(request.quantity));
+        let remaining = wanted;
 
-        // Prefer the chosen lot, then fall back to other matching lots, oldest first.
+        // The chosen lot first, as it is now — its finish/condition/language
+        // may have been edited since the trade was drafted, and the user's
+        // choice of lot is the stronger statement of which copies are meant.
+        // Then other matching lots, oldest first.
         const lots = this.db.prepare(`
-          SELECT id, quantity, acquired_unit_cost, acquired_at, location_id
+          SELECT id, quantity, finish, condition, language,
+                 acquired_unit_cost, acquired_at, location_id
           FROM collection_items
-          WHERE printing_id = ? AND finish = ? AND condition = ? AND language = ?
+          WHERE printing_id = ?
+            AND ((finish = ? AND condition = ? AND language = ?) OR id = ?)
           ORDER BY (id = ?) DESC, (acquired_at IS NULL), acquired_at ASC, id ASC`)
           .all(request.printingId, finish, condition, language,
+               request.sourceCollectionItemId ?? -1,
                request.sourceCollectionItemId ?? -1) as Array<{
-            id: number; quantity: number; acquired_unit_cost: number | null;
-            acquired_at: string | null; location_id: number;
+            id: number; quantity: number; finish: string; condition: string; language: string;
+            acquired_unit_cost: number | null; acquired_at: string | null; location_id: number;
           }>;
 
         for (const lot of lots) {
@@ -566,7 +697,9 @@ export class TradeStore {
                unit_proceeds_usd, unit_cost_usd, acquired_at, source_lot_id, trade_id,
                counterparty, notes)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-            request.printingId, take, finish, condition, language, disposedOn, context.kind,
+            // The lot's own description, not the request's: the disposal log is
+            // the record of the copy that physically left.
+            request.printingId, take, lot.finish, lot.condition, lot.language, disposedOn, context.kind,
             request.unitProceedsUsd ?? null, lot.acquired_unit_cost, lot.acquired_at,
             lot.id, context.tradeId ?? null, context.counterparty ?? null,
             context.notes ?? null);
@@ -583,7 +716,18 @@ export class TradeStore {
           consumed.push({ requestIndex, lotId: lot.id, locationId: lot.location_id, quantity: take });
           remaining -= take;
         }
+
+        if (remaining > 0) {
+          shortfalls.push({
+            oracleId: oracleId ?? '', name: this.cardNameFor(request.printingId),
+            requested: wanted, found: wanted - remaining,
+          });
+        }
       });
+
+      // Thrown inside the transaction: every decrement and disposal above
+      // rolls back with it.
+      if (shortfalls.length > 0) throw new TradeShortfallError(shortfalls);
 
       return {
         consumed,
@@ -597,6 +741,13 @@ export class TradeStore {
     const row = this.db.prepare('SELECT oracle_id FROM card_printings WHERE id = ?')
       .get(printingId) as { oracle_id: string } | undefined;
     return row?.oracle_id ?? null;
+  }
+
+  private cardNameFor(printingId: string): string {
+    const row = this.db.prepare(
+      `SELECT o.name FROM card_printings p JOIN oracle_cards o ON o.oracle_id = p.oracle_id
+       WHERE p.id = ?`).get(printingId) as { name: string } | undefined;
+    return row?.name ?? printingId;
   }
 
   /**
