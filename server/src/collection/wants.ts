@@ -207,9 +207,33 @@ export class WantStore {
       WHERE oracle_id = ? AND status = 'active'`).all(oracleId) as any[]);
   }
 
+  /**
+   * Sets a list's order from the ids as the client saw them. The supplied ids
+   * come first, in the order given; anything in the list the client did not
+   * mention (a row added since it last fetched, or a fulfilled row the drag
+   * never showed) keeps its relative order after them. Ids from another list,
+   * or that no longer exist, are ignored. Every row is renumbered from zero
+   * in one transaction, so no two rows ever share a sort_order — a collision
+   * there would leave the display order to the name tie-break, which is why
+   * a partial payload used to scramble the rows it left out.
+   */
   reorderItems(listId: number, orderedIds: number[]): void {
-    const update = this.db.prepare(
-      'UPDATE want_list_items SET sort_order = ? WHERE id = ? AND want_list_id = ?');
-    this.db.transaction(() => orderedIds.forEach((id, i) => update.run(i, id, listId)))();
+    const rows = this.db.prepare(`
+      SELECT w.id
+      FROM want_list_items w JOIN oracle_cards o ON o.oracle_id = w.oracle_id
+      WHERE w.want_list_id = ?
+      ORDER BY w.sort_order, o.name COLLATE NOCASE`).all(listId) as Array<{ id: number }>;
+    const mine = new Set(rows.map((r) => r.id));
+    const placed = new Set<number>();
+    const order: number[] = [];
+    for (const id of orderedIds) {
+      if (!mine.has(id) || placed.has(id)) continue;
+      placed.add(id);
+      order.push(id);
+    }
+    for (const { id } of rows) if (!placed.has(id)) order.push(id);
+
+    const update = this.db.prepare('UPDATE want_list_items SET sort_order = ? WHERE id = ?');
+    this.db.transaction(() => order.forEach((id, i) => update.run(i, id)))();
   }
 }
