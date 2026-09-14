@@ -1094,7 +1094,15 @@ input[type='date'] {
   border-radius: 0 0 8px 8px;
   transition: opacity .12s ease;
 }
-.deck-tile:hover .tile-controls,
+/* The hover reveal is for pointers that can hover. On iOS a tap first
+   simulates a hover, and if that hover makes something appear Safari holds
+   the click back for a second tap — so with this rule live on a phone, a
+   Lined-up strip took two taps to open and the first only showed a controls
+   bar far below. Touch gets the controls from a tap (.controls-open) or the
+   card's own panel instead. */
+@media (hover: hover) {
+  .deck-tile:hover .tile-controls { opacity: 1; }
+}
 .deck-tile:focus-within .tile-controls,
 /* Hover never fires on a touch screen, so a tap toggles the same controls. */
 .deck-tile.controls-open .tile-controls { opacity: 1; }
