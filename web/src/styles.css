@@ -692,13 +692,13 @@ input[type='date'] {
 
 .deck-panes {
   display: grid;
-  /* deck list / divider / picker / divider / stats. Both pane widths arrive as
+  /* stats / divider / deck list / divider / picker. Both pane widths arrive as
      inline custom properties, restored per device from localStorage; the deck
      list is the only flexible column, so dragging one divider never moves the
      other. */
   --divider-w: 6px;
   grid-template-columns:
-    minmax(0, 1fr) var(--divider-w) var(--picker-w, 300px) var(--divider-w) var(--stats-w, 300px);
+    var(--stats-w, 300px) var(--divider-w) minmax(0, 1fr) var(--divider-w) var(--picker-w, 300px);
   min-height: 0;
 }
 @media (max-width: 1200px) {
@@ -950,9 +950,16 @@ input[type='date'] {
 
 /* ---------- stats pane ---------- */
 .stats-pane {
-  border-left: 1px solid var(--line); background: var(--panel);
+  border-right: 1px solid var(--line); background: var(--panel);
   padding: 14px; overflow-y: auto; min-height: 0;
 }
+/* The hovered card, whole, above the figures. The card is the button that
+   opens its details. */
+.stats-art { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; margin-bottom: 14px; }
+.stats-art img {
+  width: 100%; aspect-ratio: 5 / 7; border-radius: 10px; display: block; background: var(--panel-2);
+}
+.stats-art:hover img, .stats-art:focus-visible img { box-shadow: 0 0 0 2px var(--accent); }
 .size-readout { margin-bottom: 8px; }
 .size-numbers { display: flex; align-items: baseline; gap: 7px; margin-bottom: 5px; }
 .size-numbers strong { font-size: 24px; font-variant-numeric: tabular-nums; }

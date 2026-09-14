@@ -557,6 +557,8 @@ export interface Deck {
   stats: DeckStats;
   manaBase: ManaBase;
   templateProgress: TemplateProgress | null;
+  /** Chosen if you picked one, otherwise worked out from the deck's contents. */
+  coverPrintingId: string | null;
 }
 
 export interface DeckSummary {

@@ -149,6 +149,7 @@ export function DeckPanes({
   onResolveCategories,
   pickerFloating = false,
   statsFloating = false,
+  statsDocked = true,
   onRequestPicker,
   onClosePicker,
   onCloseStats,
@@ -194,6 +195,9 @@ export function DeckPanes({
    *  columns — the same treatment CardDetailPane already gets. */
   pickerFloating?: boolean;
   statsFloating?: boolean;
+  /** Whether the stats pane is a column on screen (wide windows). Hidden or
+   *  floating, it cannot show the hovered card, so the tooltip does. */
+  statsDocked?: boolean;
   onRequestPicker?: () => void;
   onClosePicker?: () => void;
   onCloseStats?: () => void;
@@ -305,8 +309,13 @@ export function DeckPanes({
     if (leaveTimer.current) clearTimeout(leaveTimer.current);
     leaveTimer.current = null;
   };
+  // With the stats pane docked, the hovered card shows at the top of it and
+  // stays until another is hovered — nothing to clear on leave. The floating
+  // tooltip is the fallback for a window too narrow to dock the pane.
+  const hoverInStats = statsDocked;
   const leaveResults = () => {
     cancelLeave();
+    if (hoverInStats) return;
     leaveTimer.current = setTimeout(() => {
       leaveTimer.current = null;
       // Only a hover preview goes on leave; a pinned one has its own close.
@@ -362,6 +371,22 @@ export function DeckPanes({
     if (!card.printingId) return;
     setPreview({ oracleId: card.oracleId, printingId: card.printingId, name: card.name, pinned: true });
   };
+
+  // What the stats pane shows before anything is hovered: the deck's cover.
+  // A cover set from the details pane shows at once, without waiting for the
+  // deck to be refetched; the deck's own value takes over when it arrives.
+  const [coverOverride, setCoverOverride] = useState<string | null>(null);
+  useEffect(() => { setCoverOverride(null); }, [deck.coverPrintingId]);
+  const coverPrintingId = coverOverride ?? deck.coverPrintingId;
+  const coverPreview = useMemo(() => {
+    if (!coverPrintingId) return null;
+    const card = deck.cards.find((c) => c.printingId === coverPrintingId);
+    return {
+      oracleId: card?.oracleId ?? null,
+      printingId: coverPrintingId,
+      name: card ? card.name : `${deck.name} cover`,
+    };
+  }, [coverPrintingId, deck.cards, deck.name]);
 
   // The card's details — oracle text, printings, prices, who holds it — as
   // the overlay Browse uses on narrow screens, opened from a preview.
@@ -459,6 +484,40 @@ export function DeckPanes({
         ? ({ '--picker-w': `${paneWidths.picker}px`, '--stats-w': `${paneWidths.stats}px` } as CSSProperties)
         : undefined}
     >
+      {/* Stats on the left, the deck in the middle, the picker on the right:
+          read what the deck needs, then find the card. */}
+      <DeckStatsPanel
+        stats={deck.stats}
+        validation={deck.validation}
+        manaBase={deck.manaBase}
+        templateProgress={deck.templateProgress}
+        showTemplates={showTemplates}
+        onResolveCategories={onResolveCategories}
+        onJumpToCard={jumpToCard}
+        onFilterShortfall={onFilterShortfall}
+        floating={statsFloating}
+        onClose={onCloseStats}
+        preview={hoverInStats && preview?.anchor && !preview.pinned ? preview : coverPreview}
+        onOpenPreview={() => {
+          const hovered = hoverInStats && preview?.anchor && !preview.pinned ? preview : null;
+          const oracleId = hovered?.oracleId ?? coverPreview?.oracleId;
+          if (oracleId) openDetail(oracleId);
+        }}
+      />
+
+      {resizable && (
+        <PaneDivider
+          label="Stats pane width"
+          className="stats-divider"
+          side="left"
+          width={paneWidths.stats}
+          min={220}
+          max={640}
+          onResize={(width) => onPaneResize?.('stats', width)}
+          onCommit={(width) => onPaneCommit?.('stats', width)}
+        />
+      )}
+
       <div className="decklist" ref={listRef}>
         <div className="deck-toolbar">
           {/* The four levels are the decklist's view modes, in the segmented
@@ -979,7 +1038,7 @@ export function DeckPanes({
       {/* The hover popup, for a picker row or a deck card: floated over a
           column other than the one being worked in, gone when the pointer
           leaves. Clicking the card opens its details. */}
-      {preview?.anchor && !preview.pinned && (
+      {preview?.anchor && !preview.pinned && !hoverInStats && (
         <div
           className={`picker-hover${preview.tooltip ? ' tooltip' : ''}`}
           style={{ top: preview.anchor.top, left: preview.anchor.left }}
@@ -1018,21 +1077,11 @@ export function DeckPanes({
           onClose={() => setDetailFor(null)}
           // The cover is the deck's choice of a printing's picture, so it is
           // offered where the printings are listed.
-          onMakeCover={(printingId) => setDeckCover(deck.id, printingId)}
+          onMakeCover={(printingId) => setDeckCover(deck.id, printingId)
+            .then((result) => { setCoverOverride(printingId); return result; })}
         />
       )}
 
-      {resizable && (
-        <PaneDivider
-          label="Stats pane width"
-          className="stats-divider"
-          width={paneWidths.stats}
-          min={220}
-          max={640}
-          onResize={(width) => onPaneResize?.('stats', width)}
-          onCommit={(width) => onPaneCommit?.('stats', width)}
-        />
-      )}
 
       {cascadeCard && (
         <CascadePreview
@@ -1051,18 +1100,6 @@ export function DeckPanes({
         />
       )}
 
-      <DeckStatsPanel
-        stats={deck.stats}
-        validation={deck.validation}
-        manaBase={deck.manaBase}
-        templateProgress={deck.templateProgress}
-        showTemplates={showTemplates}
-        onResolveCategories={onResolveCategories}
-        onJumpToCard={jumpToCard}
-        onFilterShortfall={onFilterShortfall}
-        floating={statsFloating}
-        onClose={onCloseStats}
-      />
     </div>
   );
 }

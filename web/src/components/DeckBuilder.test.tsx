@@ -51,6 +51,7 @@ function deckWith(status: DeckStatus): Deck {
       nonLandSources: 0, colorlessSources: 0,
     },
     templateProgress: null,
+    coverPrintingId: null,
   };
 }
 

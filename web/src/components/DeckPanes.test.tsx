@@ -54,6 +54,7 @@ const deck: Deck = {
     nonLandSources: 0, colorlessSources: 0,
   },
   templateProgress: null,
+  coverPrintingId: null,
 };
 
 function fakePicker(overrides: Partial<DeckPickerState> = {}): DeckPickerState {
@@ -173,13 +174,24 @@ describe('DeckPanes', () => {
     expect(panes.style.getPropertyValue('--picker-w')).toBe('320px');
     expect(panes.style.getPropertyValue('--stats-w')).toBe('280px');
 
-    const divider = screen.getByRole('separator', { name: 'Stats pane width' });
-    divider.setPointerCapture = () => {};
-    divider.releasePointerCapture = () => {};
-    fireEvent.pointerDown(divider, { clientX: 700, pointerId: 1 });
-    fireEvent.pointerMove(divider, { clientX: 660, pointerId: 1 });
-    fireEvent.pointerUp(divider, { clientX: 660, pointerId: 1 });
-    expect(onPaneCommit).toHaveBeenCalledWith('stats', 320);
+    // Stats sit on the left of the deck list, the picker on its right, so the
+    // same 40px drag to the left shrinks one and widens the other.
+    const drag = (name: string) => {
+      const divider = screen.getByRole('separator', { name });
+      divider.setPointerCapture = () => {};
+      divider.releasePointerCapture = () => {};
+      fireEvent.pointerDown(divider, { clientX: 700, pointerId: 1 });
+      fireEvent.pointerMove(divider, { clientX: 660, pointerId: 1 });
+      fireEvent.pointerUp(divider, { clientX: 660, pointerId: 1 });
+    };
+    drag('Stats pane width');
+    expect(onPaneCommit).toHaveBeenCalledWith('stats', 240);
+    drag('Card picker width');
+    expect(onPaneCommit).toHaveBeenCalledWith('picker', 360);
+
+    // The columns read left to right in the DOM the way they do on screen.
+    const order = [...container.querySelectorAll('.deck-panes > *')].map((el) => el.className.split(' ')[0]);
+    expect(order).toEqual(['stats-pane', 'pane-divider', 'decklist', 'pane-divider', 'picker']);
   });
 });
 
@@ -254,14 +266,93 @@ describe('DeckPanes picker preview', () => {
     expect(setPreview.mock.calls[0][0]).not.toHaveProperty('tooltip');
   });
 
-  it('a hover preview floats beside the row and goes when the pointer leaves the results', () => {
+  it('with the stats pane docked, the hovered card shows at the top of it and stays', () => {
+    const setPreview = vi.fn();
+    const { container } = renderPicker({
+      results: [solRing], resultsTotal: 1, setPreview,
+      preview: { oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', anchor: { top: 120, left: 600 } },
+    });
+    // No floating popup; the card is the first thing in the stats pane.
+    expect(container.querySelector('.picker-hover')).toBeNull();
+    const pane = container.querySelector('.stats-pane') as HTMLElement;
+    const art = pane.querySelector('.stats-art') as HTMLElement;
+    expect(art).not.toBeNull();
+    expect(pane.firstElementChild).toBe(art);
+    expect(art.querySelector('img')?.getAttribute('alt')).toBe('Sol Ring');
+    // Leaving the results does not take it away.
+    fireEvent.pointerLeave(screen.getByRole('listbox', { name: 'Matching cards' }));
+    expect(setPreview).not.toHaveBeenCalled();
+    // Clicking it opens the details.
+    fireEvent.click(screen.getByRole('button', { name: 'Open Sol Ring' }));
+    expect(container.querySelector('.detail-pane.floating')).not.toBeNull();
+  });
+
+  it('before any hover, the stats pane shows the deck cover, and a hover replaces it', () => {
+    const { container, rerender } = render(
+      <DeckPanes
+        deck={{ ...deck, coverPrintingId: 'PRINT-ORACLE-1', cards: [{ ...card, printingId: 'PRINT-ORACLE-1' }] }}
+        apply={vi.fn()}
+        problemFor={() => null}
+        requiresCommander={false}
+        identity={null}
+        cardSort="type"
+        density="ultra"
+        onDensity={vi.fn()}
+        setCardSort={vi.fn()}
+        listRef={createRef()}
+        picker={fakePicker()}
+        setArtFor={vi.fn()}
+        setError={vi.fn()}
+        jumpToCard={vi.fn()}
+        onFilterShortfall={vi.fn()}
+        showTemplates={false}
+        onResolveCategories={vi.fn()}
+        categoryLabels={{}}
+      />,
+    );
+    const art = container.querySelector('.stats-art img') as HTMLImageElement;
+    expect(art.getAttribute('alt')).toBe('Sol Ring');
+    expect(art.src).toContain('PRINT-ORACLE-1');
+    // The cover is a deck card, so it opens its details too.
+    fireEvent.click(screen.getByRole('button', { name: 'Open Sol Ring' }));
+    expect(container.querySelector('.detail-pane.floating')).not.toBeNull();
+
+    // A hover takes over the slot.
+    rerender(
+      <DeckPanes
+        deck={{ ...deck, coverPrintingId: 'PRINT-ORACLE-1', cards: [{ ...card, printingId: 'PRINT-ORACLE-1' }] }}
+        apply={vi.fn()}
+        problemFor={() => null}
+        requiresCommander={false}
+        identity={null}
+        cardSort="type"
+        density="ultra"
+        onDensity={vi.fn()}
+        setCardSort={vi.fn()}
+        listRef={createRef()}
+        picker={fakePicker({
+          preview: { oracleId: 'ORACLE-2', printingId: 'PRINT-ORACLE-2', name: 'Arcane Signet', anchor: { top: 1, left: 1 } },
+        })}
+        setArtFor={vi.fn()}
+        setError={vi.fn()}
+        jumpToCard={vi.fn()}
+        onFilterShortfall={vi.fn()}
+        showTemplates={false}
+        onResolveCategories={vi.fn()}
+        categoryLabels={{}}
+      />,
+    );
+    expect(container.querySelector('.stats-art img')?.getAttribute('alt')).toBe('Arcane Signet');
+  });
+
+  it('with the stats pane not docked, a hover preview floats beside the row and goes when the pointer leaves', () => {
     vi.useFakeTimers();
     try {
       const setPreview = vi.fn();
       const { container } = renderPicker({
         results: [solRing], resultsTotal: 1, setPreview,
         preview: { oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', anchor: { top: 120, left: 600 } },
-      });
+      }, { statsDocked: false });
       const popup = container.querySelector('.picker-hover') as HTMLElement;
       expect(popup).not.toBeNull();
       expect(popup.style.top).toBe('120px');
@@ -611,13 +702,14 @@ describe('DeckPanes deck-card preview', () => {
       fireEvent.pointerEnter(tile, { pointerType: 'mouse', clientX: 300, clientY: 200 });
       expect(setPreview).toHaveBeenCalledWith(expect.objectContaining({ name: 'Sol Ring', tooltip: true }));
 
-      // The click: the tile itself is raised (no panel), and the tooltip goes.
+      // The click: the tile itself is raised (no panel). The hovered card in
+      // the docked stats pane stays — it is not in the way there.
       setPreview.mockClear();
       fireEvent.click(tile);
       expect(tile.className).toContain('controls-open');
       expect(screen.queryByRole('dialog')).toBeNull();
       vi.advanceTimersByTime(500);
-      expect(setPreview).toHaveBeenCalledWith(null);
+      expect(setPreview).not.toHaveBeenCalled();
 
       // Its controls are the tile's own, and using one keeps it open.
       fireEvent.click(within(tile).getByRole('button', { name: 'One more Sol Ring' }));
@@ -663,13 +755,13 @@ describe('DeckPanes deck-card preview', () => {
     }
   });
 
-  it('a deck-card tooltip is click-through and carries no buttons', () => {
+  it('a deck-card tooltip (stats pane not docked) is click-through and carries no buttons', () => {
     const { container } = renderPicker({
       preview: {
         oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring',
         anchor: { top: 10, left: 10 }, tooltip: true,
       },
-    });
+    }, { statsDocked: false });
     const popup = container.querySelector('.picker-hover') as HTMLElement;
     expect(popup.className).toContain('tooltip');
     expect(popup.querySelector('img')).not.toBeNull();
