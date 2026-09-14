@@ -896,6 +896,7 @@ export function DeckBuilder({
         }}
         pickerFloating={pickerFloating && pickerOpen}
         statsFloating={statsFloating && statsOpen}
+        statsDocked={!statsFloating}
         onRequestPicker={() => pickerFloating && setPickerOpen(true)}
         onClosePicker={() => setPickerOpen(false)}
         onCloseStats={() => setStatsOpen(false)}

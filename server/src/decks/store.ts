@@ -170,6 +170,7 @@ export class DeckStore {
     stats: DeckStats;
     manaBase: ManaBase;
     templateProgress: TemplateProgress | null;
+    coverPrintingId: string | null;
   }) | null {
     const row = this.db.prepare('SELECT * FROM decks WHERE id = ?').get(id) as any;
     if (!row) return null;
@@ -188,6 +189,9 @@ export class DeckStore {
       templateProgress: template
         ? computeTemplateProgress(cards, template, hasCardCategories(this.db))
         : null,
+      // The same resolution the deck list uses, so the builder fronts the deck
+      // with the picture its tile shows.
+      coverPrintingId: this.coverPrintings([id]).get(id) ?? null,
     };
   }
 

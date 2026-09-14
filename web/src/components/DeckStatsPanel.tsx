@@ -1,4 +1,4 @@
-import type { DeckStats, DeckValidation, ManaBase, TemplateProgress } from '../api.ts';
+import { imageUrl, type DeckStats, type DeckValidation, type ManaBase, type TemplateProgress } from '../api.ts';
 
 const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
@@ -169,6 +169,8 @@ export function DeckStatsPanel({
   onFilterShortfall,
   floating = false,
   onClose,
+  preview,
+  onOpenPreview,
 }: {
   stats: DeckStats;
   validation: DeckValidation;
@@ -183,6 +185,12 @@ export function DeckStatsPanel({
    *  disappearing, the same way the card detail pane does. */
   floating?: boolean;
   onClose?: () => void;
+  /** The card last hovered in the deck list or the picker, shown whole at the
+   *  top of the pane. Stays until another is hovered, so the figures below
+   *  do not jump as the mouse moves. */
+  preview?: { printingId: string; name: string } | null;
+  /** Clicking the card opens its details. */
+  onOpenPreview?: () => void;
 }) {
   const errors = validation.issues.filter((i) => i.severity === 'error');
   const warnings = validation.issues.filter((i) => i.severity === 'warning');
@@ -195,6 +203,21 @@ export function DeckStatsPanel({
           <strong>Deck stats</strong>
           <button className="btn secondary small" onClick={onClose}>Done</button>
         </div>
+      )}
+      {preview && (
+        <button
+          type="button"
+          className="stats-art"
+          onClick={onOpenPreview}
+          aria-label={`Open ${preview.name}`}
+          title="Card details"
+        >
+          <img
+            src={imageUrl(preview.printingId, 'normal')}
+            alt={preview.name}
+            decoding="async"
+          />
+        </button>
       )}
       <div className="fgroup">
         <h3>{validation.formatName ?? 'No format'}</h3>

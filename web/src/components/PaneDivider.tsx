@@ -5,10 +5,11 @@ const STEP = 16;
 /**
  * A draggable divider between two deck-builder panes.
  *
- * Both dividers resize the pane to their right and let the deck list — the
- * `1fr` column — absorb the difference, so the two are independent: dragging
- * one never moves the other. Widths are reported continuously while dragging
- * and committed once on release, which is what gets written to localStorage.
+ * Each divider resizes the pane on one side of it (`side`) and lets the deck
+ * list — the `1fr` column in the middle — absorb the difference, so the two
+ * are independent: dragging one never moves the other. Widths are reported
+ * continuously while dragging and committed once on release, which is what
+ * gets written to localStorage.
  */
 export function PaneDivider({
   label,
@@ -16,6 +17,7 @@ export function PaneDivider({
   min,
   max,
   className,
+  side = 'right',
   onResize,
   onCommit,
 }: {
@@ -24,6 +26,8 @@ export function PaneDivider({
   min: number;
   max: number;
   className?: string;
+  /** Which side of the divider the pane it sizes is on. */
+  side?: 'left' | 'right';
   onResize: (width: number) => void;
   onCommit: (width: number) => void;
 }) {
@@ -31,6 +35,9 @@ export function PaneDivider({
   const latest = useRef(width);
 
   const clamp = (value: number) => Math.min(max, Math.max(min, Math.round(value)));
+  // Dragging towards the pane shrinks it: left for a pane on the right, right
+  // for a pane on the left.
+  const towards = side === 'right' ? -1 : 1;
 
   const nudge = (delta: number) => {
     const next = clamp(latest.current + delta);
@@ -56,8 +63,7 @@ export function PaneDivider({
       }}
       onPointerMove={(event) => {
         if (!start.current) return;
-        // Dragging left widens the pane on the right.
-        const next = clamp(start.current.width - (event.clientX - start.current.x));
+        const next = clamp(start.current.width + towards * (event.clientX - start.current.x));
         latest.current = next;
         onResize(next);
       }}
@@ -68,8 +74,8 @@ export function PaneDivider({
         onCommit(latest.current);
       }}
       onKeyDown={(event) => {
-        if (event.key === 'ArrowLeft') { event.preventDefault(); nudge(STEP); }
-        if (event.key === 'ArrowRight') { event.preventDefault(); nudge(-STEP); }
+        if (event.key === 'ArrowLeft') { event.preventDefault(); nudge(-towards * STEP); }
+        if (event.key === 'ArrowRight') { event.preventDefault(); nudge(towards * STEP); }
       }}
     />
   );
