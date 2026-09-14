@@ -46,6 +46,15 @@ vi.mock('./api.ts', async (importOriginal) => ({
   fetchCollectionValue: vi.fn(async () => ({ value: {}, history: [] })),
   fetchTradeLists: vi.fn(async () => []),
   fetchSetCompletion: vi.fn(async () => []),
+  fetchDecks: vi.fn(async () => []),
+  fetchDeckTags: vi.fn(async () => []),
+  // Pending forever: the routing tests only need the deck builder to mount
+  // for the id in the URL, not to render a deck.
+  fetchDeck: vi.fn(() => new Promise(() => undefined)),
+  fetchBuildability: vi.fn(async () => null),
+  fetchRunHistory: vi.fn(async () => []),
+  fetchDeckGames: vi.fn(async () => ({ record: null })),
+  fetchTemplates: vi.fn(async () => []),
   imageUrl: (id: string) => `/api/v1/images/${id}`,
 }));
 
@@ -134,5 +143,87 @@ describe('browse results', () => {
     const { container } = await browse();
     expect(container.querySelector('.app')!.getAttribute('data-density')).toBe('ultra');
     expect(container.querySelectorAll('.card img').length).toBe(0);
+  });
+});
+
+describe('routing', () => {
+  /** The topbar's tab buttons, which are the only reliable "which view" signal. */
+  const tabs = (container: HTMLElement) => container.querySelector('.topbar .tabs') as HTMLElement;
+  const activeTab = (container: HTMLElement) => tabs(container).querySelector('button.on')?.textContent;
+  const url = () => window.location.pathname + window.location.search;
+
+  beforeEach(() => {
+    localStorage.clear();
+    searchCards.mockClear();
+    searchCards.mockResolvedValue({ cards: results, total: results.length });
+    window.history.replaceState(null, '', '/');
+  });
+
+  it('reads the view from the URL on load, and canonicalises the root', async () => {
+    const { container, unmount } = render(<App />);
+    expect(activeTab(container)).toBe('Collection');
+    expect(url()).toBe('/collection');
+    unmount();
+
+    window.history.replaceState(null, '', '/data');
+    const second = render(<App />);
+    expect(activeTab(second.container)).toBe('Data');
+  });
+
+  it('a deck link opens that deck', async () => {
+    window.history.replaceState(null, '', '/decks/12');
+    const { container } = render(<App />);
+    expect(activeTab(container)).toBe('Decks');
+    expect(await screen.findByText('Loading deck…')).toBeInTheDocument();
+    expect(url()).toBe('/decks/12');
+  });
+
+  it('a tab pushes its URL, and Back returns to the previous view', async () => {
+    const { container } = render(<App />);
+    fireEvent.click(within(tabs(container)).getByRole('button', { name: 'Decks' }));
+    expect(url()).toBe('/decks');
+    expect(activeTab(container)).toBe('Decks');
+
+    // jsdom's history.back() is asynchronous; drive popstate the way the
+    // browser would after it has moved.
+    window.history.replaceState(null, '', '/collection');
+    fireEvent.popState(window);
+    expect(activeTab(container)).toBe('Collection');
+  });
+
+  it('clicking the tab you are on leaves no duplicate history entry', () => {
+    const { container } = render(<App />);
+    const before = window.history.length;
+    fireEvent.click(within(tabs(container)).getByRole('button', { name: 'Collection' }));
+    expect(window.history.length).toBe(before);
+  });
+
+  it('a browse link seeds the search box, and typing keeps the URL current', async () => {
+    window.history.replaceState(null, '', '/browse?q=bolt');
+    render(<App />);
+    const box = await screen.findByLabelText('Search cards') as HTMLInputElement;
+    expect(box.value).toBe('bolt');
+    await screen.findByTitle(/Lightning Bolt/);
+    expect(searchCards.mock.calls.at(-1)?.[0]).toMatchObject({ q: 'bolt' });
+
+    const before = window.history.length;
+    fireEvent.change(box, { target: { value: 'shock' } });
+    expect(url()).toBe('/browse?q=shock');
+    // A replace, not a push.
+    expect(window.history.length).toBe(before);
+
+    fireEvent.change(box, { target: { value: '' } });
+    expect(url()).toBe('/browse');
+  });
+
+  it('the query survives a trip to another tab and rides in the pushed URL', async () => {
+    window.history.replaceState(null, '', '/browse?q=bolt');
+    const { container } = render(<App />);
+    await screen.findByLabelText('Search cards');
+    fireEvent.click(within(tabs(container)).getByRole('button', { name: 'Data' }));
+    expect(url()).toBe('/data');
+    fireEvent.click(within(tabs(container)).getByRole('button', { name: 'Browse' }));
+    expect(url()).toBe('/browse?q=bolt');
+    expect((screen.getByLabelText('Search cards') as HTMLInputElement).value).toBe('bolt');
   });
 });

@@ -27,6 +27,9 @@ import { applyTheme, storedTheme, type Theme } from './theme.ts';
 import { SCOPES, SCOPE_HINT, SCOPE_LABEL, scopeOf, withScope } from './searchScope.ts';
 import { deckBadge, ownedBadge } from './ownedBadge.ts';
 import { ManaCost } from './components/ManaCost.tsx';
+import {
+  DEFAULT_ROUTE, onRouteChange, pushRoute, readRoute, replaceRoute, type Route,
+} from './router.ts';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -70,9 +73,9 @@ function searchParamsFor(text: string, filters: Filters, sort: string) {
   };
 }
 
-type View = { name: 'browse' } | { name: 'decks' } | { name: 'deck'; id: number }
-  | { name: 'collection' } | { name: 'trades' } | { name: 'games' }
-  | { name: 'data' };
+/** The top-level view is the URL (`router.ts`): read from it on load, pushed
+ *  to it on every navigation, and set from it on Back/Forward. */
+type View = Route;
 
 /** Which page's density the topbar toggle is currently setting. The views with
  *  no card grid at all have none, and report the global default instead. */
@@ -86,9 +89,36 @@ function densityPageFor(view: View): DensityPage | null {
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showSync, setShowSync] = useState(false);
-  const [view, setView] = useState<View>({ name: 'collection' });
+  const [view, setView] = useState<View>(readRoute);
+  // A `/browse?q=` link seeds the box; otherwise the query starts empty.
+  const [text, setText] = useState(() => (view.name === 'browse' ? view.q ?? '' : ''));
 
-  const [text, setText] = useState('');
+  /** Every deliberate move between views: a tab, opening a deck, the deck
+   *  builder's back arrow. Pushes a history entry so Back retraces it. */
+  const navigate = useCallback((route: View) => {
+    pushRoute(route);
+    setView(route);
+  }, []);
+
+  // The address bar is the truth on load and on Back/Forward. The one
+  // replace on mount canonicalises what the user typed — `/` becomes
+  // `/collection` — so the URL matches the page from the first paint.
+  useEffect(() => {
+    replaceRoute(readRoute());
+    return onRouteChange((route) => {
+      setView(route);
+      if (route.name === 'browse') setText(route.q ?? '');
+    });
+  }, []);
+
+  // Typing keeps the address bar current so a reload or a copied link
+  // repeats the search — but as a replace, not a push: every keystroke as a
+  // history entry would make Back a way to un-type a query one letter at a
+  // time instead of a way to leave the page.
+  useEffect(() => {
+    if (view.name !== 'browse') return;
+    replaceRoute({ name: 'browse', q: text || undefined });
+  }, [view.name, text]);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<string>('relevance');
 
@@ -212,8 +242,13 @@ export default function App() {
   // Parked features hide their tab. Switching one off while looking at it would
   // otherwise leave the page on screen with no way back to it.
   const showGameLog = Boolean(settings?.showGameLog);
+  // A replace, not a push: the page went away under the user, so leaving
+  // /games in the history would make Back a step onto a tab that isn't there.
   useEffect(() => {
-    if (!showGameLog && view.name === 'games') setView({ name: 'collection' });
+    if (!showGameLog && view.name === 'games') {
+      replaceRoute(DEFAULT_ROUTE);
+      setView(DEFAULT_ROUTE);
+    }
   }, [showGameLog, view.name]);
 
   const defaultWantListId = wantLists.find((l) => l.is_default)?.id ?? wantLists[0]?.id;
@@ -333,29 +368,31 @@ export default function App() {
         <nav className="tabs">
           <button
             className={view.name === 'collection' ? 'on' : ''}
-            onClick={() => setView({ name: 'collection' })}
+            onClick={() => navigate({ name: 'collection' })}
           >Collection</button>
           <button
             className={view.name === 'decks' || view.name === 'deck' ? 'on' : ''}
-            onClick={() => setView({ name: 'decks' })}
+            onClick={() => navigate({ name: 'decks' })}
           >Decks</button>
           <button
             className={view.name === 'browse' ? 'on' : ''}
-            onClick={() => setView({ name: 'browse' })}
+            // The query survives a trip to another tab (it is React state,
+            // not the page's), so the URL pushed carries it too.
+            onClick={() => navigate({ name: 'browse', q: text || undefined })}
           >Browse</button>
           <button
             className={view.name === 'trades' ? 'on' : ''}
-            onClick={() => setView({ name: 'trades' })}
+            onClick={() => navigate({ name: 'trades' })}
           >Trade</button>
           {showGameLog && (
             <button
               className={view.name === 'games' ? 'on' : ''}
-              onClick={() => setView({ name: 'games' })}
+              onClick={() => navigate({ name: 'games' })}
             >Games</button>
           )}
           <button
             className={view.name === 'data' ? 'on' : ''}
-            onClick={() => setView({ name: 'data' })}
+            onClick={() => navigate({ name: 'data' })}
           >Data</button>
         </nav>
 
@@ -476,7 +513,7 @@ export default function App() {
       )}
 
       {view.name === 'decks' && (
-        <DeckList formats={formats} onOpen={(id) => setView({ name: 'deck', id })} />
+        <DeckList formats={formats} onOpen={(id) => navigate({ name: 'deck', id })} />
       )}
 
       {view.name === 'deck' && (
@@ -484,7 +521,10 @@ export default function App() {
           deckId={view.id}
           formats={formats}
           categoryLabels={status?.categoryLabels ?? {}}
-          onBack={() => setView({ name: 'decks' })}
+          // A push to /decks rather than history.back(): a deck opened from
+          // a pasted link has no /decks behind it, and Back would leave
+          // the app.
+          onBack={() => navigate({ name: 'decks' })}
           {...densityControlsFor('deck')}
         />
       )}
