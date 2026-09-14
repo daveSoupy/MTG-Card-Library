@@ -210,6 +210,9 @@ describe('Lined-up', () => {
     expect(css).not.toMatch(/\.cascade-col \.deck-tile:hover/);
     // A click raises the tile in place instead, controls and all.
     expect(css).toMatch(/\.cascade-col \.deck-tile\.controls-open[^{]*\{[^}]*z-index:\s*2/);
+    // The hover reveal of the controls is fenced to pointers that hover: on
+    // iOS a tap's simulated hover that makes something appear costs the click.
+    expect(css).toMatch(/@media \(hover: hover\)\s*\{\s*\.deck-tile:hover \.tile-controls/);
   });
 
   it('shows the card on a tap where there is no hover to uncover it with', () => {
