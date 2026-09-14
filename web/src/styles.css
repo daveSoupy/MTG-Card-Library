@@ -1474,11 +1474,15 @@ input[type='number'] { width: 72px; }
 
 .status-menu {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
-  min-width: 260px; padding: 4px; border-radius: var(--radius);
+  min-width: 260px; max-width: calc(100vw - 24px);
+  padding: 4px; border-radius: var(--radius);
   border: 1px solid var(--line-strong); background: var(--panel);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
   display: flex; flex-direction: column; gap: 2px;
 }
+/* The component picks the edge from where the pill sits in its row: a pill
+   at the right end hangs its menu leftwards rather than off the viewport. */
+.status-menu[data-align="right"] { right: 0; left: auto; }
 .status-menu > button {
   display: block; width: 100%; text-align: left; cursor: pointer;
   padding: 6px 8px; border: 0; border-radius: 6px;
@@ -1494,6 +1498,35 @@ input[type='number'] { width: 72px; }
 }
 .status-menu-foot {
   margin: 4px 8px 6px; font-size: 10.5px; color: var(--text-3); line-height: 1.4;
+}
+
+/* On a phone the menu is a bottom sheet — the deck header's More… pattern
+   (.deck-more-backdrop / .deck-more) with 12px gutters. The popover rules
+   above are undone here rather than forked: the listbox and its option
+   buttons are the same elements, only laid out at the foot of the screen. */
+@media (max-width: 760px) {
+  .status-sheet-backdrop {
+    position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .45);
+    display: flex; align-items: flex-end;
+    padding: 0 12px max(12px, env(safe-area-inset-bottom));
+  }
+  .status-sheet {
+    width: 100%; max-height: 82vh; overflow-y: auto;
+    background: var(--panel); border-radius: 14px;
+    padding: 4px 14px 14px; box-shadow: 0 -12px 32px rgba(0, 0, 0, .4);
+  }
+  .status-sheet .floating-head { padding-top: 10px; }
+  /* Out-specifies the compact header's 40px .btn rule, which comes later. */
+  .status-sheet-backdrop .status-sheet .floating-head .btn { min-height: 44px; }
+  .status-sheet .status-menu {
+    position: static; min-width: 0; max-width: none; padding: 0;
+    border: 0; box-shadow: none; gap: 4px;
+  }
+  /* The whole row is the tap target. */
+  .status-sheet .status-menu > button { min-height: 44px; padding: 8px 10px; font-size: 14px; }
+  .status-sheet .status-menu-hint { font-size: 12px; }
+  .status-sheet .status-menu-reserve { font-size: 11.5px; }
+  .status-sheet .status-menu-foot { font-size: 12px; margin: 6px 10px 2px; }
 }
 
 .deck-status-filter { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; }
