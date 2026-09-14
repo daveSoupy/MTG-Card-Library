@@ -1,3 +1,4 @@
+import type { PointerEvent } from 'react';
 import type { Board, BuildabilityRow, DeckCard } from '../api.ts';
 import { effectiveCategories, identityKey } from '../deckView.ts';
 import { canSwap, slotAction, swapTitle } from '../deckSlot.ts';
@@ -10,6 +11,8 @@ export function DeckRow({
   onBoard,
   onRemove,
   onPreview,
+  onPreviewEnd,
+  onDetail,
   onArt,
   categoryLabels,
   coverage,
@@ -20,7 +23,13 @@ export function DeckRow({
   onQuantity: (delta: number) => void;
   onBoard: (board: Board) => void;
   onRemove: () => void;
-  onPreview: () => void;
+  /** The pointer arrived over the row. Gets the event so the host can tell a
+   *  mouse from a finger, and anchor a hover preview beside the row. */
+  onPreview: (event?: PointerEvent<HTMLElement>) => void;
+  /** …and left it. */
+  onPreviewEnd?: () => void;
+  /** The name was clicked: open the card's details. Falls back to onPreview. */
+  onDetail?: () => void;
   onArt: () => void;
   /** Category key → display name, from /api/v1/status. */
   categoryLabels: Record<string, string>;
@@ -39,7 +48,8 @@ export function DeckRow({
     <div
       className={`deck-row${problem ? ` ${problem}` : ''}`}
       data-identity={identityKey(card.colorIdentity)}
-      onMouseEnter={onPreview}
+      onPointerEnter={onPreview}
+      onPointerLeave={onPreviewEnd}
     >
       <div className="qty">
         <button onClick={() => onQuantity(-1)} aria-label={`One fewer ${card.name}`}>−</button>
@@ -47,7 +57,7 @@ export function DeckRow({
         <button onClick={() => onQuantity(1)} aria-label={`One more ${card.name}`}>+</button>
       </div>
 
-      <button className="deck-name" onClick={onPreview} title={card.typeLine}>
+      <button className="deck-name" onClick={() => (onDetail ?? onPreview)()} title={card.typeLine}>
         {card.name}
         {/* What the template rows count this card as, read rather than set —
             quiet enough beside the name to scan past when you are not looking

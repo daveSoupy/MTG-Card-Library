@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { DeckBuilder } from './DeckBuilder.tsx';
-import type { AssemblyRun, Deck, DeckStatus } from '../api.ts';
+import type {
+  AssemblyRun, CardSummary, Deck, DeckStatus, SearchParams, SearchResponse,
+} from '../api.ts';
 
 // Everything the builder fetches on mount, stubbed so the header renders. The
 // fetches whose failure is swallowed (settings, templates, locations, games)
@@ -14,7 +16,11 @@ const api = vi.hoisted(() => ({
   fetchTemplates: vi.fn(async () => { throw new Error('offline'); }),
   fetchLocations: vi.fn(async () => { throw new Error('offline'); }),
   fetchDeckGames: vi.fn(async () => { throw new Error('offline'); }),
-  searchCards: vi.fn(async () => ({ results: [], total: 0 })),
+  fetchSets: vi.fn(async () => []),
+  // Typed as the real signature so a test can hand it pages of cards.
+  searchCards: vi.fn<(params: SearchParams, signal?: AbortSignal) => Promise<SearchResponse>>(
+    async () => ({ cards: [], total: 0, limit: 60, offset: 0, warnings: [] }),
+  ),
   updateDeck: vi.fn(),
 }));
 
@@ -127,5 +133,125 @@ describe('DeckBuilder pull-sheet header', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Building' })).toBeTruthy());
     expect(resumeButton()).toBeNull();
     expect(assembleButton()).not.toBeNull();
+  });
+});
+
+/** A page of results, named so a duplicate across pages is easy to plant. */
+function page(from: number, count: number): CardSummary[] {
+  return Array.from({ length: count }, (_, i) => ({
+    oracleId: `ORACLE-${from + i}`, name: `Card ${from + i}`, manaCost: '{1}', cmc: 1,
+    typeLine: 'Artifact', power: null, toughness: null, loyalty: null, colors: '',
+    colorIdentity: '', rarity: 'rare', setCode: 'cmr', setName: 'Commander Legends',
+    collectorNumber: String(from + i), imageSmall: null, imageNormal: null, priceUsd: 1,
+    priceUsdFoil: null, printingId: null, ownedQuantity: 0, printingCount: 1,
+  } as CardSummary));
+}
+
+/** Eric as a WU Commander deck, so identity and format narrowing both apply. */
+function commanderDeck(): Deck {
+  const base = deckWith('building');
+  return {
+    ...base,
+    formatCode: 'commander',
+    validation: { ...base.validation, formatCode: 'commander', formatName: 'Commander', commanderIdentity: 'WU' },
+  };
+}
+
+const commanderFormat = {
+  code: 'commander', display_name: 'Commander', requiresCommander: 1, isSingleton: 1,
+};
+
+async function renderPicker() {
+  api.fetchDeck.mockResolvedValue(commanderDeck());
+  api.fetchRunHistory.mockResolvedValue([]);
+  render(
+    <DeckBuilder
+      deckId={1} formats={[commanderFormat]} categoryLabels={{}} onBack={() => {}}
+      density="full" onDensity={() => {}}
+    />,
+  );
+  await screen.findByTitle(/click to rename/);
+  return screen.getByRole('combobox', { name: 'Search cards to add' });
+}
+
+const lastSearch = () => api.searchCards.mock.calls.at(-1)![0] as Record<string, unknown>;
+const pageOf = (cards: CardSummary[], total: number): SearchResponse =>
+  ({ cards, total, limit: 60, offset: 0, warnings: [] });
+/** The picker's rows — not the <option>s of every <select> on the page. */
+const rows = () => within(screen.getByRole('listbox', { name: 'Matching cards' })).getAllByRole('option');
+
+describe('DeckBuilder picker paging', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.innerWidth = 1400;
+  });
+
+  it('Load more appends the next page at the current offset and drops a repeat', async () => {
+    api.searchCards.mockResolvedValueOnce(pageOf(page(1, 60), 100));
+    const input = await renderPicker();
+    fireEvent.change(input, { target: { value: 'sol' } });
+    await screen.findByRole('button', { name: 'Load more' });
+    expect(lastSearch()).toMatchObject({ q: 'sol', limit: 60 });
+    expect(lastSearch().offset).toBeUndefined();
+    expect(rows()).toHaveLength(60);
+
+    // The second page overlaps the first by one card — the data shifted
+    // between pages — and that card must not appear twice.
+    api.searchCards.mockResolvedValueOnce(pageOf(page(60, 40), 100));
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(rows()).toHaveLength(99));
+    expect(lastSearch()).toMatchObject({ q: 'sol', offset: 60, knownTotal: 100 });
+    // The count is the server's and stays honest: 99 unique of 100 matched,
+    // so the offer stands rather than pretending the list is complete.
+    expect(screen.getByRole('button', { name: 'Load more' })).toBeInTheDocument();
+    expect(screen.getAllByText('99 of 100').length).toBeGreaterThan(0);
+  });
+
+  it('a new query starts over from the first page', async () => {
+    api.searchCards.mockResolvedValueOnce(pageOf(page(1, 60), 100));
+    const input = await renderPicker();
+    fireEvent.change(input, { target: { value: 'sol' } });
+    await screen.findByRole('button', { name: 'Load more' });
+    api.searchCards.mockResolvedValueOnce(pageOf(page(61, 40), 100));
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(rows()).toHaveLength(100));
+
+    api.searchCards.mockResolvedValueOnce(pageOf(page(500, 3), 3));
+    fireEvent.change(input, { target: { value: 'signet' } });
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    expect(lastSearch()).toMatchObject({ q: 'signet' });
+    expect(lastSearch().offset).toBeUndefined();
+    expect(lastSearch().knownTotal).toBeUndefined();
+  });
+});
+
+describe('DeckBuilder picker filters', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.innerWidth = 1400;
+  });
+
+  it('a rarity from the panel reaches the search with the deck\'s identity and format still applied', async () => {
+    api.searchCards.mockResolvedValue(pageOf(page(1, 2), 2));
+    const input = await renderPicker();
+    fireEvent.change(input, { target: { value: 'sol' } });
+    await waitFor(() => expect(api.searchCards).toHaveBeenCalled());
+    // Before the panel: the commander's identity plus colourless, and the format.
+    expect(lastSearch()).toMatchObject({ colors: ['W', 'U', 'C'], format: 'commander' });
+    expect(lastSearch().rarities).toBeUndefined();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    // The deck has a format, so the panel does not offer one to widen it with.
+    expect(screen.queryByText('Any format')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'mythic' }));
+    await waitFor(() => expect(lastSearch()).toMatchObject({ rarities: ['mythic'] }));
+    expect(lastSearch()).toMatchObject({ colors: ['W', 'U', 'C'], format: 'commander', q: 'sol' });
+    expect(screen.getByRole('button', { name: 'Filters · 1' })).toBeInTheDocument();
+
+    // A colour picked in the panel is the same state the chip row shows.
+    fireEvent.click(screen.getByTitle('Red'));
+    await waitFor(() => expect(screen.getByTitle('R')).toHaveAttribute('aria-pressed', 'true'));
+    // …but off-identity, so the identity guard holds rather than offering red cards.
+    expect(lastSearch()).toMatchObject({ colors: ['W', 'U', 'C'] });
   });
 });

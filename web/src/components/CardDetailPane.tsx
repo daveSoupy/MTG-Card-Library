@@ -33,6 +33,7 @@ export function CardDetailPane({
   wantOverride,
   wantPending = false,
   onToggleWantList,
+  onMakeCover,
 }: {
   oracleId: string | null;
   floating: boolean;
@@ -48,11 +49,15 @@ export function CardDetailPane({
    *  (add-then-add) instead of reversing it. */
   wantPending?: boolean;
   onToggleWantList?: (oracleId: string, currentlyWanted: boolean) => void;
+  /** Deck builder only: make the printing on screen the deck's cover art. */
+  onMakeCover?: (printingId: string) => Promise<unknown>;
 }) {
   const [card, setCard] = useState<CardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPrinting, setSelectedPrinting] = useState<string | null>(null);
   const [pinning, setPinning] = useState(false);
+  // The printing that was just made the cover, for the button to say so.
+  const [coverPrinting, setCoverPrinting] = useState<string | null>(null);
   const [rulingsOpen, setRulingsOpen] = useState(false);
   // Who holds it and where it lives — its own fetch, and a swallowed failure:
   // it depends on every deck and the whole collection, and a card's details
@@ -65,6 +70,7 @@ export function CardDetailPane({
     setError(null);
     setRulingsOpen(false);
     setHolders(null);
+    setCoverPrinting(null);
     fetchCard(oracleId, controller.signal)
       .then((detail) => {
         setCard(detail);
@@ -279,6 +285,27 @@ export function CardDetailPane({
                 }}
               >
                 Stop pinning this art
+              </button>
+            )}
+            {/* Beside the art pin, since it is the same choice — which
+                printing's picture — made for the deck rather than the card. */}
+            {onMakeCover && printing && (
+              <button
+                className="btn secondary small art-pin"
+                disabled={pinning || coverPrinting === printing.id}
+                onClick={async () => {
+                  setPinning(true);
+                  try {
+                    await onMakeCover(printing.id);
+                    setCoverPrinting(printing.id);
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : String(cause));
+                  } finally {
+                    setPinning(false);
+                  }
+                }}
+              >
+                {coverPrinting === printing.id ? '✓ Deck cover' : 'Make deck cover'}
               </button>
             )}
             <div className="printings">

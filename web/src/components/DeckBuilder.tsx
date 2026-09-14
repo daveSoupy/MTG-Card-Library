@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addRecommendedLands, fetchBuildability, fetchDeck, fetchDeckGames, fetchLocations,
-  fetchRunHistory, fetchSettings, fetchSheet, fetchTemplates, formatRecord,
+  fetchRunHistory, fetchSets, fetchSettings, fetchSheet, fetchTemplates, formatRecord,
   imageUrl, resolveCategories, searchCards, startAssembly, startDisassembly, updateDeck,
   DECK_STATUS_RESERVES,
   type AppSettings, type AssemblyRun, type AssemblySheet, type Board, type BuildabilityDetail,
-  type BuildabilityRow, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
-  type MatchRecord, type StorageLocation,
+  type BuildabilityRow, type CardSummary, type Deck, type DeckCard, type DeckTemplate,
+  type FormatRecord, type MatchRecord, type SearchParams, type SetRecord, type StorageLocation,
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
 import { withScope } from '../searchScope.ts';
-import { DeckPanes } from './DeckPanes.tsx';
+import { DeckPanes, type PickerPreview } from './DeckPanes.tsx';
+import { EMPTY_FILTERS, type Filters } from './FilterPanel.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
 import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
@@ -35,6 +36,61 @@ import { notFoundNotice } from '../assembly.ts';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import { useNarrow } from '../viewport.ts';
 import { type Density } from '../density.ts';
+
+/**
+ * The picker's search, as the API wants it. One function for the first page
+ * and for "Load more", so the two cannot drift apart — the same shape Browse
+ * uses (`searchParamsFor` in App.tsx).
+ *
+ * The deck's own narrowing goes on top of the panel's: the colour pills are
+ * intersected with the commander's identity, and the deck's format replaces
+ * whatever the panel's Format menu says (the picker hides that menu while the
+ * deck has one). The panel can only narrow further, never offer a card the
+ * deck could not legally hold.
+ */
+export function pickerSearchParams(input: {
+  query: string;
+  filters: Filters;
+  deckId: number;
+  formatCode: string | null | undefined;
+  /** The commander's identity as a string, or null when nothing sets one. */
+  identity: string | null;
+  pickingCommander: boolean;
+  category: string | null;
+  limit: number;
+}): SearchParams {
+  const { query, filters, deckId, formatCode, identity, pickingCommander, category, limit } = input;
+  return {
+    q: query,
+    // `available` here means available *to this deck* — its own claim on
+    // its own cards is not competition.
+    deckId,
+    format: formatCode ?? (filters.format || undefined),
+    commanderFor: pickingCommander ? (formatCode ?? undefined) : undefined,
+    // The colour pills narrow within the commander's identity where the
+    // format enforces one, so the picker never offers an illegal card.
+    // 'C' is appended so colourless cards, which fit every deck, are kept.
+    colors: effectivePickerColors(
+      filters.colors,
+      identity === null ? null : [...identity, 'C'],
+    ),
+    colorsExact: filters.colorsExact || undefined,
+    gold: filters.gold || undefined,
+    hybrid: filters.hybrid || undefined,
+    rarities: filters.rarities.length > 0 ? filters.rarities : undefined,
+    set: filters.set || undefined,
+    minCmc: filters.minCmc === '' ? undefined : Number(filters.minCmc),
+    maxCmc: filters.maxCmc === '' ? undefined : Number(filters.maxCmc),
+    includeDigital: filters.includeDigital || undefined,
+    includeExtras: filters.includeExtras || undefined,
+    includeUnplayable: filters.includeUnplayable || undefined,
+    excludeUniversesBeyond: filters.excludeUniversesBeyond || undefined,
+    // Set by clicking a shortfall in the Template stats panel.
+    category: category ?? undefined,
+    limit,
+    sort: 'relevance',
+  };
+}
 
 export function DeckBuilder({
   deckId,
@@ -62,13 +118,16 @@ export function DeckBuilder({
 
   const [query, setQuery] = useState('');
   const [pickerCategory, setPickerCategory] = useState<string | null>(null);
-  const [pickerColors, setPickerColors] = useState<string[]>([]);
-  const [pickerGold, setPickerGold] = useState(false);
-  const [pickerHybrid, setPickerHybrid] = useState(false);
-  const [results, setResults] = useState<Awaited<ReturnType<typeof searchCards>>['cards']>([]);
+  // The Browse filter panel's state, shared with the picker's own colour chip
+  // row: one state, two views, so a pill pressed in either place reads as
+  // pressed in both.
+  const [pickerFilters, setPickerFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [sets, setSets] = useState<SetRecord[]>([]);
+  const [results, setResults] = useState<CardSummary[]>([]);
   const [resultsTotal, setResultsTotal] = useState(0);
   const [searching, setSearching] = useState(false);
-  const [preview, setPreview] = useState<{ printingId: string; name: string } | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [preview, setPreview] = useState<PickerPreview | null>(null);
   const [artFor, setArtFor] = useState<DeckCard | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
@@ -91,7 +150,6 @@ export function DeckBuilder({
   // The deck's lifetime record, shown on the chip beside Playtest. Kept here
   // rather than in the panel so it is visible without opening anything.
   const [record, setRecord] = useState<MatchRecord | null>(null);
-  const [coverNote, setCoverNote] = useState<string | null>(null);
 
   // Mirrors the two deck-builder breakpoints in styles.css: below 860px the
   // picker is an overlay rather than a column, below 1200px so is the stats
@@ -202,6 +260,8 @@ export function DeckBuilder({
     // For the home-location picker: where this deck physically lives, which is
     // where an assembly run moves its cards.
     fetchLocations().then(setLocations).catch(() => undefined);
+    // For the picker's filter panel's Set menu.
+    fetchSets().then(setSets).catch(() => undefined);
   }, []);
 
   // Phase 23: the picker opens in whichever scope the setting names, by
@@ -314,43 +374,42 @@ export function DeckBuilder({
 
   // Card picker. Scoped to the deck's format so a Modern deck does not offer
   // cards that would immediately be flagged illegal.
-  const colorFilterActive = pickerColors.length > 0 || pickerGold || pickerHybrid;
+  //
+  // A page is a shortlist to scan, not a data set, so it is small — and
+  // smaller still where the picker is a sheet over the deck on a phone.
+  const pickerPage = pickerFloating ? 40 : 60;
+  const formatCode = deck?.formatCode;
+  const pickerParams = useMemo(() => pickerSearchParams({
+    query, filters: pickerFilters, deckId, formatCode, identity, pickingCommander,
+    category: pickerCategory, limit: pickerPage,
+  }), [query, pickerFilters, deckId, formatCode, identity, pickingCommander, pickerCategory, pickerPage]);
+  // Which search the results on screen belong to. Bumped by every fresh
+  // search, so a "Load more" that was in flight when the query changed is
+  // dropped rather than appended to a list it no longer matches.
+  const searchGeneration = useRef(0);
+  const loadMoreController = useRef<AbortController | null>(null);
+  // Whether the panel narrows anything. The include/exclude boxes widen or
+  // trim a search rather than being one, so on their own they do not run it.
+  const filterActive = pickerFilters.colors.length > 0 || pickerFilters.gold || pickerFilters.hybrid
+    || pickerFilters.rarities.length > 0 || pickerFilters.set !== '' || pickerFilters.format !== ''
+    || pickerFilters.minCmc !== '' || pickerFilters.maxCmc !== '';
   useEffect(() => {
     const controller = new AbortController();
+    const generation = ++searchGeneration.current;
+    // A new search supersedes any page still loading for the old one.
+    loadMoreController.current?.abort();
+    setLoadingMore(false);
     const timer = setTimeout(() => {
       // Commander mode lists candidates with no query typed, since "show me what
-      // can lead this deck" is the whole request; a colour filter alone is also
+      // can lead this deck" is the whole request; a filter alone is also
       // enough of a request to run a search.
-      if (!query && !pickingCommander && !colorFilterActive && !pickerCategory) {
+      if (!query && !pickingCommander && !filterActive && !pickerCategory) {
         setResults([]);
         setResultsTotal(0);
         return;
       }
       setSearching(true);
-      searchCards(
-        {
-          q: query,
-          // `available` here means available *to this deck* — its own claim on
-          // its own cards is not competition.
-          deckId,
-          format: deck?.formatCode ?? undefined,
-          commanderFor: pickingCommander ? (deck?.formatCode ?? undefined) : undefined,
-          // The colour pills narrow within the commander's identity where the
-          // format enforces one, so the picker never offers an illegal card.
-          // 'C' is appended so colourless cards, which fit every deck, are kept.
-          colors: effectivePickerColors(
-            pickerColors,
-            identity === null ? null : [...identity, 'C'],
-          ),
-          gold: pickerGold || undefined,
-          hybrid: pickerHybrid || undefined,
-          // Set by clicking a shortfall in the Template stats panel.
-          category: pickerCategory ?? undefined,
-          limit: 40,
-          sort: 'relevance',
-        },
-        controller.signal,
-      )
+      searchCards(pickerParams, controller.signal)
         .then((r) => {
           setResults(r.cards);
           setResultsTotal(r.total);
@@ -362,11 +421,42 @@ export function DeckBuilder({
           }
         })
         .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
-        .finally(() => setSearching(false));
+        .finally(() => { if (generation === searchGeneration.current) setSearching(false); });
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, deckId, deck?.formatCode, identity, pickingCommander,
-      pickerColors, pickerGold, pickerHybrid, colorFilterActive, pickerCategory]);
+  }, [query, pickerParams, pickingCommander, filterActive, pickerCategory]);
+
+  /** The next page of the current search, appended. */
+  const loadMore = useCallback(() => {
+    if (loadingMore || results.length >= resultsTotal) return;
+    const generation = searchGeneration.current;
+    const controller = new AbortController();
+    loadMoreController.current = controller;
+    setLoadingMore(true);
+    searchCards({
+      ...pickerParams,
+      offset: results.length,
+      // The count cannot change while paging one result set, and recomputing
+      // it is the expensive half of the query.
+      knownTotal: resultsTotal,
+    }, controller.signal)
+      .then((r) => {
+        if (generation !== searchGeneration.current) return;
+        // Append rather than replace, and guard against a card arriving twice
+        // if the underlying data shifted between pages.
+        setResults((current) => {
+          const seen = new Set(current.map((c) => c.oracleId));
+          return [...current, ...r.cards.filter((c) => !seen.has(c.oracleId))];
+        });
+        for (const card of r.cards) {
+          if (card.printingId) new Image().src = imageUrl(card.printingId, 'small');
+        }
+      })
+      .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
+      .finally(() => {
+        if (generation === searchGeneration.current) setLoadingMore(false);
+      });
+  }, [loadingMore, results.length, resultsTotal, pickerParams]);
 
   if (!deck) {
     return (
@@ -812,11 +902,13 @@ export function DeckBuilder({
         paneWidths={paneWidths}
         onPaneResize={resizePane}
         onPaneCommit={(pane, width) => { resizePane(pane, width); savePaneWidth(pane, width); }}
+        singleton={Boolean(formats.find((f) => f.code === deck.formatCode)?.isSingleton)}
         picker={{
           query, setQuery,
-          pickerColors, setPickerColors, pickerGold, setPickerGold, pickerHybrid, setPickerHybrid,
-          results, resultsTotal, searching, pickingCommander, setPickingCommander, searchInput,
-          preview, setPreview, coverNote, setCoverNote,
+          filters: pickerFilters, setFilters: setPickerFilters, sets, formats,
+          results, resultsTotal, searching, loadingMore, loadMore,
+          pickingCommander, setPickingCommander, searchInput,
+          preview, setPreview,
           pickerCategory, clearPickerCategory: () => setPickerCategory(null),
           categoryLabels,
         }}

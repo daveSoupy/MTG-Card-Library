@@ -171,6 +171,9 @@ export interface FormatRecord {
   display_name: string;
   /** 1 when the format has a command zone. Drives the deck builder's slot. */
   requiresCommander?: number;
+  /** 1 when one copy of a card is the limit. The picker reads it here rather
+   *  than keeping a list of which formats those are. */
+  isSingleton?: number;
   /**
    * 1 for draft and sealed: no published legalities to filter a picker by, and
    * adding a card to such a deck also puts it in the collection. Resolved by

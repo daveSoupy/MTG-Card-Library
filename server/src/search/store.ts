@@ -645,7 +645,8 @@ export class CardSearchStore {
 
   formats() {
     const rows = this.db.prepare(
-      `SELECT code, display_name, requires_commander AS requiresCommander
+      `SELECT code, display_name, requires_commander AS requiresCommander,
+            is_singleton AS isSingleton
      FROM formats WHERE is_active = 1 ORDER BY sort_order`,
     ).all() as any[];
     // isLimited travels with the format so the client never has to keep its own

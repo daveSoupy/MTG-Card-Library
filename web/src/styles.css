@@ -223,6 +223,12 @@ button { cursor: pointer; }
   }
   .filters-head { display: flex; }
   .filters-head-actions { display: flex; align-items: center; gap: 8px; }
+  /* Inside the picker, which is itself a full-screen sheet at this width:
+     the filter sheet covers all of it (no top bar to leave room for), and
+     sheds the docked-panel border the desktop rule gives it. */
+  .picker-filter-panel .filters.open {
+    inset: 0; border: 0; border-radius: 0; margin: 0; padding: 0 14px 14px;
+  }
   /* Random moves off the top bar and into the sheet header at exactly the
      width the sheet exists: on a phone it was the only thing on the bar's
      fourth row, and the sheet is the other place its inputs live. */
@@ -855,10 +861,92 @@ input[type='date'] {
   border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text-3);
 }
 .picker-add:hover { border-color: var(--accent); color: var(--text); }
-.picker-preview {
-  width: 100%; border-radius: 9px; margin-top: 12px;
-  position: sticky; bottom: 0;
+/* The row's art button, only on a touch screen — a mouse hovers instead. */
+.picker-art {
+  background: none; border: 0; color: var(--text-3); font-size: 12px; line-height: 1;
+  min-width: 34px; min-height: 34px;
 }
+/* The keyboard highlight (↓/↑ from the search box), and a card a singleton
+   deck already holds, whose name is no longer a thing to tap. */
+.picker-row.active .picker-name { background: var(--accent-dim); box-shadow: inset 0 0 0 1px var(--accent); }
+.picker-name.held { color: var(--text-3); cursor: default; }
+.picker-name.held:hover { background: none; }
+.tag.in-deck { color: var(--accent); }
+/* Filters sits at the end of the colour chip row, right-aligned, and wraps
+   to its own line where the chips fill the row. */
+.picker-filters-btn { margin-left: auto; }
+.picker-type-chips { margin-top: 0; }
+.picker-results-head { margin: 4px 0 2px; }
+.picker-load-more { position: relative; padding: 14px 0 4px; }
+/* Sits just above the button so the next page is asked for as the end of the
+   list comes into view, before the button itself does. */
+.picker-sentinel { position: absolute; top: -120px; left: 0; width: 1px; height: 1px; }
+
+/* The filter panel inside the picker: the Browse panel's markup, docked in
+   the column with its Done head shown (the head is a sheet-only thing on
+   Browse). It stands in for the results while open. */
+.picker-filter-panel .filters {
+  display: block; border: 1px solid var(--line); border-radius: 9px;
+  padding: 0 12px 12px; margin-top: 10px;
+}
+.picker-filter-panel .filters-head { display: flex; }
+.picker-filter-panel .filters-head-actions { display: flex; align-items: center; gap: 8px; }
+
+/* The hover popup (mouse only): floats just left of the picker, level with
+   the row, over the deck list — never over the rows below the one hovered.
+   Goes when the pointer leaves the results, unless it comes here for the
+   cover button. */
+.picker-hover {
+  position: fixed; z-index: 25; width: 240px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+.picker-hover img {
+  width: 100%; aspect-ratio: 5 / 7; border-radius: 9px; display: block; margin-bottom: 8px;
+  background: var(--panel-2);
+}
+/* Beside the cursor over the deck list: it may lie across the next tile, so
+   the pointer passes through it — the tile's ⓘ opens details there. */
+.picker-hover.tooltip { pointer-events: none; }
+.picker-hover.tooltip img { margin-bottom: 0; }
+/* The card itself is the button that opens its details. */
+.picker-hover-open { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
+.picker-hover-open:hover img, .picker-hover-open:focus-visible img { box-shadow: 0 0 0 2px var(--accent); }
+/* The card details overlay, opened from a preview: the same fixed sheet the
+   picker and stats panes use when they float. */
+.deck-panes .detail-pane.floating {
+  display: block; position: fixed; inset: 0 0 0 auto; width: min(420px, 100%);
+  z-index: 40; box-shadow: -12px 0 32px rgba(0, 0, 0, 0.4);
+}
+.picker-preview-close {
+  width: 28px; height: 28px; border-radius: 50%; border: 0;
+  background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 13px; line-height: 1;
+}
+.picker-preview-close:hover { background: rgba(0, 0, 0, 0.8); }
+/* The pinned preview (a row's art button): a sheet over the picker, closed
+   by its ✕ or a tap outside, and never part of the list's scroll. */
+.picker-preview-backdrop {
+  position: fixed; inset: 0; z-index: 30;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.picker-preview-sheet {
+  position: relative; width: min(360px, 100%); max-height: 100%; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px 12px;
+}
+/* A card's proportions reserved up front, so the sheet is card-shaped while
+   the image loads rather than a title over an empty box. */
+.picker-preview-sheet img {
+  width: 100%; aspect-ratio: 5 / 7; border-radius: 9px; display: block; margin-bottom: 10px;
+  background: var(--panel-2);
+}
+.picker-preview-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 8px; font-size: 14px;
+}
+.picker-preview-sheet .picker-preview-close { flex: none; }
 
 /* ---------- stats pane ---------- */
 .stats-pane {
@@ -2104,6 +2192,8 @@ input[type='date'] {
      .pill's min-height still stretches them to 40px tall — ovals. Match the
      selector so they become 40px circles like the browse pills. */
   .picker-filters .pill.color { width: 40px; height: 40px; font-size: 13px; }
+  .picker-filters-btn { min-height: 40px; }
+  .picker-art { min-width: 40px; min-height: 40px; }
   /* The rest of what a thumb reaches for that was sized for a pointer: the
      deck list's status filter, the small buttons on a trade-list toolbar,
      View Style's choices, the deck toolbar's density segment and sort menu,
@@ -2271,9 +2361,12 @@ input[type='date'] {
    mana cost, and stays right however wide the column ends up. No z-index:
    DOM order paints each later card over the one before it. */
 .cascade-col .deck-tile[data-cascade='stacked'] { margin-top: -121%; }
-/* Raised only while it is being used, so a covered card's controls are
-   reachable and its art is readable on a desktop. */
-.cascade-col .deck-tile:hover,
+/* Raised out of the pile when clicked open (the tile's own toggle, so its
+   controls show with it) or while its controls have keyboard focus. Not on
+   hover: a raised card covered the strips below it, so reaching the next
+   card meant travelling the whole height of this one. A mouse over a strip
+   shows the card beside the cursor instead. */
+.cascade-col .deck-tile.controls-open,
 .cascade-col .deck-tile:focus-within { z-index: 2; }
 /* Only the title strip of a stacked card shows, so the quantity badge has to
    sit in it. Right side: the name is what a cascade is read by, the cost is

@@ -55,6 +55,38 @@ export const filtersAreActive = (f: Filters): boolean =>
   f.format !== '' || f.minCmc !== '' || f.maxCmc !== '' || f.includeDigital || f.includeExtras || f.includeUnplayable ||
   f.excludeUniversesBeyond;
 
+/**
+ * Sections a host can leave out of the panel. Browse shows all of them; the
+ * deck picker drops the ones it already has a view of (scope chips for the
+ * collection, the deck's own format) or cannot honour (a preset carries query
+ * text, which would replace the picker's search box).
+ */
+export type FilterSection = 'presets' | 'collection' | 'format';
+
+/**
+ * How many of the panel's controls are set — the number on a "Filters · 2"
+ * button. Counted per control rather than per value: three rarity pills are
+ * one rarity filter. Sections the host omits are not on screen and so are not
+ * counted, whatever the state happens to hold for them.
+ */
+export function countActiveFilters(f: Filters, omit: readonly FilterSection[] = []): number {
+  const counted = [
+    !omit.includes('collection') && f.ownedOnly,
+    f.colors.length > 0,
+    f.gold,
+    f.hybrid,
+    f.rarities.length > 0,
+    f.set !== '',
+    !omit.includes('format') && f.format !== '',
+    f.minCmc !== '' || f.maxCmc !== '',
+    f.includeDigital,
+    f.includeExtras,
+    f.includeUnplayable,
+    f.excludeUniversesBeyond,
+  ];
+  return counted.filter(Boolean).length;
+}
+
 
 /** Says in words what the colour pills currently mean. */
 function describeColorFilter(filters: Filters): string {
@@ -84,6 +116,7 @@ export function FilterPanel({
   headActions,
   queryText,
   onApplyPreset,
+  omit = [],
 }: {
   filters: Filters;
   onChange: (next: Filters) => void;
@@ -96,6 +129,8 @@ export function FilterPanel({
   headActions?: ReactNode;
   queryText: string;
   onApplyPreset: (filters: Filters, queryText: string) => void;
+  /** Sections to leave out. Nothing omitted is the Browse panel. */
+  omit?: readonly FilterSection[];
 }) {
   const set = <K extends keyof Filters>(key: K, value: Filters[K]) =>
     onChange({ ...filters, [key]: value });
@@ -121,19 +156,23 @@ export function FilterPanel({
           </span>
         </div>
       )}
-      <PresetBar filters={filters} queryText={queryText} onApply={onApplyPreset} />
+      {!omit.includes('presets') && (
+        <PresetBar filters={filters} queryText={queryText} onApply={onApplyPreset} />
+      )}
 
-      <div className="fgroup">
-        <h3>Collection</h3>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={filters.ownedOnly}
-            onChange={(e) => set('ownedOnly', e.target.checked)}
-          />
-          Owned only
-        </label>
-      </div>
+      {!omit.includes('collection') && (
+        <div className="fgroup">
+          <h3>Collection</h3>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={filters.ownedOnly}
+              onChange={(e) => set('ownedOnly', e.target.checked)}
+            />
+            Owned only
+          </label>
+        </div>
+      )}
 
       <div className="fgroup">
         <h3>Colour identity</h3>
@@ -220,15 +259,17 @@ export function FilterPanel({
         </div>
       </div>
 
-      <div className="fgroup">
-        <h3>Format</h3>
-        <select value={filters.format} onChange={(e) => set('format', e.target.value)}>
-          <option value="">Any format</option>
-          {formats.map((f) => (
-            <option key={f.code} value={f.code}>{f.display_name}</option>
-          ))}
-        </select>
-      </div>
+      {!omit.includes('format') && (
+        <div className="fgroup">
+          <h3>Format</h3>
+          <select value={filters.format} onChange={(e) => set('format', e.target.value)}>
+            <option value="">Any format</option>
+            {formats.map((f) => (
+              <option key={f.code} value={f.code}>{f.display_name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="fgroup">
         <h3>Set</h3>
