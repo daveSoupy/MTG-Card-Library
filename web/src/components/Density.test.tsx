@@ -6,6 +6,7 @@ import { DeckTile } from './DeckTile.tsx';
 import { OwnedGrid } from './OwnedGrid.tsx';
 import { AddBySetTab } from './AddBySetTab.tsx';
 import { DeckPanes, type DeckPickerState } from './DeckPanes.tsx';
+import { EMPTY_FILTERS } from './FilterPanel.tsx';
 import type { CollectionCard, Deck, DeckCard, SetRecord, StorageLocation } from '../api.ts';
 import { DENSITIES_FOR, DENSITY_LABEL, type Density } from '../density.ts';
 
@@ -78,10 +79,10 @@ function deckWith(cards: DeckCard[]): Deck {
 
 const picker = (): DeckPickerState => ({
   query: '', setQuery: noop,
-  pickerColors: [], setPickerColors: noop, pickerGold: false, setPickerGold: noop,
-  pickerHybrid: false, setPickerHybrid: noop, results: [], resultsTotal: 0, searching: false,
+  filters: EMPTY_FILTERS, setFilters: noop, sets: [], formats: [],
+  results: [], resultsTotal: 0, searching: false, loadingMore: false, loadMore: noop,
   pickingCommander: false, setPickingCommander: noop, searchInput: createRef(),
-  preview: null, setPreview: noop, coverNote: null, setCoverNote: noop,
+  preview: null, setPreview: noop,
   pickerCategory: null, clearPickerCategory: noop, categoryLabels: {},
 });
 
@@ -204,6 +205,11 @@ describe('Lined-up', () => {
     // Wrapping, not shrinking — two columns that do not fit go onto two rows
     // rather than each squeezing to half a card.
     expect(css).toMatch(/\.deck-cascade\s*\{[^}]*flex-wrap:\s*wrap/);
+    // Hover must not raise a card over the strips below it — that made the
+    // next card reachable only by travelling the whole height of this one.
+    expect(css).not.toMatch(/\.cascade-col \.deck-tile:hover/);
+    // A click raises the tile in place instead, controls and all.
+    expect(css).toMatch(/\.cascade-col \.deck-tile\.controls-open[^{]*\{[^}]*z-index:\s*2/);
   });
 
   it('shows the card on a tap where there is no hover to uncover it with', () => {
@@ -229,7 +235,8 @@ describe('Lined-up', () => {
     );
     const tile = screen.getByLabelText('Remove Sol Ring').closest('.deck-tile')!;
 
-    fireEvent.mouseEnter(tile);
+    // The tile hands the pointer event up; DeckPanes decides mouse vs finger.
+    fireEvent.pointerEnter(tile, { pointerType: 'mouse' });
     expect(onPreview).toHaveBeenCalled();
 
     fireEvent.click(tile);

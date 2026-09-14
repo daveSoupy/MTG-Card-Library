@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { imageUrl, type BuildabilityRow, type DeckCard } from '../api.ts';
 import { canSwap, slotAction } from '../deckSlot.ts';
 import type { Density } from '../density.ts';
@@ -11,6 +11,8 @@ export function DeckTile({
   onRemove,
   density = 'full',
   onPreview,
+  onPreviewEnd,
+  onDetail,
   tapOpensPreview = false,
   cascade,
   coverage,
@@ -26,7 +28,14 @@ export function DeckTile({
   density?: Density;
   /** Lined-up covers all but a name strip, so hovering one shows it whole —
    *  the same callback `DeckRow` already uses in the text list. */
-  onPreview?: () => void;
+  /** The pointer arrived over the tile (with the event, so the host can tell a
+   *  mouse from a finger and anchor a preview), or a tap asked for the card
+   *  where there is no hover (no event). */
+  onPreview?: (event?: PointerEvent<HTMLDivElement>) => void;
+  /** The pointer left the tile. */
+  onPreviewEnd?: () => void;
+  /** Opens the card's details — oracle text, prices, legality, holders. */
+  onDetail?: () => void;
   /** Touch has no hover, so in Lined-up a tap shows the card instead of the
    *  controls. A deliberate exception to Phase 9's tap-to-reveal pattern. */
   tapOpensPreview?: boolean;
@@ -55,8 +64,13 @@ export function DeckTile({
       if (target && tile.current?.contains(target)) return;
       setOpen(false);
     };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
     document.addEventListener('click', onDocument);
-    return () => document.removeEventListener('click', onDocument);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('click', onDocument);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
 
   const lined = density === 'lined';
@@ -68,12 +82,16 @@ export function DeckTile({
       data-oracle={card.oracleId}
       data-cascade={cascade}
       title={`${card.name} — ${card.typeLine}`}
-      onMouseEnter={lined ? onPreview : undefined}
+      // An open tile is already showing the whole card; no preview beside it.
+      onPointerEnter={(event) => { if (!open) onPreview?.(event); }}
+      onPointerLeave={onPreviewEnd}
       onClick={(event) => {
         // A tap on a control is the control's, not a toggle: the menu stays up
         // so the stepper can be pressed more than once.
         if ((event.target as HTMLElement).closest('.tile-controls')) return;
         if (tapOpensPreview) { onPreview?.(); return; }
+        // Opening takes the preview's place, so any hover preview can go.
+        onPreviewEnd?.();
         setOpen((current) => !current);
       }}
     >
@@ -109,6 +127,9 @@ export function DeckTile({
         <button onClick={() => onQuantity(-1)} aria-label={`One fewer ${card.name}`}>−</button>
         <button onClick={() => onQuantity(1)} aria-label={`One more ${card.name}`}>+</button>
         <button onClick={onArt} aria-label={`Choose art for ${card.name}`} title="Choose printing / art">◆</button>
+        {onDetail && (
+          <button onClick={onDetail} aria-label={`Details for ${card.name}`} title="Card details">ⓘ</button>
+        )}
         {/* The chip on a tile stays a label: this bar covers the bottom of the
             art, so a button under it could never be reached. The action lives
             here instead, beside the others, and only for a card you are short of. */}
