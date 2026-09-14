@@ -2039,6 +2039,10 @@ input[type='number'] { width: 72px; }
   .filters .linkish { min-height: 40px; display: inline-flex; align-items: center; }
   .pill { min-height: 40px; padding: 6px 12px; }
   .pill.color { width: 40px; height: 40px; }
+  /* The picker's compact 26px colour chips out-specify the rule above, and
+     .pill's min-height still stretches them to 40px tall — ovals. Match the
+     selector so they become 40px circles like the browse pills. */
+  .picker-filters .pill.color { width: 40px; height: 40px; font-size: 13px; }
   /* The rest of what a thumb reaches for that was sized for a pointer: the
      deck list's status filter, the small buttons on a trade-list toolbar,
      View Style's choices, the deck toolbar's density segment and sort menu,
