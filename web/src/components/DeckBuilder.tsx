@@ -3,6 +3,7 @@ import {
   addRecommendedLands, fetchBuildability, fetchDeck, fetchDeckGames, fetchLocations,
   fetchRunHistory, fetchSettings, fetchSheet, fetchTemplates, formatRecord,
   imageUrl, resolveCategories, searchCards, startAssembly, startDisassembly, updateDeck,
+  DECK_STATUS_RESERVES,
   type AppSettings, type AssemblyRun, type AssemblySheet, type Board, type BuildabilityDetail,
   type BuildabilityRow, type Deck, type DeckCard, type DeckTemplate, type FormatRecord,
   type MatchRecord, type StorageLocation,
@@ -154,6 +155,15 @@ export function DeckBuilder({
   // another's.
   useEffect(() => { undoStack.clear(); }, [deckId, undoStack.clear]);
 
+  // Run history, and whether one is still open — the header offers to resume
+  // it rather than silently opening a second sheet over a half-pulled deck.
+  // Its own callback because a status change can cancel a run server-side
+  // (DeckStore.update) without touching a slot, and the deck the mutation
+  // returns does not carry run history.
+  const loadRuns = useCallback(() => {
+    fetchRunHistory(deckId).then(setRuns).catch(() => setRuns([]));
+  }, [deckId]);
+
   const load = useCallback(() => {
     fetchDeck(deckId).then(setDeck).catch((e) => setError(e.message));
     // Its own fetch rather than a field on the deck: buildability depends on
@@ -161,10 +171,8 @@ export function DeckBuilder({
     // for reasons that have nothing to do with this deck being edited. A
     // failure here leaves the deck perfectly usable, so it is swallowed.
     fetchBuildability(deckId).then(setBuildability).catch(() => setBuildability(null));
-    // Run history, and whether one is still open — the header offers to resume
-    // it rather than silently opening a second sheet over a half-pulled deck.
-    fetchRunHistory(deckId).then(setRuns).catch(() => setRuns([]));
-  }, [deckId]);
+    loadRuns();
+  }, [deckId, loadRuns]);
 
   useEffect(load, [load]);
 
@@ -288,7 +296,15 @@ export function DeckBuilder({
     }
   };
 
-  const openRun = runs.find((run) => run.status === 'open') ?? null;
+  // Only a deck that reserves copies can have a sheet worth resuming: a brew or
+  // a taken-apart deck has withdrawn the claim the sheet was built against, and
+  // the server cancels its run on that status change. This guard covers the
+  // gap between that write and the next read of run history — and any row that
+  // predates the guard. Render only; a read never writes. With no run offered,
+  // the header falls through to the plain Assemble button every brew shows.
+  const openRun = deck && DECK_STATUS_RESERVES[deck.status]
+    ? runs.find((run) => run.status === 'open') ?? null
+    : null;
   // Cards the last pull could not find. Read from the run: the deck's claim is
   // recomputed from the collection on every edit and cannot remember this.
   const shortfall = deck ? notFoundNotice(runs, deck.status) : null;
@@ -554,7 +570,7 @@ export function DeckBuilder({
             // No undo label: undo replays card slots, and a status change edits
             // none of them. Putting it on the stack would make Undo look like it
             // had done nothing.
-            onChange={(status) => apply(() => updateDeck(deck.id, { status }))}
+            onChange={(status) => apply(() => updateDeck(deck.id, { status })).then(loadRuns)}
           />
         );
         const verdict = (

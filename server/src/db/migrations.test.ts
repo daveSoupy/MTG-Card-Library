@@ -97,6 +97,19 @@ function addedColumns(sql: string): Array<{ table: string; column: string }> {
     .map((m) => ({ table: m[1], column: m[2] }));
 }
 
+/**
+ * A migration that only rewrites rows (v20 is the first) creates nothing the
+ * rewind above could undo, so its "old" fixture is legitimately identical to a
+ * fresh database and the drift check cannot demand otherwise. This is a
+ * keyword test rather than "none of the extractors matched" on purpose: DDL of
+ * a kind the rewind list does not know about would also leave the fixture
+ * unchanged, and that case must still fail the honesty assertion.
+ */
+function isDataOnly(sql: string): boolean {
+  const code = sql.replace(/--[^\n]*/g, ' ');
+  return !/\b(?:CREATE(?: UNIQUE)?|ALTER|DROP)\s+(?:TABLE|INDEX|VIEW|TRIGGER)\b/i.test(code);
+}
+
 test('every migration is numbered above the previous one', () => {
   const versions = MIGRATIONS.map((m) => m.version);
   assert.deepEqual(versions, [...versions].sort((a, b) => a - b), 'migrations must be ordered');
@@ -120,10 +133,12 @@ test('a migrated database ends up structurally identical to a fresh one', () => 
 
   for (const migration of MIGRATIONS) {
     const old = databaseAtVersion(migration.version - 1);
-    assert.ok(
-      shapeOf(old) !== shapeOf(fresh),
-      `v${migration.version - 1} fixture should be missing what "${migration.description}" adds`,
-    );
+    if (!isDataOnly(migration.sql)) {
+      assert.ok(
+        shapeOf(old) !== shapeOf(fresh),
+        `v${migration.version - 1} fixture should be missing what "${migration.description}" adds`,
+      );
+    }
 
     old.transaction(() => {
       for (const pending of MIGRATIONS.filter((m) => m.version >= migration.version)) {
@@ -213,6 +228,62 @@ test('the copy-limit backfill reads existing cards without a re-sync', () => {
     const row = read.get(id) as { limit_: number | null };
     assert.equal(row.limit_, expected, `${name} should back-fill to ${expected}`);
   }
+  db.close();
+});
+
+/**
+ * v20 is the data half of the fix in DeckStore.update(): a deck stepped out of
+ * a reserving status cancels its open pull sheet. Rows that already violated
+ * that before the runtime guard existed are cancelled here, with the same
+ * notes text the runtime path writes, and nothing else is touched.
+ */
+test('v20 cancels open pull sheets on decks that no longer reserve', () => {
+  const db = new Database(':memory:');
+  db.exec(SCHEMA_SQL);
+  db.pragma('user_version = 19');
+
+  const deck = db.prepare('INSERT INTO decks (name, status) VALUES (?, ?)');
+  const run = db.prepare(
+    "INSERT INTO deck_assembly_runs (deck_id, kind, status, notes) VALUES (?, 'assemble', ?, ?)",
+  );
+  const seed = (name: string, deckStatus: string, runStatus: string, notes: string | null = null) => {
+    const deckId = Number(deck.run(name, deckStatus).lastInsertRowid);
+    return Number(run.run(deckId, runStatus, notes).lastInsertRowid);
+  };
+  const brewOpen = seed('Eric', 'brew', 'open');
+  const disassembledOpen = seed('Torn down', 'disassembled', 'open', 'sheet started Tuesday');
+  const buildingOpen = seed('In progress', 'building', 'open');
+  const assembledOpen = seed('On the table', 'assembled', 'open');
+  const brewDone = seed('Old brew', 'brew', 'completed');
+  const brewCancelled = seed('Older brew', 'brew', 'cancelled');
+
+  const v20 = MIGRATIONS.find((m) => m.version === 20);
+  assert.ok(v20, 'expected a v20 migration');
+  assert.ok(isDataOnly(v20.sql), 'v20 should be data-only');
+  db.exec(v20.sql);
+
+  const read = db.prepare(
+    'SELECT status, completed_at, notes FROM deck_assembly_runs WHERE id = ?',
+  );
+  const after = (id: number) => read.get(id) as { status: string; completed_at: string | null; notes: string | null };
+
+  assert.equal(after(brewOpen).status, 'cancelled');
+  assert.ok(after(brewOpen).completed_at, 'a cancelled run is stamped completed_at');
+  assert.equal(after(brewOpen).notes, 'Cancelled automatically: deck status changed to brew.');
+
+  assert.equal(after(disassembledOpen).status, 'cancelled');
+  assert.equal(
+    after(disassembledOpen).notes,
+    'Cancelled automatically: deck status changed to disassembled.',
+    'the reason replaces prior notes, as cancelRun() does at runtime',
+  );
+
+  // Reserving decks keep their sheets, and finished runs are history.
+  assert.equal(after(buildingOpen).status, 'open');
+  assert.equal(after(assembledOpen).status, 'open');
+  assert.equal(after(brewDone).status, 'completed');
+  assert.equal(after(brewCancelled).status, 'cancelled');
+  assert.equal(after(brewDone).completed_at, null, 'untouched rows are not re-stamped');
   db.close();
 });
 
