@@ -276,17 +276,19 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                   <span>{item.quantity}</span>
                   <button onClick={() => setItemQty(item, item.quantity + 1)} disabled={item.quantity >= item.ownedQuantity} aria-label="One more">+</button>
                 </span>
-              ) : <span className="dim">{item.quantity}×</span>}
-              <span className="want-name">
-                {item.name}
-                {!readOnly
-                  ? <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
-                      {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {item.condition} · {money(item.unitValueUsd)}
-                    </button>
-                  : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
-                {isShort(item)
-                  ? <span className="conflict-flag" title="The lot this came from has changed since you drafted the trade."> only own {item.ownedQuantity}</span>
-                  : <span className="dim"> own {item.ownedQuantity}</span>}
+              ) : <span className="dim trade-item-qty">{item.quantity}×</span>}
+              <span className="trade-item-main">
+                <span className="trade-item-name">{item.name}</span>
+                <span className="trade-item-meta">
+                  {!readOnly
+                    ? <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
+                        {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {item.condition} · {money(item.unitValueUsd)}
+                      </button>
+                    : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
+                  {isShort(item)
+                    ? <span className="conflict-flag" title="The lot this came from has changed since you drafted the trade.">only own {item.ownedQuantity}</span>
+                    : <span className="dim">own {item.ownedQuantity}</span>}
+                </span>
               </span>
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
@@ -310,22 +312,24 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                   <span>{item.quantity}</span>
                   <button onClick={() => setItemQty(item, item.quantity + 1)} aria-label="One more">+</button>
                 </span>
-              ) : <span className="dim">{item.quantity}×</span>}
-              <span className="want-name">
-                {item.name}
-                {!readOnly && (
-                  <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
-                    {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {money(item.unitValueUsd)}
-                  </button>
-                )}
+              ) : <span className="dim trade-item-qty">{item.quantity}×</span>}
+              <span className="trade-item-main">
+                <span className="trade-item-name">{item.name}</span>
+                <span className="trade-item-meta">
+                  {!readOnly
+                    ? <button className="printing-chip" onClick={() => setEditingItem(item)} title="Change printing / finish / value">
+                        {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {money(item.unitValueUsd)}
+                      </button>
+                    : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
+                </span>
               </span>
-              {!readOnly ? (
-                <select value={item.destinationLocationId ?? ''}
+              {!readOnly && (
+                <select className="trade-item-dest" value={item.destinationLocationId ?? ''} aria-label="Put it in"
                   onChange={async (e) => setTrade(await updateTradeItem(tradeId, item.id, { destinationLocationId: e.target.value ? Number(e.target.value) : null }))}>
                   <option value="">Unsorted</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
-              ) : <span className="dim">{item.condition}</span>}
+              )}
               <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
             </div>

@@ -1,4 +1,9 @@
 :root {
+  /* What native controls (date pickers, selects, checkboxes) are painted in.
+     index.html's <meta name="color-scheme"> only says both are supported;
+     without this iOS drew the trade date as a white pill on a dark page. The
+     light blocks below flip it. */
+  color-scheme: dark;
   --bg: #10131a;
   --panel: #171b24;
   --panel-2: #1d222d;
@@ -33,6 +38,7 @@
  */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
+    color-scheme: light;
     --bg: #f4f6fa;
     --panel: #ffffff;
     --panel-2: #eef1f6;
@@ -61,6 +67,7 @@
 }
 
 :root[data-theme="light"] {
+    color-scheme: light;
     --bg: #f4f6fa;
     --panel: #ffffff;
     --panel-2: #eef1f6;
@@ -285,6 +292,17 @@ select, input[type='number'] {
   outline: none;
 }
 input[type='number'] { width: 72px; }
+/* Same surface as the selects. Deliberately not width: 100% — the trade
+   header's date shares a wrapping row with the counterparty name. Explicit
+   colours as well as color-scheme, for a UA that ignores the latter. */
+input[type='date'] {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  outline: none;
+}
 .linkish {
   background: none; border: 0; color: var(--accent);
   padding: 0; font-size: 12px; text-decoration: underline;
@@ -1794,12 +1812,31 @@ input[type='number'] { width: 72px; }
 .trade-editor .trade-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .trade-col { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; }
 .trade-col h3 { margin: 0 0 4px; font-size: 14px; display: flex; justify-content: space-between; }
+/* One line per item on desktop: qty · name, chip + "own N" · [where it
+   goes] · line value · ✕. Name and chip share `.trade-item-main`, a wrapping
+   flex, so in a tight column the chip drops under the name rather than the
+   row breaking; the phone rule below dissolves that wrapper (display:
+   contents) and re-flows name and meta into two rows with `order`. The name
+   has its own class rather than the want list's `.want-name`: that one is a
+   21px headline on a phone, which on a trade row put the card name on two
+   lines and blew "own 1" up to the same size. */
 .trade-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.trade-item .want-name { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.trade-item-main { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.trade-item-name { flex: 0 1 auto; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.25; }
+.trade-item-meta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
+  flex: 0 1 auto; min-width: 0; font-size: 12px; color: var(--text-2);
+}
+.trade-item-meta .dim { white-space: nowrap; }
+/* Width from its options, not the base select's 100% — with that, the flex
+   shrink left the name only its longest word's width, one word per line. */
+.trade-item-dest { flex: 0 1 auto; width: auto; max-width: 130px; }
+.trade-item > .trade-value { white-space: nowrap; }
 /* The set/finish/value tag on a trade item — tap to change the printing. */
 .printing-chip {
   background: var(--panel-2); border: 1px solid var(--line-strong); color: var(--text-2);
   border-radius: 999px; padding: 1px 8px; font-size: 11px; font-family: var(--mono);
+  white-space: nowrap;
 }
 .printing-chip:hover { border-color: var(--accent); color: var(--text); }
 
@@ -1882,6 +1919,30 @@ input[type='number'] { width: 72px; }
   .results { padding: 10px; }
   .list-page { padding: 10px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }
+  /* A trade item on a phone is two rows: what and how much, then the
+     controls. Row 1 is name (wraps to two lines at most before the value
+     yields) · line value · ✕; row 2 is the stepper · printing chip · where
+     an incoming card goes. The ::after with a 100% basis is the line break —
+     everything ordered after it lands on the next flex line. */
+  .trade-item { flex-wrap: wrap; row-gap: 0; }
+  .trade-item-main { display: contents; }
+  .trade-item::after { content: ''; order: 1; flex: 0 0 100%; height: 6px; }
+  .trade-item > .qty, .trade-item > .trade-item-qty, .trade-item .trade-item-meta,
+  .trade-item > .trade-item-dest { order: 2; }
+  .trade-item-name { flex: 1 1 0; font-size: 15px; }
+  /* Content-sized, so the leftover on row 2 all goes to the location select. */
+  .trade-item-meta { flex: 0 1 auto; }
+  /* Basis small enough to share the row with a 110px stepper and a chip at
+     346px; it then grows into whatever is left. A wide chip (foil, four-figure
+     price) pushes it to a full-width third line, which is still fine. */
+  .trade-item-dest { flex: 1 1 90px; max-width: none; min-width: 0; }
+  /* Thumb-sized: the stepper and remove are 34px elsewhere on a phone. */
+  .trade-item .qty button { width: 40px; height: 40px; }
+  .trade-item .row-remove { min-width: 40px; min-height: 40px; }
+  /* Complete / Delete as full-width stacked buttons, the can't-complete
+     reason between them where it was. */
+  .trade-actions { flex-direction: column; align-items: stretch; }
+  .trade-actions .btn { width: 100%; min-height: 44px; }
   /* A Full want row on a phone: grip, card, and one text column.
   
      As a wrapping flex row it could not work — the name+controls block asks for
