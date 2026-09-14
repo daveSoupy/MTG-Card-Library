@@ -543,7 +543,7 @@ export function DeckBuilder({
             }}
           />
         ) : (
-          <button className="deck-title" onClick={() => setRenaming(true)} title="Click to rename">
+          <button className="deck-title" onClick={() => setRenaming(true)} title={`${deck.name} — click to rename`}>
             {deck.name}
           </button>
         );

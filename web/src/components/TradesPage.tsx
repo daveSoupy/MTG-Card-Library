@@ -209,9 +209,13 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
 
       <div className="list-head">
         <button className="btn secondary" onClick={onClose}>← Trades</button>
-        <input className="trade-name-input" value={trade.counterpartyName} disabled={readOnly}
-          onChange={(e) => setTrade({ ...trade, counterpartyName: e.target.value })}
-          onBlur={(e) => !readOnly && updateTrade(tradeId, { counterpartyName: e.target.value })} />
+        {readOnly ? (
+          <span className="trade-name">{trade.counterpartyName}</span>
+        ) : (
+          <input className="trade-name-input" value={trade.counterpartyName}
+            onChange={(e) => setTrade({ ...trade, counterpartyName: e.target.value })}
+            onBlur={(e) => updateTrade(tradeId, { counterpartyName: e.target.value })} />
+        )}
         {!readOnly && (
           <input type="date" value={trade.tradeDate ?? ''}
             onChange={(e) => { setTrade({ ...trade, tradeDate: e.target.value }); updateTrade(tradeId, { tradeDate: e.target.value || null }); }} />
