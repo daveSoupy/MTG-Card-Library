@@ -33,6 +33,10 @@ export function DeckList({
 }) {
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The list itself failing to load, apart from `error` for an action: while
+  // set, the page shows neither "Loading…" nor "No decks yet" — the server
+  // did not say there are none, it did not answer.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [tagging, setTagging] = useState<number | null>(null);
@@ -82,7 +86,9 @@ export function DeckList({
   );
 
   const load = useCallback(() => {
-    fetchDecks({ buildability: true, sort }).then(setDecks).catch((e) => setError(e.message));
+    fetchDecks({ buildability: true, sort })
+      .then((next) => { setDecks(next); setLoadError(null); })
+      .catch((e) => { setDecks(null); setLoadError(e.message); });
   }, [sort]);
 
   useEffect(load, [load]);
@@ -139,9 +145,10 @@ export function DeckList({
         </div>
       </div>
 
-      {error && <div className="error">{error}</div>}
+      {loadError && <div className="error">{loadError}</div>}
+      {error && error !== loadError && <div className="error">{error}</div>}
 
-      {decks === null && <p className="loading">Loading…</p>}
+      {decks === null && !loadError && <p className="loading">Loading…</p>}
       {decks !== null && decks.length > 0 && shown.length === 0 && (
         <p className="empty">No decks match those filters.</p>
       )}

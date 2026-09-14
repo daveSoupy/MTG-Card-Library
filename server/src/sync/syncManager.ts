@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { SyncProgress, SyncResult } from './runSync.ts';
 import type { BulkType } from './scryfall.ts';
 import type { SyncWorkerMessage } from './syncWorker.ts';
+import { describeSyncFailure } from './syncFailure.ts';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -93,16 +94,12 @@ export class SyncManager extends EventEmitter {
         this.state.lastResult = message.payload;
         this.emit('progress', this.state.progress);
       } else {
-        this.state.lastError = message.message;
+        this.failed(message.message);
       }
     });
 
-    worker.on('error', (error) => {
-      this.state.lastError = error.message;
-      this.emit('progress', {
-        phase: 'failed', message: 'Sync failed.', fraction: null, error: error.message,
-      } satisfies SyncProgress);
-    });
+    // An error the worker did not catch — a crash before its own handler ran.
+    worker.on('error', (error) => this.failed(describeSyncFailure(error)));
 
     worker.on('exit', () => {
       this.state.running = false;
@@ -112,6 +109,16 @@ export class SyncManager extends EventEmitter {
     });
 
     return this.current;
+  }
+
+  /**
+   * Records the failure and pushes it down the progress stream, so a dialog
+   * already watching sees the reason at once rather than on its next reload.
+   */
+  private failed(message: string): void {
+    this.state.lastError = message;
+    this.state.progress = { phase: 'failed', message: 'Sync failed.', fraction: null, error: message };
+    this.emit('progress', this.state.progress);
   }
 
   async stop(): Promise<void> {

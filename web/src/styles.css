@@ -620,10 +620,14 @@ input[type='number'] { width: 72px; }
 
 /* ---------- deck builder ---------- */
 .deck-shell {
-  display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr);
+  display: grid; grid-template-rows: auto auto auto 1fr; grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
 .deck-shell > * { min-width: 0; }
+/* Whatever the page's content pane is takes the last, filling row; a banner
+   (.error, .notice) between the header and it gets a content-sized row rather
+   than the 1fr one, which used to stretch it to fill the shell. */
+.deck-shell > :not(.deck-header, .error, .notice) { grid-row: -2; }
 .deck-header {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
