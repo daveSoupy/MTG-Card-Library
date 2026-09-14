@@ -129,6 +129,22 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // Random draws against whatever the search box and filters currently say.
+  // One element, rendered in two places: the top bar at desktop widths, and
+  // the filter sheet's header on a phone, where the top bar had no room.
+  const randomButton = (
+    <button
+      className="btn secondary"
+      title="Show a random card matching the current filters"
+      onClick={() => {
+        fetchRandomCard(searchParamsFor(text, filters, sort))
+          .then((card) => setSelected(card.oracleId))
+          .catch((cause) => setError(cause.message));
+      }}
+    >
+      Random
+    </button>
+  );
   const [showSyntax, setShowSyntax] = useState(false);
   // Parse warnings from the last search — an unknown storage location, a count
   // that was not a number. Kept beside the results rather than raised as an
@@ -447,19 +463,10 @@ export default function App() {
           </>
         )}
         {view.name !== 'browse' && <div className="topbar-spacer" />}
-        {view.name === 'browse' && (
-          <button
-            className="btn secondary"
-            title="Show a random card matching the current filters"
-            onClick={() => {
-              fetchRandomCard(searchParamsFor(text, filters, sort))
-                .then((card) => setSelected(card.oracleId))
-                .catch((cause) => setError(cause.message));
-            }}
-          >
-            Random
-          </button>
-        )}
+        {/* Hidden at phone widths (styles.css, alongside the filter sheet):
+            there it was a fourth top-bar row on its own, so the same button
+            sits in the filter sheet's header instead — see randomButton. */}
+        {view.name === 'browse' && <span className="topbar-random">{randomButton}</span>}
         {/* The global default. A page's own Customize View panel overrides it,
             and the cycle only offers what the page being looked at can show —
             Lined-up is the deck builder's alone. */}
@@ -490,13 +497,29 @@ export default function App() {
       {view.name === 'collection' && (
         <CollectionPage
           key={dataEpoch}
+          tab={view.tab ?? 'browse'}
+          // A push, like the topbar tabs: a sub-tab is a place the user
+          // chose to go, so Back should retrace it (router.ts's rule). Browse
+          // is spelled `/collection` rather than `/collection/browse` because
+          // the two are one view — a bare `/collection` already opens on it,
+          // and giving the same page two URLs would let clicking Browse from
+          // there push a duplicate entry that makes Back appear to do nothing.
+          onTabChange={(tab) => navigate(tab === 'browse' ? { name: 'collection' } : { name: 'collection', tab })}
           {...densityControlsFor('collection')}
           wantsDensity={densityControlsFor('wants')}
         />
       )}
 
       {view.name === 'trades' && (
-        <TradesPage onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }} />
+        <TradesPage
+          openId={view.id ?? null}
+          // Opening pushes /trades/:id; the back arrow pushes /trades rather
+          // than calling history.back(), for the same reason the deck
+          // builder's does — a trade opened from a pasted link has no
+          // /trades behind it, and Back would leave the app.
+          onOpen={(id) => navigate(id === null ? { name: 'trades' } : { name: 'trades', id })}
+          onAlertsChanged={() => { setAlertKey((n) => n + 1); setDataEpoch((n) => n + 1); }}
+        />
       )}
 
       {view.name === 'games' && showGameLog && <GamesPage formats={formats} />}
@@ -538,6 +561,7 @@ export default function App() {
           formats={formats}
           open={filtersOpen}
           onClose={() => setFiltersOpen(false)}
+          headActions={randomButton}
           queryText={text}
           onApplyPreset={(nextFilters, nextQuery) => {
             setFilters(nextFilters);
