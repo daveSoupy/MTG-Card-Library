@@ -18,10 +18,9 @@ import { UndoToast } from './UndoToast.tsx';
 import { CustomizeView } from './CustomizeView.tsx';
 import { groupByField, type GroupBy } from '../deckView.ts';
 import type { Density, DensityPage } from '../density.ts';
+import { COLLECTION_TABS, type CollectionTab } from '../router.ts';
 
-type Tab = 'browse' | 'add' | 'sets' | 'value' | 'wants' | 'tradelists';
-
-const TAB_LABEL: Record<Tab, string> = {
+const TAB_LABEL: Record<CollectionTab, string> = {
   browse: 'Browse', add: 'Add by set', sets: 'Set Completion', value: 'Value',
   wants: 'Wants', tradelists: 'For trade',
 };
@@ -313,6 +312,8 @@ function CardLots({
 // ------------------------------------------------------------------ page
 
 export function CollectionPage({
+  tab,
+  onTabChange,
   page,
   density,
   onDensity,
@@ -320,6 +321,11 @@ export function CollectionPage({
   onResetDensity,
   wantsDensity,
 }: {
+  /** Which sub-tab is showing. Owned by the URL (`/collection/<tab>`), so a
+   *  reload or a pasted link opens on the same one; App reads it from the
+   *  route and `onTabChange` navigates rather than setting local state. */
+  tab: CollectionTab;
+  onTabChange: (tab: CollectionTab) => void;
   page: DensityPage;
   density: Density;
   onDensity: (density: Density) => void;
@@ -333,7 +339,6 @@ export function CollectionPage({
     onResetDensity: () => void;
   };
 }) {
-  const [tab, setTab] = useState<Tab>('browse');
   const subtabs = useRef<HTMLElement>(null);
   useEffect(() => {
     // Optional chaining: jsdom has no scrollIntoView.
@@ -446,8 +451,8 @@ export function CollectionPage({
             off the edge — bring it into view rather than leave "Wants" hidden
             behind the fold after a tap on it. */}
         <nav className="tabs small subtabs" ref={subtabs}>
-          {(['browse', 'add', 'sets', 'value', 'wants', 'tradelists'] as Tab[]).map((t) => (
-            <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>
+          {COLLECTION_TABS.map((t) => (
+            <button key={t} className={tab === t ? 'on' : ''} onClick={() => onTabChange(t)}>
               {TAB_LABEL[t]}
             </button>
           ))}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   addTradeItem, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
   fetchLocations, fetchTrade, fetchTrades, removeTradeItem, updateTrade, updateTradeItem,
-  type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
+  ApiError, type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
 import { TradeItemDialog } from './TradeItemDialog.tsx';
@@ -25,27 +25,39 @@ type CompleteResult = CompleteTradeResult & { shortfalls?: TradeShortfall[] };
 const isShort = (item: Trade['items'][number]) =>
   item.direction === 'out' && item.quantity > item.ownedQuantity;
 
-export function TradesPage({ onAlertsChanged }: { onAlertsChanged?: () => void }) {
+export function TradesPage({ openId, onOpen, onAlertsChanged }: {
+  /** The trade being edited, or null for the list. Owned by the URL
+   *  (`/trades/:id`), so App reads it from the route and `onOpen` navigates
+   *  rather than setting local state — that is what lets Back close a trade
+   *  and a reload keep it open. */
+  openId: number | null;
+  onOpen: (id: number | null) => void;
+  onAlertsChanged?: () => void;
+}) {
   const [trades, setTrades] = useState<TradeSummary[]>([]);
-  const [openId, setOpenId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetchTrades().then(setTrades).catch((e) => setError(e.message));
   }, []);
-  useEffect(load, [load]);
+  // Fetched each time the list comes into view — on mount at /trades, and on
+  // the way back from a trade, whether by the back arrow or the browser's
+  // Back — since the editor may have completed, renamed or deleted it.
+  useEffect(() => { if (openId === null) load(); }, [load, openId]);
 
   const start = async () => {
     const name = prompt('Who are you trading with?');
     if (!name?.trim()) return;
-    try { const t = await createTrade({ counterpartyName: name.trim() }); setOpenId(t.id); load(); }
+    // Pushed only once the POST returns: there is no id to put in the URL
+    // before then, and a failed create should leave the address bar alone.
+    try { const t = await createTrade({ counterpartyName: name.trim() }); onOpen(t.id); }
     catch (e: any) { setError(e.message); }
   };
 
   if (openId != null) {
     return <TradeEditor
       tradeId={openId}
-      onClose={() => { setOpenId(null); load(); }}
+      onClose={() => onOpen(null)}
       onCompleted={() => { onAlertsChanged?.(); }}
     />;
   }
@@ -63,7 +75,7 @@ export function TradesPage({ onAlertsChanged }: { onAlertsChanged?: () => void }
 
       {drafts.length > 0 && <h3 className="section-label">Drafts</h3>}
       {drafts.map((t) => (
-        <button key={t.id} className="trade-row draft" onClick={() => setOpenId(t.id)}>
+        <button key={t.id} className="trade-row draft" onClick={() => onOpen(t.id)}>
           <span className="trade-who">{t.counterpartyName}</span>
           <span className="dim">draft{t.tradeDate ? ` · ${t.tradeDate}` : ''}</span>
         </button>
@@ -71,7 +83,7 @@ export function TradesPage({ onAlertsChanged }: { onAlertsChanged?: () => void }
 
       {history.length > 0 && <h3 className="section-label">History</h3>}
       {history.map((t) => (
-        <button key={t.id} className="trade-row" onClick={() => setOpenId(t.id)}>
+        <button key={t.id} className="trade-row" onClick={() => onOpen(t.id)}>
           <span className="trade-who">{t.counterpartyName}</span>
           <span className="dim">{t.status === 'cancelled' ? 'cancelled' : (t.completedAt?.slice(0, 10) ?? t.tradeDate)}</span>
           {t.status === 'completed' && (
@@ -102,7 +114,16 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const undoStack = useUndoStack();
   useUndoShortcuts(undoStack);
 
-  useEffect(() => { fetchTrade(tradeId).then(setTrade).catch((e) => setError(e.message)); }, [tradeId]);
+  // Back/Forward between two open trades swaps the id under this component
+  // without remounting it, so the previous trade's rows are cleared rather
+  // than shown under the new URL until the fetch lands. A pasted link to an id
+  // that does not exist reads as such, not as a page that never loads.
+  useEffect(() => {
+    setTrade(null); setError(null);
+    fetchTrade(tradeId).then(setTrade).catch((e) => {
+      setError(e instanceof ApiError && e.status === 404 ? 'No trade with that id.' : e.message);
+    });
+  }, [tradeId]);
   // A step recorded against one trade must never be replayed into another.
   useEffect(() => { undoStack.clear(); }, [tradeId, undoStack.clear]);
 
@@ -191,7 +212,20 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
     }
   };
 
-  if (!trade) return <div className="list-page"><p className="loading">Loading…</p></div>;
+  if (!trade) {
+    return (
+      <div className="list-page">
+        {error
+          ? <>
+              <div className="error">{error}</div>
+              <div className="list-head">
+                <button className="btn secondary" onClick={onClose}>← Trades</button>
+              </div>
+            </>
+          : <p className="loading">Loading…</p>}
+      </div>
+    );
+  }
 
   const out = trade.items.filter((i) => i.direction === 'out');
   const incoming = trade.items.filter((i) => i.direction === 'in');

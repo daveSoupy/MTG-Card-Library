@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import App from './App.tsx';
-import type { CardSummary } from './api.ts';
+import { ApiError, type CardSummary, type SearchParams, type Trade, type TradeSummary } from './api.ts';
 
 const hit = (overrides: Partial<CardSummary> = {}): CardSummary => ({
   oracleId: 'O-1', name: 'Lightning Bolt', manaCost: '{R}', cmc: 1,
@@ -20,7 +20,25 @@ const results = [
   hit({ oracleId: 'O-3', name: 'Grizzly Bears', typeLine: 'Creature — Bear', cmc: 2 }),
 ];
 
-const searchCards = vi.fn(async () => ({ cards: results, total: results.length }));
+// The parameter is typed so `searchCards.mock.calls[n][0]` is a SearchParams
+// rather than an element of an empty tuple.
+const searchCards = vi.fn(async (_params: SearchParams) => ({ cards: results, total: results.length }));
+
+// Hoisted so the mock factory below, which vitest lifts above the imports,
+// can read them without tripping the temporal dead zone.
+const { TRADES } = vi.hoisted(() => {
+  const summary = (overrides: Partial<TradeSummary> & Pick<TradeSummary, 'id' | 'counterpartyName'>): TradeSummary => ({
+    counterpartyContact: null, status: 'completed', tradeDate: '2026-09-01', completedAt: '2026-09-01T12:00:00Z',
+    locationNote: null, notes: null, valueOutUsd: 10, valueInUsd: 12,
+    createdAt: '2026-09-01T12:00:00Z', updatedAt: '2026-09-01T12:00:00Z',
+    ...overrides,
+  });
+  const TRADES: TradeSummary[] = [
+    summary({ id: 6, counterpartyName: 'Bill' }),
+    summary({ id: 8, counterpartyName: 'Alice', status: 'draft', completedAt: null }),
+  ];
+  return { TRADES };
+});
 
 vi.mock('./api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./api.ts')>()),
@@ -32,7 +50,15 @@ vi.mock('./api.ts', async (importOriginal) => ({
     sync: { running: false, progress: null, lastError: null },
     bulkTypes: {},
   })),
-  searchCards: (...args: unknown[]) => searchCards(...(args as [])),
+  searchCards: (params: SearchParams) => searchCards(params),
+  fetchTrades: vi.fn(async () => TRADES),
+  // A 404 with the server's wording, so the page's own "No trade with that
+  // id." line — not the message — is what the test looks for.
+  fetchTrade: vi.fn(async (id: number): Promise<Trade> => {
+    const found = TRADES.find((t) => t.id === id);
+    if (!found) throw new ApiError(`No trade with id ${id}.`, 404, false);
+    return { ...found, items: [] };
+  }),
   fetchSets: vi.fn(async () => []),
   fetchFormats: vi.fn(async () => []),
   fetchLocations: vi.fn(async () => []),
@@ -225,5 +251,78 @@ describe('routing', () => {
     fireEvent.click(within(tabs(container)).getByRole('button', { name: 'Browse' }));
     expect(url()).toBe('/browse?q=bolt');
     expect((screen.getByLabelText('Search cards') as HTMLInputElement).value).toBe('bolt');
+  });
+
+  /** The collection's own tab row, beneath the topbar. */
+  const subtabs = (container: HTMLElement) => container.querySelector('.subtabs') as HTMLElement;
+  const activeSubtab = (container: HTMLElement) => subtabs(container).querySelector('button.on')?.textContent;
+
+  it('a collection link opens on that sub-tab', () => {
+    window.history.replaceState(null, '', '/collection/wants');
+    const { container } = render(<App />);
+    expect(activeTab(container)).toBe('Collection');
+    expect(activeSubtab(container)).toBe('Wants');
+    expect(url()).toBe('/collection/wants');
+  });
+
+  it('a sub-tab pushes its URL, Browse is spelled /collection, and Back retraces', () => {
+    const { container } = render(<App />);
+    expect(activeSubtab(container)).toBe('Browse');
+
+    const before = window.history.length;
+    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Value' }));
+    expect(url()).toBe('/collection/value');
+    expect(activeSubtab(container)).toBe('Value');
+    expect(window.history.length).toBe(before + 1);
+
+    // Browse and the bare /collection are one view: a single URL, so
+    // clicking Browse while on it cannot leave a duplicate entry.
+    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Browse' }));
+    expect(url()).toBe('/collection');
+    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Browse' }));
+    expect(window.history.length).toBe(before + 2);
+
+    window.history.replaceState(null, '', '/collection/value');
+    fireEvent.popState(window);
+    expect(activeSubtab(container)).toBe('Value');
+  });
+
+  it('a trade link opens that trade', async () => {
+    window.history.replaceState(null, '', '/trades/6');
+    const { container } = render(<App />);
+    expect(activeTab(container)).toBe('Trade');
+    expect(await screen.findByText('Bill')).toBeInTheDocument();
+    expect(container.querySelector('.trade-editor')).not.toBeNull();
+    expect(url()).toBe('/trades/6');
+  });
+
+  it('opening a trade pushes its id, and Back returns to the list', async () => {
+    window.history.replaceState(null, '', '/trades');
+    const { container } = render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: /Alice/ }));
+    expect(url()).toBe('/trades/8');
+    expect(await screen.findByText('draft', { selector: '.verdict-chip' })).toBeInTheDocument();
+
+    window.history.replaceState(null, '', '/trades');
+    fireEvent.popState(window);
+    expect(url()).toBe('/trades');
+    expect(container.querySelector('.trade-editor')).toBeNull();
+    expect(await screen.findByRole('button', { name: /Bill/ })).toBeInTheDocument();
+  });
+
+  it('the back arrow inside a trade pushes /trades rather than leaving the app', async () => {
+    window.history.replaceState(null, '', '/trades/6');
+    render(<App />);
+    await screen.findByText('Bill');
+    fireEvent.click(screen.getByRole('button', { name: '← Trades' }));
+    expect(url()).toBe('/trades');
+    expect(await screen.findByRole('button', { name: /Bill/ })).toBeInTheDocument();
+  });
+
+  it('a trade id that does not exist says so, like a deck id that does not', async () => {
+    window.history.replaceState(null, '', '/trades/999999');
+    render(<App />);
+    expect(await screen.findByText('No trade with that id.')).toBeInTheDocument();
+    expect(url()).toBe('/trades/999999');
   });
 });
