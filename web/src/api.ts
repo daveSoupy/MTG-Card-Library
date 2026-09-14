@@ -211,18 +211,81 @@ export interface SearchParams {
   knownTotal?: number;
 }
 
-async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal, headers: { Accept: 'application/json' } });
-  if (!response.ok) {
-    let detail = `Request failed with status ${response.status}`;
-    try {
-      const body = await response.json();
-      if (body?.error) detail = body.detail ? `${body.error} ${body.detail}` : body.error;
-    } catch {
-      // Non-JSON error body; the status line is all we have.
-    }
-    throw new Error(detail);
+/** What the page says when the server never answered. */
+export const CONNECTIVITY_MESSAGE =
+  "Can't reach the MTG Library server. Is it running? Are you on the tailnet?";
+
+/**
+ * A request that did not succeed, and whether that is the server's doing.
+ *
+ * `isConnectivity` is the flag pages branch on: true means nothing answered,
+ * so a page must show this error rather than its empty state — an empty
+ * collection and an unreachable server both come back as "no rows", and only
+ * one of them is true.
+ */
+export class ApiError extends Error {
+  /** HTTP status, or null when the request never got a response. */
+  status: number | null;
+  isConnectivity: boolean;
+  constructor(message: string, status: number | null, isConnectivity: boolean, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = 'ApiError';
+    this.status = status;
+    this.isConnectivity = isConnectivity;
   }
+}
+
+/** True when the failure means the server never answered. */
+export const isConnectivityError = (error: unknown): boolean =>
+  error instanceof ApiError && error.isConnectivity;
+
+/**
+ * `fetch` with the one failure a browser reports by throwing — no response at
+ * all (refused, DNS, offline) — turned into the connectivity message. It throws
+ * a bare `TypeError`, whose text ("Failed to fetch", "Load failed") names
+ * nothing the user can act on. An abort is the caller's own doing and passes
+ * through untouched, so `e.name === 'AbortError'` checks keep working.
+ */
+async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (cause) {
+    if (cause instanceof Error && cause.name === 'AbortError') throw cause;
+    throw new ApiError(CONNECTIVITY_MESSAGE, null, true, cause);
+  }
+}
+
+/**
+ * The error for a non-OK response.
+ *
+ * The server's own errors are always JSON with an `error` field — even its
+ * 500s, from `errorHandler.ts` — so a 5xx *without* one is not the server
+ * talking: it is the Vite dev proxy or a gateway answering on its behalf
+ * because nothing was listening. That is connectivity, and it reads as such
+ * rather than as "Request failed with status 500". Pass `body` when the
+ * caller has already read it.
+ */
+export async function errorFromResponse(
+  response: Response,
+  body?: unknown,
+  fallback?: string,
+): Promise<ApiError> {
+  const parsed = body !== undefined ? body : await response.json().catch(() => undefined);
+  const serverError = (parsed as { error?: unknown; detail?: unknown } | undefined)?.error;
+  if (typeof serverError === 'string' && serverError) {
+    const detail = (parsed as { detail?: unknown }).detail;
+    const message = typeof detail === 'string' && detail ? `${serverError} ${detail}` : serverError;
+    return new ApiError(message, response.status, false);
+  }
+  if (response.status >= 500) {
+    return new ApiError(CONNECTIVITY_MESSAGE, response.status, true);
+  }
+  return new ApiError(fallback ?? `Request failed with status ${response.status}`, response.status, false);
+}
+
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await apiFetch(url, { signal, headers: { Accept: 'application/json' } });
+  if (!response.ok) throw await errorFromResponse(response);
   return response.json() as Promise<T>;
 }
 
@@ -268,14 +331,13 @@ export const fetchFormats = (signal?: AbortSignal) =>
   getJson<{ formats: FormatRecord[] }>('/api/v1/formats', signal).then((r) => r.formats);
 
 export async function startSync(bulkType?: string, force = false): Promise<void> {
-  const response = await fetch('/api/v1/sync', {
+  const response = await apiFetch('/api/v1/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bulkType, force }),
   });
   if (!response.ok && response.status !== 409) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body?.error ?? `Could not start the sync (HTTP ${response.status}).`);
+    throw await errorFromResponse(response, undefined, `Could not start the sync (HTTP ${response.status}).`);
   }
 }
 
@@ -570,15 +632,12 @@ export const BUILDABILITY_SORT_LABEL: Record<BuildabilitySort, string> = {
 };
 
 async function send<T>(url: string, method: string, body?: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method,
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!response.ok) {
-    const detail = await response.json().catch(() => ({}));
-    throw new Error(detail?.error ?? `Request failed with status ${response.status}`);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
   return response.status === 204 ? (undefined as T) : (response.json() as Promise<T>);
 }
 
@@ -1058,7 +1117,7 @@ export class CacheTooSmallError extends Error {
 
 /** Starts a download; throws CacheTooSmallError (with the numbers) on a 413. */
 export async function startImageDownload(scope: ImageDownloadScope): Promise<ImageDownloadStatus> {
-  const response = await fetch('/api/v1/images/download', {
+  const response = await apiFetch('/api/v1/images/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scope }),
@@ -1067,7 +1126,7 @@ export async function startImageDownload(scope: ImageDownloadScope): Promise<Ima
   if (response.status === 413) {
     throw new CacheTooSmallError(body.error ?? 'Cache too small.', body.estimateBytes, body.limitBytes);
   }
-  if (!response.ok) throw new Error(body?.error ?? `Request failed with status ${response.status}`);
+  if (!response.ok) throw await errorFromResponse(response, body);
   return body.status as ImageDownloadStatus;
 }
 
@@ -1499,14 +1558,13 @@ export const takeScheduledBackup = () =>
 
 /** Uploads the file as a raw body; the server writes it to a temp file. */
 export async function restoreBackup(file: File): Promise<RestoreReport> {
-  const response = await fetch('/api/v1/backup/restore', {
+  const response = await apiFetch('/api/v1/backup/restore', {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: file,
   });
   if (!response.ok) {
-    const detail = await response.json().catch(() => ({}));
-    throw new Error(detail?.error ?? `Restore failed with status ${response.status}`);
+    throw await errorFromResponse(response, undefined, `Restore failed with status ${response.status}`);
   }
   return response.json() as Promise<RestoreReport>;
 }

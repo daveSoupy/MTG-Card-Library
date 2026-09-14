@@ -10,6 +10,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { openLibrary } from '../db/index.ts';
 import { runSync } from './runSync.ts';
 import { syncCardCategories } from './categories.ts';
+import { describeSyncFailure } from './syncFailure.ts';
 import type { BulkType } from './scryfall.ts';
 
 export interface SyncWorkerInput {
@@ -69,10 +70,9 @@ try {
     port.postMessage({ kind: 'done', payload: result } satisfies SyncWorkerMessage);
   }
 } catch (error) {
-  port.postMessage({
-    kind: 'error',
-    message: error instanceof Error ? error.message : String(error),
-  } satisfies SyncWorkerMessage);
+  // Only a string crosses to the main thread, so the network-failure mapping
+  // runs here, while the error's `cause` is still attached.
+  port.postMessage({ kind: 'error', message: describeSyncFailure(error) } satisfies SyncWorkerMessage);
 } finally {
   library.close();
 }

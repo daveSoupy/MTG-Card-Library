@@ -355,6 +355,12 @@ export function CollectionPage({
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
   const [newLocation, setNewLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // A failed load, kept apart from `error` (which an action sets and the
+  // next action clears) because it decides what the page is allowed to say:
+  // while it is set, "Nothing here yet" would be a lie — nothing came back
+  // because nothing answered, not because the collection is empty.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [setStatsFailed, setSetStatsFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   // One stack per collection session, alongside the deck builder's. The
   // long-press undo on the add-by-set tiles stays as it is; this covers lot
@@ -364,11 +370,13 @@ export function CollectionPage({
   useUndoShortcuts(undoStack);
 
   const reloadLocations = useCallback(() => {
-    fetchLocations().then(setLocations).catch((e) => setError(e.message));
+    fetchLocations().then(setLocations).catch((e) => setLoadError(e.message));
   }, []);
 
   const reloadValue = useCallback(() => {
-    fetchCollectionValue().then(setValue).catch(() => undefined);
+    // Failure leaves `value` null, and the header shows no count rather than
+    // "0 cards · $0.00" for a collection it could not read.
+    fetchCollectionValue().then(setValue).catch(() => setValue(null));
   }, []);
 
   useEffect(() => {
@@ -378,7 +386,10 @@ export function CollectionPage({
   }, [reloadLocations, reloadValue]);
 
   useEffect(() => {
-    if (tab === 'sets') fetchSetCompletion().then(setSetStats).catch(() => undefined);
+    if (tab !== 'sets') return;
+    fetchSetCompletion()
+      .then((stats) => { setSetStats(stats); setSetStatsFailed(false); })
+      .catch((e) => { setSetStatsFailed(true); setLoadError(e.message); });
   }, [tab]);
 
   const reloadCards = useCallback(() => {
@@ -391,8 +402,9 @@ export function CollectionPage({
           totalCards: result.totalCards,
           totalValue: result.totalValue,
         });
+        setLoadError(null);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => { setCards([]); setLoadError(e.message); })
       .finally(() => setLoading(false));
   }, [locationFilter, query, sort]);
 
@@ -441,9 +453,9 @@ export function CollectionPage({
           ))}
         </nav>
         <div style={{ flex: 1 }} />
-        {tab !== 'wants' && tab !== 'tradelists' && (
+        {tab !== 'wants' && tab !== 'tradelists' && value && (
           <span className="count">
-            {value?.value.total_cards ?? 0} cards · {money(totalValue)}
+            {value.value.total_cards ?? 0} cards · {money(totalValue)}
             {gain != null && (
               <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>
                 {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)}
@@ -453,7 +465,8 @@ export function CollectionPage({
         )}
       </div>
 
-      {error && <div className="error" style={{ margin: 12 }}>{error}</div>}
+      {loadError && <div className="error" style={{ margin: 12 }}>{loadError}</div>}
+      {error && error !== loadError && <div className="error" style={{ margin: 12 }}>{error}</div>}
 
       {tab === 'browse' && (
         <div className="panes">
@@ -465,7 +478,7 @@ export function CollectionPage({
                 onClick={() => setLocationFilter(undefined)}
               >
                 <span>Everywhere</span>
-                <span className="count">{value?.value.total_cards ?? 0}</span>
+                <span className="count">{value ? value.value.total_cards ?? 0 : '—'}</span>
               </button>
               {locations.map((location) => (
                 <div className="loc-row" key={location.id}>
@@ -518,7 +531,11 @@ export function CollectionPage({
 
             <div className="results-head">
               <span className="count">
-                {loading ? 'Loading…' : `${totals.distinctCards} cards · ${totals.totalCards} copies · ${money(totals.totalValue)}`}
+                {loading
+                  ? 'Loading…'
+                  : loadError
+                    ? 'Not loaded'
+                    : `${totals.distinctCards} cards · ${totals.totalCards} copies · ${money(totals.totalValue)}`}
               </span>
               <CustomizeView
                 page={page}
@@ -536,7 +553,7 @@ export function CollectionPage({
               />
             </div>
 
-            {!loading && cards.length === 0 && (
+            {!loading && cards.length === 0 && !loadError && (
               <p className="empty">
                 Nothing here yet. Use <strong>Add by set</strong> to work through a binder,
                 or add cards from the Browse tab.
@@ -607,7 +624,9 @@ export function CollectionPage({
       {tab === 'sets' && (
         <div className="results">
           <h3 className="section-title">Set Completion</h3>
-          {setStats.length === 0 && <p className="empty">Add some cards to see set progress.</p>}
+          {setStats.length === 0 && !setStatsFailed && (
+            <p className="empty">Add some cards to see set progress.</p>
+          )}
           {setStats.map((s) => (
             <div className="setrow" key={s.set_code}>
               <span className="setrow-name">{s.set_name}</span>

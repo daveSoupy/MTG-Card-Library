@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   backupDownloadUrl, cancelImageDownload, collectionCsvUrl, fetchImageDownloadStatus,
-  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStorage, reopenCostPool,
+  fetchImportBatches, fetchScheduledBackups, fetchSettings, fetchStatus, fetchStorage, reopenCostPool,
   resolveCategories, restoreBackup,
   setCacheLimit, startImageDownload, takeScheduledBackup, undoImportBatch, updateSettings,
   CacheTooSmallError,
@@ -41,6 +41,11 @@ export function DataPage({
   const [importing, setImporting] = useState(false);
   const [pending, setPending] = useState<File | null>(null);
   const [report, setReport] = useState<RestoreReport | null>(null);
+  // Whether the library held card data once the restore landed. A backup
+  // carries decks and lots but no cards, so on a fresh install every deck
+  // reads as empty until a sync runs — the report has to say so, or the
+  // restore looks like it lost everything.
+  const [restoredWithoutCards, setRestoredWithoutCards] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -176,6 +181,9 @@ export function DataPage({
       if (fileInput.current) fileInput.current.value = '';
       reload();
       onCollectionChanged();
+      fetchStatus()
+        .then((status) => setRestoredWithoutCards(!status.library.hasCardData))
+        .catch(() => setRestoredWithoutCards(false));
     } catch (cause: any) {
       setError(cause.message);
     } finally {
@@ -608,7 +616,13 @@ export function DataPage({
         {report && (
           <div className="restore-report">
             <p><strong>Restored {report.totalRows} rows.</strong></p>
-            {report.pendingCardReferences > 0 && (
+            {restoredWithoutCards && (
+              <p className="hint">
+                Your decks and collection are restored; sync card data to see them.{' '}
+                <button className="btn small" onClick={onSync}>Sync now</button>
+              </p>
+            )}
+            {report.pendingCardReferences > 0 && !restoredWithoutCards && (
               <p className="hint">
                 {report.pendingCardReferences} rows refer to cards this machine has not
                 synced yet. Run a card sync and they will resolve on their own.
