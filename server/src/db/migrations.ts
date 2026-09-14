@@ -636,4 +636,25 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_assembly_items_run ON deck_assembly_items(run_id);
     `,
   },
+  {
+    version: 20,
+    description: 'Cancel open pull sheets on decks that no longer reserve',
+    sql: `
+      -- Data only, no DDL. DeckStore.update() now cancels a deck's open run
+      -- when the deck steps out of a reserving status (brew or disassembled
+      -- withdraws the claim the sheet was built against), but runs that were
+      -- already in that state before the guard existed were left open, so a
+      -- brew deck could still offer "Resume pull sheet". Same effect and same
+      -- notes text as cancelRun() at runtime, so history reads the same
+      -- whichever path cancelled the run.
+      UPDATE deck_assembly_runs
+         SET status = 'cancelled',
+             completed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+             notes = 'Cancelled automatically: deck status changed to '
+                     || (SELECT d.status FROM decks d WHERE d.id = deck_assembly_runs.deck_id)
+                     || '.'
+       WHERE status = 'open'
+         AND deck_id IN (SELECT id FROM decks WHERE status IN ('brew', 'disassembled'));
+    `,
+  },
 ];

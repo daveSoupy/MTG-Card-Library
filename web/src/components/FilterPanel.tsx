@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { FormatRecord, SetRecord } from '../api.ts';
 import { PresetBar } from './PresetBar.tsx';
 
@@ -80,6 +81,7 @@ export function FilterPanel({
   formats,
   open,
   onClose,
+  headActions,
   queryText,
   onApplyPreset,
 }: {
@@ -90,6 +92,8 @@ export function FilterPanel({
   open: boolean;
   /** Closes the panel where it is a sheet (phone widths); a no-op elsewhere. */
   onClose: () => void;
+  /** Rendered in the sheet's header beside Done — the top bar's overflow on a phone. */
+  headActions?: ReactNode;
   queryText: string;
   onApplyPreset: (filters: Filters, queryText: string) => void;
 }) {
@@ -111,7 +115,10 @@ export function FilterPanel({
       {open && (
         <div className="filters-head">
           <span className="count">Filters</span>
-          <button type="button" className="btn secondary" onClick={onClose}>Done</button>
+          <span className="filters-head-actions">
+            {headActions}
+            <button type="button" className="btn secondary" onClick={onClose}>Done</button>
+          </span>
         </div>
       )}
       <PresetBar filters={filters} queryText={queryText} onApply={onApplyPreset} />

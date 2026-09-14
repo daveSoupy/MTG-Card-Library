@@ -135,6 +135,7 @@ button { cursor: pointer; }
 
 /* Pushes the bell to the right edge on the pages without a search box. */
 .topbar-spacer { flex: 1; }
+.topbar-random { display: contents; }
 
 /* Desktop width for the sort menu; the phone media query lets it shrink. */
 .sort-select { width: 140px; }
@@ -214,6 +215,11 @@ button { cursor: pointer; }
     padding-top: 0;
   }
   .filters-head { display: flex; }
+  .filters-head-actions { display: flex; align-items: center; gap: 8px; }
+  /* Random moves off the top bar and into the sheet header at exactly the
+     width the sheet exists: on a phone it was the only thing on the bar's
+     fourth row, and the sheet is the other place its inputs live. */
+  .topbar .topbar-random { display: none; }
   /* The whole screen, the way the picker and stats panes already do it: a
      sheet that started under a three-row top bar was half a screen with the
      tab row poking out above it. */
@@ -1832,6 +1838,9 @@ input[type='number'] { width: 72px; }
   .topbar .btn.secondary { padding: 7px 11px; font-size: 12.5px; }
   .topbar .alerts-bell .btn { padding: 7px 9px; }
   .searchbox { flex-basis: 100%; }
+  /* Once the bar wraps, the chips' vertical margin sits on top of the row
+     gap and the chip row is 16px taller than its neighbours for nothing. */
+  .topbar .scope-chips { margin: 0; }
   /* The "syntax" link in the search box was a 21px target; the box is 40px
      tall, so the button can be too without growing anything. */
   .searchbox .hint { min-height: 40px; padding: 0 6px; }
