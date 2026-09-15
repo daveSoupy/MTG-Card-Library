@@ -212,7 +212,12 @@ describe('Lined-up', () => {
     expect(css).toMatch(/\.cascade-col \.deck-tile\.controls-open[^{]*\{[^}]*z-index:\s*2/);
     // The hover reveal of the controls is fenced to pointers that hover: on
     // iOS a tap's simulated hover that makes something appear costs the click.
-    expect(css).toMatch(/@media \(hover: hover\)\s*\{\s*\.deck-tile:hover \.tile-controls/);
+    // And it skips the cascade: the bar sits at the bottom of a tile, under
+    // the next card in the column, so hover showed a bar nobody could reach.
+    // In Lined-up the click is the only way to the controls.
+    expect(css).toMatch(
+      /@media \(hover: hover\)\s*\{\s*\.deck-tile:hover:not\(\.cascade-col \*\) \.tile-controls/,
+    );
   });
 
   it('shows the card on a tap where there is no hover to uncover it with', () => {
