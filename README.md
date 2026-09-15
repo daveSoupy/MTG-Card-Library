@@ -209,22 +209,57 @@ node --experimental-strip-types server/scripts/repair-claims.mjs --dry-run  # re
 
 ### How it's put together
 
-- **One server owns the data and the rules.** Deck validation, search parsing,
-  allocation maths and format rules all live in `server/`; the web client only
-  renders. That is what keeps a future phone app cheap — it hits the same
-  `/api/v1` endpoints.
+**One server owns the data and the rules.** Deck validation, search parsing,
+allocation maths and format rules all live in `server/`; the web client only
+renders what the API hands it. That's the whole architecture — and it's what
+would keep a future phone app cheap, since it would hit the same `/api/v1`
+endpoints and reimplement nothing.
+
 - `server/` — Fastify + `better-sqlite3`. Per-domain stores under `src/decks`,
-  `src/collection`, `src/trades`, `src/search`, `src/sync`, etc.
+  `src/collection`, `src/trades`, `src/search`, `src/sync`, and so on; routes
+  hold no rules, they call a store.
 - `web/` — React + Vite. One codebase, desktop and phone layouts.
 - `schema.sql` — the complete database schema for fresh installs;
-  `server/src/db/migrations.ts` upgrades existing databases and a test proves
-  the two agree.
-- `docs/CODEBASE-MAP.md` — a file-by-file map of the source, and
-  `docs/atlas/codebase-atlas.html` is the same thing as a clickable graph.
-- `phases/` — the design docs each feature was built from, kept as the record
-  of *why* things are the way they are.
-- `CLAUDE.md` — the project brief and data-model rules, written for the AI
-  assistant this was built with but a decent read for humans too.
+  `server/src/db/migrations.ts` upgrades existing databases, and a test proves
+  the two produce identical databases.
+
+### Reading the docs
+
+If you want to understand how everything connects — or change something —
+there's a set of docs written for exactly that, in the order you'd read them:
+
+1. **[`docs/CODEBASE-MAP.md`](docs/CODEBASE-MAP.md)** — start here. It opens
+   with a *"Where do I edit…?"* table: pick the thing you want to change
+   ("how buildable % is computed", "add a setting", "the Have it / Buy 4
+   chip") and it names the one file that owns it. Below that: a diagram of the
+   shape of the system, the dependency layers on each side (what imports
+   what, bottom to top), a per-file entry for every source file, and a
+   walkthrough of how a typical change flows from the schema up through a
+   store, a route, the API client and a component.
+2. **[`docs/atlas/codebase-atlas.html`](docs/atlas/codebase-atlas.html)** —
+   the same map as an interactive page. Open it in a browser straight from
+   disk; click a file and its imports and importers light up, arranged by
+   layer. A Styles tab does the same for the stylesheet.
+3. **[`docs/CSS-INDEX.md`](docs/CSS-INDEX.md)** — `web/src/styles.css` is one
+   ~3,000-line file in named sections, and the early sections accumulated the
+   shared classes. This index says which section defines each class and which
+   components use it, so you can find a rule without grepping. Generated, like
+   the atlas, by `python3 docs/atlas/build.py`.
+4. **[`CLAUDE.md`](CLAUDE.md)** — the project brief: the tech stack, the seven
+   concepts in the data model and why they're kept separate, and the
+   allocation rules (a physical card can only be in one deck at a time, and
+   the machinery that keeps that honest). It was written for the AI assistant
+   this was built with, but it's the best single page on *why* the design is
+   the way it is.
+5. **[`phases/`](phases/)** — the design doc each feature was built from,
+   numbered in build order. Each one has a *Why*, the schema and server and
+   client changes, and a *Verification* section listing what had to be true
+   before the phase was called done. Where the build diverged from the plan,
+   the doc says so rather than being rewritten — so they double as the
+   project's history.
+
+Both generated files are checked in, so nothing needs building to read them;
+rerun `build.py` after moving or renaming a source file and commit the result.
 
 ---
 
