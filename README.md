@@ -35,31 +35,93 @@ anywhere else.
 
 ---
 
+## Just want to run it?
+
+You don't need to know anything about programming for this. Four steps, about
+ten minutes, most of it waiting for downloads.
+
+**1. Install Docker Desktop** from <https://www.docker.com/products/docker-desktop/>
+and open it once so it finishes setting itself up. (Windows may ask to restart.
+You can skip creating a Docker account — close that prompt.) It's the thing
+that runs the app; you won't have to do anything else in it.
+
+**2. Get the one file the app needs.** Make a new folder somewhere sensible —
+say `mtg-library` in your Documents — and save
+[this file](https://raw.githubusercontent.com/daveSoupy/MTG-Card-Library/main/docker-compose.yml)
+into it (right-click the link → *Save Link As…*). Keep the name
+`docker-compose.yml`.
+
+**3. Open a terminal in that folder** and paste one command.
+
+- *Windows:* open the folder in File Explorer, right-click an empty spot →
+  **Open in Terminal**.
+- *Mac:* open the folder in Finder, then right-click it → **Services → New
+  Terminal at Folder**. (Or open Terminal and drag the folder onto it.)
+
+Then paste this and press Enter:
+
+```bash
+docker compose up -d
+```
+
+The first time, it downloads the app (a few hundred MB). When you get your prompt
+back, it's running.
+
+**4. Open <http://localhost:8080>** in your browser. The app asks to download
+the card database on its first run — click through with the default option and
+give it about half a minute.
+
+That's it. It keeps running in the background and comes back by itself when
+you restart your computer. Docker Desktop's window shows it as `mtg-library`
+with a stop/start button if you ever want to pause it.
+
+**Is it working?** If the browser page doesn't load, run this in the same
+terminal and include the output when you tell me:
+
+```bash
+docker compose logs --tail=50
+```
+
+**Updating later** — same folder, same terminal:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+**Your data** (collection, decks, trades) is kept by Docker and survives
+updates and restarts. What deletes it is `docker compose down -v` — the `-v`
+is the dangerous part — or removing the volume in Docker Desktop. Backups are
+covered [below](#backups).
+
+---
+
 ## Running it
 
-You need one of:
+The section above is the whole story if you're happy with Docker. The rest of
+this README is for people who'd rather run it under Node, host it as a
+service, reach it from a phone, or work on the code.
 
-- **Docker** (Docker Desktop, or Docker Engine on a Linux box / NAS) — the
-  easiest path, or
-- **Node.js 22.6 or newer** to run it directly (`node --version`).
+### Option A — Docker
 
-Either way the first run downloads the card database from Scryfall (≈80 MB), which
-takes about 20 seconds to import. After that, everything is local.
-
-### Option A — Docker (recommended)
+The [`docker-compose.yml`](docker-compose.yml) pulls a ready-made image from
+GitHub Container Registry, built for both Intel/AMD and ARM (Apple Silicon,
+Raspberry Pi, most NAS boxes). `latest` is the most recent tagged release;
+`edge` is whatever's on `main`.
 
 ```bash
 git clone https://github.com/daveSoupy/MTG-Card-Library.git
 cd MTG-Card-Library
-docker compose up -d --build
+docker compose up -d
 ```
 
-Then open <http://localhost:8080>. The first build takes a few minutes (it
-compiles the app inside the image); subsequent starts are instant.
+To build the image yourself instead — you've changed the code, or don't want
+to trust a prebuilt image — build it under the same name and Compose will use
+the local copy:
 
-Your data is kept in a Docker volume called `mtg-data`. If you would rather have
-it in a folder you can see, uncomment the bind-mount lines in
-[`docker-compose.yml`](docker-compose.yml).
+```bash
+docker build -t ghcr.io/davesoupy/mtg-card-library:latest .
+docker compose up -d
+```
 
 Useful commands:
 
@@ -68,16 +130,12 @@ docker compose logs -f          # watch the server log
 docker compose restart          # restart the app
 docker compose down             # stop it (your data stays in the volume)
 docker compose down -v          # stop it AND delete the volume — this erases your data
-```
-
-To update after pulling new commits:
-
-```bash
-git pull
-docker compose up -d --build
+docker compose pull && docker compose up -d   # update to the latest release
 ```
 
 ### Option B — Node directly
+
+Needs **Node.js 22.6 or newer** (`node --version`).
 
 ```bash
 git clone https://github.com/daveSoupy/MTG-Card-Library.git
@@ -249,6 +307,19 @@ endpoints and reimplement nothing.
 - `schema.sql` — the complete database schema for fresh installs;
   `server/src/db/migrations.ts` upgrades existing databases, and a test proves
   the two produce identical databases.
+
+### Publishing the Docker image
+
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml) builds the image
+on GitHub's runners — natively on both amd64 and arm64, then merged into one
+multi-arch tag — and pushes it to `ghcr.io/davesoupy/mtg-card-library`. A push
+to `main` publishes `edge`; a tag like `v1.2.0` publishes `1.2.0`, `1.2` and
+moves `latest`. So cutting a release that friends will get on their next
+`docker compose pull` is:
+
+```bash
+git tag v1.2.0 && git push origin v1.2.0
+```
 
 ### Reading the docs
 
