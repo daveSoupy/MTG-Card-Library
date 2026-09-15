@@ -388,6 +388,20 @@ export function DeckPanes({
     };
   }, [coverPrintingId, deck.cards, deck.name]);
 
+  // The type-chip strip scrolls sideways on a phone, so a chip pressed from
+  // the box (`t:land` typed, or a query restored) can sit off the edge; bring
+  // it in. Only when the strip actually scrolls — at desktop widths it wraps
+  // and scrollIntoView would have nothing to do but nudge the column.
+  const typeChips = useRef<HTMLDivElement>(null);
+  const activeType = typeOf(query);
+  useEffect(() => {
+    const strip = typeChips.current;
+    if (!strip || strip.scrollWidth <= strip.clientWidth) return;
+    // Optional chaining: jsdom has no scrollIntoView.
+    strip.querySelector<HTMLElement>('[aria-pressed="true"]')
+      ?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+  }, [activeType]);
+
   // The card's details — oracle text, printings, prices, who holds it — as
   // the overlay Browse uses on narrow screens, opened from a preview.
   const [detailFor, setDetailFor] = useState<string | null>(null);
@@ -789,6 +803,32 @@ export function DeckPanes({
           >
             H
           </button>
+        </div>
+
+        {/* Scope chips. They write their term into the box above, so what the
+            chip does is visible and editable — and so the chip can only add to
+            the picker's identity and legality filters, never replace them.
+            Filters shares this row (right-aligned) rather than the colour
+            row, where eight chips left it wrapping onto a line of its own on
+            a phone — but it sits beside the group, not in it, since it is not
+            a scope and must not be announced as one. */}
+        <div className="picker-scope-row">
+          <div className="scope-chips" role="group" aria-label="Collection scope">
+            {SCOPES.map((scope) => (
+              <button
+                key={scope}
+                type="button"
+                className="pill"
+                aria-pressed={scopeOf(query) === scope}
+                title={scope === 'available'
+                  ? 'Copies free to build with — this deck\u2019s own claim does not count'
+                  : SCOPE_HINT[scope]}
+                onClick={() => setQuery(withScope(query, scope))}
+              >
+                {SCOPE_LABEL[scope]}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="btn secondary small picker-filters-btn"
@@ -800,28 +840,10 @@ export function DeckPanes({
             Filters{activeFilterCount > 0 && ` · ${activeFilterCount}`}
           </button>
         </div>
-
-        {/* Scope chips. They write their term into the box above, so what the
-            chip does is visible and editable — and so the chip can only add to
-            the picker's identity and legality filters, never replace them. */}
-        <div className="scope-chips" role="group" aria-label="Collection scope">
-          {SCOPES.map((scope) => (
-            <button
-              key={scope}
-              type="button"
-              className="pill"
-              aria-pressed={scopeOf(query) === scope}
-              title={scope === 'available'
-                ? 'Copies free to build with — this deck\u2019s own claim does not count'
-                : SCOPE_HINT[scope]}
-              onClick={() => setQuery(withScope(query, scope))}
-            >
-              {SCOPE_LABEL[scope]}
-            </button>
-          ))}
-        </div>
-        {/* Card-type chips, the same way: `t:creature` goes into the box. */}
-        <div className="scope-chips picker-type-chips" role="group" aria-label="Card type">
+        {/* Card-type chips, the same way: `t:creature` goes into the box. One
+            scrolling strip on a phone (the CSS), so the pressed chip may sit
+            off the edge — the effect above brings it back into view. */}
+        <div className="scope-chips picker-type-chips" role="group" aria-label="Card type" ref={typeChips}>
           {PICKER_TYPES.map((type) => {
             const on = typeOf(query) === type;
             return (
@@ -838,7 +860,7 @@ export function DeckPanes({
           })}
         </div>
         {deck.formatCode && (
-          <p className="note">
+          <p className={limitedFormat ? 'note' : 'note picker-legal-note'}>
             {limitedFormat
               // Limited has no legality list to filter by, and adding a card
               // here is also an acquisition — say so before it happens rather
@@ -901,17 +923,17 @@ export function DeckPanes({
                 onSort={setPickerSort}
                 sortOptions={PICKER_SORTS}
               />
-            </div>
-
-            {results.length > 0 && (
-              <div className="picker-results-head">
-                <span className="count">
+              {/* How many matched, on the View line rather than one of its
+                  own: every line above the first result is a line a thumb
+                  scrolls past. */}
+              {results.length > 0 && (
+                <span className="count picker-results-count">
                   {hasMore
                     ? `${results.length.toLocaleString()} of ${resultsTotal.toLocaleString()}`
                     : `${results.length.toLocaleString()} card${results.length === 1 ? '' : 's'}`}
                 </span>
-              </div>
-            )}
+              )}
+            </div>
 
             <div
               className="picker-results"

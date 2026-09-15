@@ -399,7 +399,9 @@ export function saveSortPreference(sort: DeckSort): void {
  */
 export const PANE_MIN = 220;
 export const PANE_MAX = 640;
-export const DEFAULT_PANE_WIDTHS = { picker: 300, stats: 300 };
+/* 340 for the picker: at 300 its seven type chips wrapped onto three rows.
+   Only a fresh install or a never-dragged divider sees this. */
+export const DEFAULT_PANE_WIDTHS = { picker: 340, stats: 300 };
 
 const PANE_KEY: Record<keyof typeof DEFAULT_PANE_WIDTHS, string> = {
   picker: 'mtg.deck.pickerWidth',
