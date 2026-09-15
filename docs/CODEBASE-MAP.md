@@ -6,7 +6,7 @@ A file-by-file guide to the repo: what each file does, what it imports, what imp
 
 Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 shipped, `PRAGMA user_version = 19`).
 
-**Interactive version:** `docs/atlas/codebase-atlas.html` — the same graph as a clickable layered map (select a file → its imports and importers light up). Rebuild it with `python3 docs/atlas/build.py` after files move; the live copy is https://claude.ai/artifact/N9RBn22L9gnfhJBtixrKLg.
+**Interactive version:** `docs/atlas/codebase-atlas.html` — the same graph as a clickable layered map (select a file → its imports and importers light up). Its Styles tab and `docs/CSS-INDEX.md` come from the same build. Rebuild with `python3 docs/atlas/build.py` after files move; the live copy is https://claude.ai/artifact/N9RBn22L9gnfhJBtixrKLg.
 
 ---
 
@@ -69,7 +69,7 @@ Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 
 | **Web:** undo/redo | `web/src/undo.ts` (stack), `deckHistory.ts` (deck snapshots), `UndoToast.tsx`, `UndoRedo.tsx` | |
 | **Web:** trades / wants / trade-lists phone views | `TradesPage.tsx`, `WantListsPage.tsx`, `TradeListsPage.tsx` | |
 | **Web:** backups, imports, storage, theme, settings UI | `web/src/components/DataPage.tsx` | |
-| **Web:** all styling | `web/src/styles.css` | One file, 3,000 lines, `/* ---------- section ---------- */` headers. Grep the section name. |
+| **Web:** all styling | `web/src/styles.css` | One file, 3,000 lines, `/* ---------- section ---------- */` headers. **Look the class up in `docs/CSS-INDEX.md` first** — the early sections ("results", "sync") hold the shared classes and their names don't say so. |
 | **Web:** breakpoints / touch detection | `web/src/viewport.ts` | Mirrors the px values in `styles.css`. |
 
 ---
@@ -265,7 +265,7 @@ main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPag
 | `App.tsx` | The shell: topbar, nav tabs, route → view switch, global settings load, density/theme init, `SyncGate` wrapper, browse view (search + `FilterPanel` + results + `CardDetailPane`), `AlertsBell`. Route names: `collection` (with tab), `decks`, `deck/:id`, `browse`, `trades`, `games`, `data`. | `api`, `router`, `deckView`, `density`, `ownedBadge`, `searchScope`, `theme`, and the page components | `main` |
 | `api.ts` | **The HTTP client and every shared type** (`CardSummary`, `Deck`, `DeckCard`, `BuildabilityDetail`, `AssemblySheet`, `ContestedCard`, `CollectionCard`, `Trade`, `WantList`, `Alert`, `AppSettings`, …). One exported function per endpoint. `ApiError`, `isConnectivityError`, `imageUrl`, `subscribeToSync` (SSE). | — | Everything |
 | `router.ts` | `Route` union, `parseRoute` / `formatRoute` (pure, round-trip), `readRoute` / `pushRoute` / `replaceRoute` / `onRouteChange` (window). | — | `App`, `CollectionPage` |
-| `styles.css` | All CSS. Sections are `/* ---------- name ---------- */`; grep for the feature. Breakpoints (760px etc.) are mirrored in `viewport.ts`. | | |
+| `styles.css` | All CSS. Sections are `/* ---------- name ---------- */`. `docs/CSS-INDEX.md` (generated) maps every class → section + line → components using it. Breakpoints (760px etc.) are mirrored in `viewport.ts`. | | |
 
 ### Presentation helpers (pure `.ts`, `node --test`-tested)
 

@@ -9,6 +9,10 @@ have none), resolves its relative imports, assigns it a layer, and injects the
 result into template.html. Run it after adding, moving, or renaming a file;
 commit the rebuilt page alongside. The "Where do I edit" list is TASKS below.
 
+Also writes docs/CSS-INDEX.md and the atlas's Styles tab: styles.css has no
+imports, so its "graph" is class names matched between the stylesheet and the
+components, computed here (class -> section + line -> components using it).
+
 The built page is shaped for publishing as a Claude artifact (no doctype/head/
 body of its own — the publisher adds them); browsers also open it straight from
 disk. The live copy is https://claude.ai/artifact/N9RBn22L9gnfhJBtixrKLg —
@@ -160,11 +164,125 @@ TASKS = [
  ("Undo / redo", "web/src/undo.ts"),
  ("All styling", "web/src/styles.css"),
 ]
+
+# -- styles.css: sections, classes, and which components use them --------------
+import collections
+CSS = 'web/src/styles.css'
+css_lines = open(CSS).read().splitlines()
+sections = []  # (name, start line)
+for i, l in enumerate(css_lines, 1):
+    m = re.match(r'/\* -{5,} (.+?)(?: -{3,}.*)?\s*(?:\*/)?\s*$', l)
+    if m: sections.append((m.group(1).strip(), i))
+def section_at(line):
+    name, start = '(top of file)', 1
+    for n, i in sections:
+        if i <= line: name, start = n, i
+    return name
+cls_def = {}  # class -> (section, line)
+leading = collections.defaultdict(collections.Counter)  # class -> section -> leading-selector count
+first_line = {}
+for i, l in enumerate(css_lines, 1):
+    if l.strip().startswith(('/*', '*')): continue
+    sel = l.split('{')[0]
+    # The defining section is the one where the class *leads* a selector most often
+    # (".x", ".x:hover", ".x > .y"). A mention deeper in another rule
+    # (".deck-builder .x"), or a lone "display: none" in another section's media
+    # query, is a cross-reference and must not claim it.
+    for c in re.findall(r'(?:^|,)\s*\.([a-zA-Z][\w-]*)', sel):
+        leading[c][section_at(i)] += 1
+        first_line.setdefault((c, section_at(i)), i)
+    for c in re.findall(r'\.([a-zA-Z][\w-]*)', sel):
+        first_line.setdefault((c, None), (section_at(i), i))
+# Prefer the biggest bare block: a `.x {` at column zero (so not inside a media
+# query) whose declarations run the most lines. Eight one-line
+# `.deck-row[data-identity=…]` variants in a later section must not out-vote
+# the ten-line layout rule that actually defines the row.
+biggest = {}  # class -> (block lines, section, line)
+for i, l in enumerate(css_lines, 1):
+    m = re.match(r'\.([a-zA-Z][\w-]*)\s*\{', l)
+    if not m: continue
+    depth, j = 0, i - 1
+    while j < len(css_lines):
+        depth += css_lines[j].count('{') - css_lines[j].count('}')
+        if depth <= 0: break
+        j += 1
+    size = j - i + 2
+    c = m.group(1)
+    if c not in biggest or size > biggest[c][0]: biggest[c] = (size, section_at(i), i)
+for c, (_, sec, line) in biggest.items(): cls_def[c] = (sec, line)
+for c, secs in leading.items():
+    if c in cls_def: continue
+    sec = secs.most_common(1)[0][0]
+    cls_def[c] = (sec, first_line[(c, sec)])
+for (c, sec), v in first_line.items():
+    if sec is None and c not in cls_def: cls_def[c] = v
+cls_use = collections.defaultdict(set)  # class -> component basenames
+for f in glob.glob('web/src/**/*.tsx', recursive=True):
+    if '.test.' in f: continue
+    src = open(f).read(); base = os.path.basename(f)
+    # Class names live in string and template literals. Strip ${...} expressions
+    # first (repeatedly, for the nested ones) so `deck-row${problem ? ` ${problem}` : ''}`
+    # collapses to `deck-row` and its tokens can be read like any other literal.
+    flat = src
+    while True:
+        nxt = re.sub(r'\$\{[^{}]*\}', ' ', flat)
+        if nxt == flat: break
+        flat = nxt
+    for lit in re.findall(r'"[^"\n]*"|\'[^\'\n]*\'|`[^`]*`', flat):
+        for c in re.findall(r'[a-zA-Z][\w-]*', lit):
+            if c in cls_def: cls_use[c].add(base)
+sec_classes = collections.defaultdict(list)
+for c, (sec, line) in cls_def.items(): sec_classes[sec].append(c)
+sec_comps = collections.defaultdict(collections.Counter)
+for c, comps in cls_use.items():
+    for b in comps: sec_comps[cls_def[c][0]][b] += 1
+unreferenced = sorted(c for c in cls_def if c not in cls_use)
+sec_end = {n: (sections[k+1][1]-1 if k+1 < len(sections) else len(css_lines)) for k, (n, _) in enumerate(sections)}
+
+# atlas nodes for the Styles tab: a section is a node; a component "imports" the sections it uses
+comp_secs = collections.defaultdict(set)
+for sec, cnt in sec_comps.items():
+    for b in cnt: comp_secs[b].add(sec)
+for name, start in sections:
+    cls = sorted(sec_classes.get(name, []))
+    nodes['css:'+name] = dict(id='css:'+name, side='styles', layer='sections', group='styles.css', lines=sec_end[name]-start+1,
+        blurb=f'styles.css lines {start}–{sec_end[name]} · {len(cls)} classes · used by {len(sec_comps.get(name, {}))} components.',
+        classes=cls, imports=[], test=False, line=start)
+for b, secs in sorted(comp_secs.items()):
+    nodes['use:'+b] = dict(id='use:'+b, side='styles', layer='components', group='components', lines=0,
+        blurb=f'Uses classes from {len(secs)} sections of styles.css.', imports=sorted('css:'+x for x in secs), test=False)
+
+# CSS-INDEX.md
+md = ['# CSS Index', '',
+      'Generated by `docs/atlas/build.py` — do not edit by hand. `web/src/styles.css` is one file with `/* ---------- section ---------- */` headers; '
+      'this index says which section defines a class and which components use it, because several early sections ("results", "sync") '
+      'accumulated the generic classes everyone shares and their names no longer say where a rule lives.', '',
+      f'{len(cls_def)} classes · {len(sections)} sections · {len(unreferenced)} classes with no literal reference in any component.', '',
+      'Usage is read from string and template literals in the components, so a single-word class (`.card`, `.active`, `.error`) can over-match where the same word is used as a plain string; hyphenated names are reliable.', '',
+      '## Sections', '', '| Section | Lines | Classes | Used by |', '|---|---|---|---|']
+for name, start in sections:
+    cnt = sec_comps.get(name, collections.Counter())
+    top = ', '.join(f'`{b}`' for b, _ in cnt.most_common(6)) + (f' … +{len(cnt)-6}' if len(cnt) > 6 else '')
+    md.append(f'| {name} | {start}–{sec_end[name]} | {len(sec_classes.get(name, []))} | {top or "—"} |')
+md += ['', '## Components → sections', '', '| Component | Sections it uses |', '|---|---|']
+for b, secs in sorted(comp_secs.items()):
+    md.append(f'| `{b}` | {", ".join(sorted(secs))} |')
+md += ['', '## Classes', '', 'Line is where the class first appears as a selector.', '', '| Class | Section | Line | Used by |', '|---|---|---|---|']
+for c in sorted(cls_def):
+    sec, line = cls_def[c]
+    md.append(f'| `.{c}` | {sec} | {line} | {", ".join(f"`{b}`" for b in sorted(cls_use.get(c, []))) or "—"} |')
+md += ['', '## No literal reference in any component', '',
+       'Either applied through a computed string (`className={`tile-${state}`}`), targeted by a selector that needs no class on the element, or dead. Check before deleting.', '',
+       ', '.join(f'`.{c}`' for c in unreferenced), '']
+open(os.path.join(ROOT, 'docs', 'CSS-INDEX.md'), 'w').write('\n'.join(md))
+print(len(cls_def), 'classes', len(sections), 'sections', len(unreferenced), 'unreferenced')
+
 out = dict(nodes=list(nodes.values()), tasks=[dict(label=a, id=b) for a,b in TASKS])
 html = open(os.path.join(HERE, 'template.html')).read()
 assert '/*__DATA__*/' in html
 html = html.replace('/*__DATA__*/', json.dumps(out, separators=(',', ':')))
-html = html.replace('143 source files · 408 import edges', f"{len(nodes)} source files · {sum(len(n['imports']) for n in nodes.values())} import edges")
+src_nodes = [n for n in nodes.values() if n['side'] != 'styles']
+html = html.replace('143 source files · 408 import edges', f"{len(src_nodes)} source files · {sum(len(n['imports']) for n in src_nodes)} import edges")
 html = html.replace('computed from the tree on 2026-09-15', 'computed from the tree on ' + __import__('datetime').date.today().isoformat())
 open(os.path.join(HERE, 'codebase-atlas.html'), 'w').write(html)
 print(len(nodes), 'nodes', sum(len(n['imports']) for n in nodes.values()), 'edges')

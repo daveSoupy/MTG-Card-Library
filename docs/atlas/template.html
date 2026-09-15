@@ -98,6 +98,7 @@ select { max-width: 340px; }
 .detail li .link { font: 12px var(--mono); color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: pointer; text-align: left; }
 .detail li .link:hover { text-decoration: underline; }
 .detail .empty { font-size: 12px; color: var(--ink-3); }
+.detail .classes { font: 11.5px/1.7 var(--mono); color: var(--ink-2); margin: 0 0 10px; word-break: break-word; }
 .detail .hint { font-size: 12.5px; color: var(--ink-2); max-width: 40ch; }
 .detail .hint p { margin: 0 0 8px; }
 .detail .hint kbd { font: 11px var(--mono); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 4px; }
@@ -110,13 +111,14 @@ select { max-width: 340px; }
 <div class="wrap">
   <header>
     <h1>MTG Library Codebase Atlas</h1>
-    <div class="sub">143 source files · 408 import edges · computed from the tree on 2026-09-15 · full text in <code>docs/CODEBASE-MAP.md</code></div>
+    <div class="sub">143 source files · 408 import edges · computed from the tree on 2026-09-15 · full text in <code>docs/CODEBASE-MAP.md</code> and <code>docs/CSS-INDEX.md</code></div>
   </header>
 
   <div class="toolbar">
     <div class="tabs" role="tablist">
       <button id="tab-server" role="tab" aria-selected="true" data-side="server">Server · server/src</button>
       <button id="tab-web" role="tab" aria-selected="false" data-side="web">Web · web/src</button>
+      <button id="tab-styles" role="tab" aria-selected="false" data-side="styles">Styles · styles.css</button>
     </div>
     <select id="task" aria-label="Where do I edit…">
       <option value="">Where do I edit…</option>
@@ -154,13 +156,18 @@ const LAYERS = {
     ['helpers',    'Presentation helpers', 'pure .ts — they choose words for server figures and derive none'],
     ['data',       'API client',   'the only file that calls fetch(); every shared type lives here'],
   ],
+  styles: [
+    ['sections',   'Sections of styles.css', 'in file order — a section is a /* ---------- header ---------- */ block; "results" and "sync" hold the shared classes'],
+    ['components', 'Components',   'click one to see which sections its class names come from'],
+  ],
 };
 const HUBS = new Set(['server/src/decks/allocation.ts', 'web/src/api.ts']);
+const webFileFor = useId => DATA.nodes.find(n => n.side === 'web' && n.id.endsWith('/' + useId.slice(4)))?.id;
 const byId = Object.fromEntries(DATA.nodes.map(n => [n.id, n]));
 const importers = {};
 for (const n of DATA.nodes) for (const t of n.imports) (importers[t] ||= []).push(n.id);
 
-const short = id => id.replace(/^server\/src\//, '').replace(/^web\/src\//, '').replace(/^components\//, '');
+const short = id => id.replace(/^(css|use):/, '').replace(/^server\/src\//, '').replace(/^web\/src\//, '').replace(/^components\//, '');
 let side = 'server', selected = null;
 
 const bandsEl = document.getElementById('bands');
@@ -172,7 +179,7 @@ function render() {
   bandsEl.innerHTML = '';
   const layers = LAYERS[side];
   layers.forEach(([key, title, note], i) => {
-    const nodes = DATA.nodes.filter(n => n.side === (key === 'data' && side === 'server' ? n.side : side) && n.layer === key && (side === 'server' ? n.side === 'server' || n.id === 'schema.sql' : n.side === 'web'));
+    const nodes = DATA.nodes.filter(n => n.side === side && n.layer === key);
     if (!nodes.length) return;
     const band = document.createElement('section');
     band.className = 'band';
@@ -182,9 +189,9 @@ function render() {
     const gwrap = document.createElement('div'); gwrap.className = 'groups';
     for (const [g, ns] of Object.entries(groups)) {
       const gel = document.createElement('div'); gel.className = 'group';
-      if (Object.keys(groups).length > 1 || g !== key) gel.innerHTML = `<div class="group-label">${g}/</div>`;
+      if (side !== 'styles' && (Object.keys(groups).length > 1 || g !== key)) gel.innerHTML = `<div class="group-label">${g}/</div>`;
       const chips = document.createElement('div'); chips.className = 'chips';
-      for (const n of ns.sort((a, b) => short(a.id).localeCompare(short(b.id)))) {
+      for (const n of ns.sort((a, b) => a.line != null && b.line != null ? a.line - b.line : short(a.id).localeCompare(short(b.id)))) {
         const b = document.createElement('button');
         b.className = 'chip' + (HUBS.has(n.id) ? ' hub' : '');
         b.dataset.id = n.id; b.textContent = short(n.id).replace(/^[a-z]+\//, '');
@@ -205,7 +212,7 @@ function chipFor(id) { return bandsEl.querySelector(`.chip[data-id="${CSS.escape
 
 function select(id) {
   selected = id;
-  if (id && byId[id].side !== side && id !== 'schema.sql') { setSide(byId[id].side); return; }
+  if (id && byId[id].side !== side) { setSide(byId[id].side); return; }
   applySelection();
   if (id) { const c = chipFor(id); c && c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
 }
@@ -259,13 +266,15 @@ function renderDetail(n) {
     return `<h3 class="${cls}">${title} <span class="n">${arr.length}</span></h3>` +
       (arr.length ? `<ul>${arr.map(i => `<li><button class="link" data-go="${i}">${short(i)}</button></li>`).join('')}</ul>` : `<div class="empty">none</div>`);
   };
-  const layerName = (LAYERS[n.side === 'web' ? 'web' : 'server'].find(l => l[0] === n.layer) || [])[1] || n.layer;
+  const layerName = (LAYERS[n.side].find(l => l[0] === n.layer) || [])[1] || n.layer;
   detail.innerHTML = `
     <p class="path">${n.id}</p>
-    <div class="meta"><span class="layer">${layerName}</span><span>${n.lines.toLocaleString()} lines</span>${n.test ? '<span class="stat">test</span>' : ''}${HUBS.has(n.id) ? '<span class="stat hub">hub</span>' : ''}</div>
+    <div class="meta"><span class="layer">${layerName}</span>${n.lines ? `<span>${n.lines.toLocaleString()} lines</span>` : ''}${n.line ? `<span>from line ${n.line}</span>` : ''}${n.test ? '<span class="stat">test</span>' : ''}${HUBS.has(n.id) ? '<span class="stat hub">hub</span>' : ''}</div>
     <p class="blurb">${n.blurb || ''}</p>
-    ${list(n.imports, 'ti', 'Imports')}
-    ${list(importers[n.id], 'to', 'Imported by')}
+    ${n.classes ? `<h3>Classes <span class="n">${n.classes.length}</span></h3><p class="classes">${n.classes.map(c => '.' + c).join(' ')}</p>` : ''}
+    ${n.id.startsWith('use:') && webFileFor(n.id) ? `<p class="blurb"><button class="link" data-go="${webFileFor(n.id)}">→ open ${short(webFileFor(n.id))} on the Web tab</button></p>` : ''}
+    ${list(n.imports, 'ti', n.side === 'styles' ? 'Uses sections' : 'Imports')}
+    ${list(importers[n.id], 'to', n.side === 'styles' ? 'Used by' : 'Imported by')}
     <button class="clear" id="clear">Clear selection</button>`;
   detail.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => select(b.dataset.go)));
   document.getElementById('clear').addEventListener('click', () => select(null));
