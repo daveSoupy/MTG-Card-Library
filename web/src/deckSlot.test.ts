@@ -43,7 +43,7 @@ test('an exempt basic land says only that it is one', () => {
 
 test('a card you do not own says how many to buy', () => {
   const action = slotAction(card({ quantity: 3 }), row({ required: 3, missing: 3 }))!;
-  assert.equal(action.label, 'Buy 3');
+  assert.equal(action.label, 'Need 3');
   assert.equal(action.kind, 'buy');
   assert.match(action.title, /You do not own this one/);
 });
@@ -53,7 +53,7 @@ test('a partly covered slot counts only the shortfall', () => {
     card({ quantity: 4 }),
     row({ required: 4, owned: 1, available: 1, covered: 1, missing: 3 }),
   )!;
-  assert.equal(action.label, 'Buy 3 of 4');
+  assert.equal(action.label, 'Need 3 of 4');
   assert.match(action.title, /You own 1 copy/);
 });
 
@@ -99,7 +99,7 @@ test('a copy promised on a trade list is named rather than silently missing', ()
   const action = slotAction(card(), row({
     owned: 1, available: 0, tradeListed: 1, covered: 0, missing: 1,
   }))!;
-  assert.equal(action.label, 'Buy 1');
+  assert.equal(action.label, 'Need 1');
   assert.match(action.title, /1 promised on a trade list/,
     'otherwise "buy one" on a card in your binder looks like a bug');
 });
@@ -120,7 +120,7 @@ test('the claim is never mentioned, whatever it happens to be', () => {
     card({ quantityFromCollection: 1, ownedQuantity: 0 }),
     row({ owned: 0, missing: 1 }),
   )!;
-  assert.equal(action.label, 'Buy 1');
+  assert.equal(action.label, 'Need 1');
   assert.doesNotMatch(action.label, /owned/);
   assert.doesNotMatch(action.title, /claim/);
 });

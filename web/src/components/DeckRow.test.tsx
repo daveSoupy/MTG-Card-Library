@@ -99,11 +99,11 @@ describe('DeckRow', () => {
 
   // Phase 27. The chip is a label until a host offers a way to act on it;
   // then a "Buy" is also the door to what you already own.
-  it('a Buy chip is a button only when a swap is offered, and never for a card you have', () => {
+  it('a Need chip is a button only when a swap is offered, and never for a card you have', () => {
     const onSwap = vi.fn();
     const { container, unmount } = row({}, vi.fn(), { coverage: short, onSwap });
     const chip = container.querySelector('button.slot-chip')!;
-    expect(chip?.textContent).toBe('Buy 1');
+    expect(chip?.textContent).toBe('Need 1');
     expect(chip.getAttribute('title')).toContain('swap for something you own');
     fireEvent.click(chip);
     expect(onSwap).toHaveBeenCalledTimes(1);
@@ -111,7 +111,7 @@ describe('DeckRow', () => {
 
     const plain = row({}, vi.fn(), { coverage: short });
     expect(plain.container.querySelector('button.slot-chip')).toBeNull();
-    expect(plain.container.querySelector('span.slot-chip')?.textContent).toBe('Buy 1');
+    expect(plain.container.querySelector('span.slot-chip')?.textContent).toBe('Need 1');
     plain.unmount();
 
     const have = row({}, vi.fn(), {

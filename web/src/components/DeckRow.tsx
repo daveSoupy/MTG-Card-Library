@@ -77,7 +77,7 @@ export function DeckRow({
           shift every column after it. Empty while the deck's figures load: a
           blank cell for a moment beats a wrong one. */}
       <div className="slot-alloc">
-        {/* A chip you cannot act on is a label; one that says "Buy 2" is also
+        {/* A chip you cannot act on is a label; one that says "Need 2" is also
             the way in to what you already own that would do instead. */}
         {action && (onSwap && canSwap(action) ? (
           <button

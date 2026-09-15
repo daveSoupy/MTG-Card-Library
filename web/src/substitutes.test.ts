@@ -118,7 +118,7 @@ test('the reason line is the server\'s phrases joined, and the badge counts free
 
 // -- the chip ----------------------------------------------------------------------
 
-test('only a Buy or held chip opens the sheet', () => {
+test('only a Need or held chip opens the sheet', () => {
   const card = { allocationTracked: true, quantity: 1 } as DeckCard;
   const row = (over: object) => ({
     required: 1, owned: 0, available: 0, tradeListed: 0, proxied: 0, covered: 0, missing: 1,
