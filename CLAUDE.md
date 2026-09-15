@@ -21,7 +21,7 @@ Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete sc
 ## Repo Layout
 
 - `CLAUDE.md` — this file, project root, auto-loaded every session.
-- `docs/CODEBASE-MAP.md` — **read this before searching for a file.** File-by-file map of `server/src` and `web/src`: what each does, what imports it, and a "where do I edit X" table at the top. Update its entry whenever you add, rename, or move a source file, and rerun `python3 docs/atlas/build.py` to regenerate the interactive map.
+- `docs/CODEBASE-MAP.md` — **read this before searching for a file.** File-by-file map of `server/src` and `web/src`. Read its first section (the "where do I edit" table, ~80 lines) before any grep or find; read the per-file sections only if the table did not answer. Update its entry whenever you add, rename, or move a source file, and rerun `python3 docs/atlas/build.py` to regenerate the interactive map.
 - `schema.sql` — the complete SQLite schema, source of truth for fresh installs. Loaded verbatim at bootstrap. `server/src/db/migrations.ts` carries the upgrade path for existing databases; `migrations.test.ts` keeps the two in agreement.
 - `server/` — Fastify API. `src/db`, `src/sync`, `src/search`, `src/routes`, `src/model`, plus per-domain stores (`src/collection`, `src/decks`, `src/trades`, `src/tradelists`, `src/porting`, `src/pricing`).
 - `server/scripts/` — `check-sqlite.mjs` (verify the SQLite build has FTS5 and trigram — run after any `npm rebuild`), `sync.mjs`, `search-check.mjs`.
