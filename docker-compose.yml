@@ -1,6 +1,18 @@
+# MTG Library — https://github.com/daveSoupy/MTG-Card-Library
+#
+# This file is all you need. Put it in a folder, open a terminal there, and run:
+#
+#     docker compose up -d
+#
+# then open http://localhost:8080 in your browser.
+
 services:
   mtg-library:
-    build: .
+    # Built and published by GitHub Actions for both Intel/AMD and ARM
+    # (Apple Silicon, Raspberry Pi). To build it yourself instead, run
+    #   docker build -t ghcr.io/davesoupy/mtg-card-library:latest .
+    # from a checkout and the local image is used until you next `pull`.
+    image: ghcr.io/davesoupy/mtg-card-library:latest
     container_name: mtg-library
     restart: unless-stopped
     ports:
@@ -10,9 +22,9 @@ services:
       # Everything worth keeping (your collection, decks, trades, backups) is
       # in this volume. Card data and images re-download from Scryfall.
       - mtg-data:/data
-    # Uncomment to keep the data in a folder you can see instead of a named
-    # volume. The folder must be writable by uid 1000 (the container's user):
-    #   mkdir -p ./data && sudo chown 1000:1000 ./data
+    # Prefer a folder you can see? Comment out the two volume lines above and
+    # below, and use this instead. On Linux the folder must be writable by
+    # uid 1000:   mkdir -p ./data && sudo chown 1000:1000 ./data
     # volumes:
     #   - ./data:/data
     environment:
