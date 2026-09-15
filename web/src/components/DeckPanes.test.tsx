@@ -593,6 +593,68 @@ describe('DeckPanes picker rows', () => {
     fireEvent.click(screen.getByTitle('U'));
     expect(setFilters).toHaveBeenCalledWith(expect.objectContaining({ colors: ['R', 'U'] }));
   });
+
+  it('Filters sits on the scope-chip row, beside the group rather than in it', () => {
+    renderPicker({});
+    const filters = screen.getByRole('button', { name: 'Filters' });
+    const scopes = screen.getByRole('group', { name: 'Collection scope' });
+    // Same row: one wrapper holds both…
+    expect(filters.parentElement).toBe(scopes.parentElement);
+    expect(filters.parentElement).toHaveClass('picker-scope-row');
+    // …but the button is not a scope, so it is not announced as one.
+    expect(scopes.contains(filters)).toBe(false);
+    // And it has left the colour row it used to end.
+    expect(screen.getByTitle('U').parentElement?.contains(filters)).toBe(false);
+  });
+
+  it('the match count shares the View line', () => {
+    renderPicker({ results: [solRing, arcaneSignet], resultsTotal: 50 });
+    const count = screen.getAllByText('2 of 50')[0];
+    const view = screen.getByRole('button', { name: 'View' });
+    expect(count.parentElement).toBe(view.closest('.picker-customize'));
+  });
+
+  it('scrolls the pressed type chip into view when the strip scrolls, and leaves it alone when it wraps', () => {
+    const { rerender } = renderPicker({ query: '' });
+    const strip = screen.getByRole('group', { name: 'Card type' });
+    const scrollIntoView = vi.fn();
+    const hadScrollIntoView = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    // jsdom lays nothing out, so say what a phone would: content wider than the box.
+    Object.defineProperty(strip, 'scrollWidth', { value: 560, configurable: true });
+    Object.defineProperty(strip, 'clientWidth', { value: 365, configurable: true });
+    const withType = (query: string) => (
+      <DeckPanes
+        deck={deck}
+        apply={vi.fn()}
+        problemFor={() => null}
+        requiresCommander={false}
+        identity={null}
+        cardSort="type"
+        density="ultra"
+        onDensity={vi.fn()}
+        setCardSort={vi.fn()}
+        listRef={createRef()}
+        picker={fakePicker({ query })}
+        setArtFor={vi.fn()}
+        setError={vi.fn()}
+        jumpToCard={vi.fn()}
+        onFilterShortfall={vi.fn()}
+        showTemplates={false}
+        onResolveCategories={vi.fn()}
+        categoryLabels={{}}
+      />
+    );
+    rerender(withType('t:land'));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.instances[0]).toBe(screen.getByRole('button', { name: 'Land' }));
+
+    // Desktop: the chips wrap, nothing overflows, nothing to scroll.
+    Object.defineProperty(strip, 'scrollWidth', { value: 365, configurable: true });
+    rerender(withType('t:instant'));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    Element.prototype.scrollIntoView = hadScrollIntoView;
+  });
 });
 
 describe('DeckPanes deck-card preview', () => {

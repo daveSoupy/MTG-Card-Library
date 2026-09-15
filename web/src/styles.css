@@ -872,15 +872,52 @@ input[type='date'] {
 .picker-name.held { color: var(--text-3); cursor: default; }
 .picker-name.held:hover { background: none; }
 .tag.in-deck { color: var(--accent); }
-/* Filters sits at the end of the colour chip row, right-aligned, and wraps
-   to its own line where the chips fill the row. */
-.picker-filters-btn { margin-left: auto; }
+/* Filters sits at the end of the scope-chip row, right-aligned. It used to
+   end the colour row, where eight chips filled a phone's width and left it
+   wrapping to a line of its own — one of six lines a thumb scrolled past to
+   reach the first result. The chips keep their own group; this row only
+   lays the two out. */
+.picker-scope-row { display: flex; align-items: center; gap: 5px; margin: 8px 0; }
+.picker-scope-row .scope-chips { flex: 1 1 auto; margin: 0; }
+.picker-filters-btn { margin-left: auto; flex: none; }
 .picker-type-chips { margin-top: 0; }
-.picker-results-head { margin: 4px 0 2px; }
 .picker-load-more { position: relative; padding: 14px 0 4px; }
 /* Sits just above the button so the next page is asked for as the end of the
    list comes into view, before the button itself does. */
 .picker-sentinel { position: absolute; top: -120px; left: 0; width: 1px; height: 1px; }
+
+/* ---------- the picker on a phone ------------------------------------------
+   Two things at once. The rows are the add action on a phone and were the
+   smallest targets in the app (30px names, a 28x24 SB) — the pass that made
+   everything else 40px predates this picker. And the controls above the
+   first result were 450 of 844px: the type chips become one sideways strip
+   (the .subtabs pattern), and the "legal in…" note goes, since the format
+   pill in the header and the Filters count already say it. Desktop keeps its
+   compact rows and its wrapped chips. */
+@media (max-width: 760px) {
+  .picker-row { min-height: 44px; }
+  .picker-name { min-height: 40px; align-items: center; }
+  /* SB and the art button share the row's height at a narrower width than
+     a square would need — 36px is what a 390px screen has left beside a name. */
+  .picker-add { min-width: 36px; min-height: 40px; padding: 3px 8px; }
+  .picker-art { min-width: 36px; min-height: 40px; }
+  .picker-type-chips {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin;
+    scroll-snap-type: x proximity; padding-bottom: 2px;
+  }
+  .picker-type-chips .pill { flex: none; white-space: nowrap; scroll-snap-align: start; }
+  .picker-legal-note { display: none; }
+  /* Six rows above the first result, 8px between each and 12px over the
+     head: 6px gaps put the first result inside 300px of the sheet's top
+     with nothing on the rows any smaller. */
+  .picker.floating { padding-top: 4px; }
+  .picker.floating .floating-head { padding-bottom: 7px; margin-bottom: 6px; }
+  .picker-filters { margin-top: 6px; }
+  .picker-scope-row { margin: 6px 0; }
+  .picker-type-chips { margin-bottom: 6px; }
+  .picker-customize { margin: 6px 0 4px; }
+  .picker-results { margin-top: 4px; }
+}
 
 /* The filter panel inside the picker: the Browse panel's markup, docked in
    the column with its Done head shown (the head is a sheet-only thing on
@@ -1093,6 +1130,11 @@ input[type='date'] {
   background: linear-gradient(to top, rgba(8, 10, 14, .9), transparent);
   border-radius: 0 0 8px 8px;
   transition: opacity .12s ease;
+  /* Invisible must mean untouchable: a closed bar still sat over the bottom
+     of the art, and a tap there pressed a button nobody could see rather
+     than opening the controls. On a phone the bar now wraps to two or three
+     rows, which made that most of a Compact tile. */
+  pointer-events: none;
 }
 /* The hover reveal is for pointers that can hover. On iOS a tap first
    simulates a hover, and if that hover makes something appear Safari holds
@@ -1101,11 +1143,11 @@ input[type='date'] {
    bar far below. Touch gets the controls from a tap (.controls-open) or the
    card's own panel instead. */
 @media (hover: hover) {
-  .deck-tile:hover .tile-controls { opacity: 1; }
+  .deck-tile:hover .tile-controls { opacity: 1; pointer-events: auto; }
 }
 .deck-tile:focus-within .tile-controls,
 /* Hover never fires on a touch screen, so a tap toggles the same controls. */
-.deck-tile.controls-open .tile-controls { opacity: 1; }
+.deck-tile.controls-open .tile-controls { opacity: 1; pointer-events: auto; }
 .tile-controls button {
   width: 26px; height: 24px; border-radius: 5px; line-height: 1;
   border: 1px solid rgba(255, 255, 255, .25);
@@ -2042,6 +2084,12 @@ input[type='date'] {
   /* Thumb-sized: the stepper and remove are 34px elsewhere on a phone. */
   .trade-item .qty button { width: 40px; height: 40px; }
   .trade-item .row-remove { min-width: 40px; min-height: 40px; }
+  /* The chip is the button that opens the printing / condition / value
+     editor, not a label: 21px was the smallest target on the page. Same
+     type, taller box. */
+  .printing-chip { min-height: 36px; display: inline-flex; align-items: center; }
+  /* The counterparty name, 27px as a bare input; the padding, not the type. */
+  .trade-name-input { min-height: 40px; padding: 6px 0; }
   /* Complete / Delete as full-width stacked buttons, the can't-complete
      reason between them where it was. */
   .trade-actions { flex-direction: column; align-items: stretch; }
@@ -2189,7 +2237,11 @@ input[type='date'] {
      count stays beside the title, with the active tab snapped into view
      (CollectionPage scrolls it there on change). */
   .subtabs { order: 10; scroll-snap-type: x proximity; }
-  .subtabs button { scroll-snap-align: start; min-height: 40px; padding: 4px 12px; }
+  /* 7px sides: the last tab ("For trade") began 5px before the strip's right
+     edge, and those 5px were the only hint that the strip scrolls; now about
+     half of it shows. Two classes, because `.tabs.small button` (11px) would
+     otherwise out-specify this — the 12px it used to ask for never applied. */
+  .tabs.subtabs button { scroll-snap-align: start; min-height: 40px; padding: 4px 7px; }
   /* Deck tiles' Tag / Duplicate / Delete were 18px of text. */
   .deck-card-actions { padding: 0 12px 2px; gap: 4px; }
   .deck-card-actions .linkish { min-height: 40px; padding: 0 8px; display: inline-flex; align-items: center; }
@@ -2274,11 +2326,19 @@ input[type='date'] {
   .qty button { width: 34px; height: 34px; font-size: 15px; }
   .qty span { min-width: 26px; font-size: 14px; }
   .row-art, .row-remove { min-width: 34px; min-height: 34px; }
-  .tile-controls { padding: 8px 6px; }
   /* The tile keeps its desktop minimum width on a phone rather than shrinking
-     to fit more per row: two columns at 375px is exactly enough for four
-     thumb-sized controls across the bottom of a tile. */
-  .tile-controls button { width: 34px; height: 32px; font-size: 15px; }
+     to fit more per row: two columns at 390px is a 180px tile, which is
+     exactly four thumb-sized controls across (4 × 40 + 3 gaps + 4px sides).
+     The bar has held five since ⓘ arrived, and six with ⇄ — so it wraps,
+     and the rest go on a second row rather than every button shrinking to
+     30px to keep one. */
+  .tile-controls { flex-wrap: wrap; padding: 8px 4px; }
+  .tile-controls button { width: 40px; height: 36px; font-size: 15px; }
+  /* Compact's tile is 87px wide: two per row, three rows, at the 32px floor
+     — 36px would run the bar out over the top of the tile. Before this the
+     five squeezed to 23px and the first hung off the tile's left edge. */
+  [data-density='compact'] .tile-controls { padding: 6px 4px; }
+  [data-density='compact'] .tile-controls button { width: 32px; height: 32px; font-size: 14px; }
 
   .back-to-top { right: 12px; bottom: 12px; }
 }
@@ -2448,7 +2508,9 @@ input[type='date'] {
   color: var(--text-3); font-family: var(--mono);
 }
 .customize-drop .note { margin: 0; font-size: 11px; }
-.picker-customize { margin: 8px 0 4px; }
+/* View and the match count share a line, count to the right. */
+.picker-customize { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 4px; }
+.picker-results-count { white-space: nowrap; }
 
 .density-choices { display: flex; flex-wrap: wrap; gap: 4px; }
 .density-choice {
