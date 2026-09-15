@@ -17,7 +17,13 @@ Phase 19 (PWA install) is not a prerequisite and is not replaced — a phone wit
 **Capacitor** wrapping the existing `web/` build, for iOS and Android from one codebase. The web app is the UI; the shell adds a native origin (which browsers treat as secure, so camera and the rest need no HTTPS), native plugins, and a mode switch.
 
 - **Home mode** — Phase 29's discovery found the paired server. The app is the web app, unchanged, against the live server. Deck building, collection, everything. This is the same client as the browser; it must never grow a branch of its own.
-- **Shop mode** — discovery failed within its budget. The app renders a small offline surface from the last snapshot: search your collection and decks by name, see where copies live, browse and add to want lists, record a trade, record a sale (Phase 13). Every write goes into a local queue. A banner says *Shop mode · last synced 3 hours ago* and never pretends to be live.
+- **Shop mode** — discovery failed within its budget. The app renders a small offline surface from the last snapshot: search your collection and decks by name, see where copies live, browse and add to want lists, record a trade, record a sale (Phase 13). Every write goes into a local queue. A banner says *Shop mode · last synced 3 hours ago · 4 actions waiting* and never pretends to be live.
+
+### The snapshot shows your own pending actions
+
+The snapshot is what the desktop knew at the last sync; the queue is what the phone has done since. Shown separately, the phone contradicts itself — a card traded away last week still reads as owned, a want added yesterday is missing from the list — and that self-contradiction, not staleness, is what makes an offline view feel untrustworthy.
+
+So shop mode renders the **snapshot with the queue overlaid**: a queued trade reduces the shown quantity of what went out and adds what came in; a queued want appears in its list; a queued sale reduces the lot. Each affected row carries a *pending* badge, and tapping it shows the queued action. The overlay is presentation only — it never writes to the snapshot store, so a failed replay leaves nothing to undo on the phone; the snapshot after the next sync is the truth and the overlay is discarded. Basic-land and allocation rules are not applied on the phone (they are the server's); the overlay adjusts counts, nothing else.
 
 The switch is automatic and re-evaluated on foreground. Shop mode is *not* a general offline mode: it cannot edit a deck, move a lot, or change a setting, and it never will. The no-offline rule in CLAUDE.md stands; this is the one carve-out it already allows, with a read-only snapshot added so the queued writes have something to be about.
 
@@ -50,7 +56,14 @@ Three actions, inserts only, each carrying a client-generated UUID as the `Idemp
 | `trade_record` | `POST /api/v1/trades/record` — **new, this phase** | The existing trade API is a draft, item posts, and a complete call across several requests; a replay must be one atomic request. This composite takes counterparty and items and completes in one transaction with `conflictMode: 'alert'`. The web UI keeps using the draft flow. |
 | `sale_record` | Phase 13's sell route | Deferred until Phase 13. |
 
-Replay runs whenever home mode is entered and via background sync, in queue order, stopping on the first connectivity failure and continuing on the next attempt. A `4xx` other than a replayed-key hit marks the item failed with the server's message and moves on; failures are listed in the app, never silently dropped.
+Replay runs in queue order, stopping on the first connectivity failure and continuing on the next attempt. It is triggered by every event that could mean the phone is home, so a queue rarely waits for the app to be opened:
+
+- app foreground;
+- **the phone joining a wifi network** (iOS `NWPathMonitor` / Android `ConnectivityManager` network callback, via the same plugin as background sync) — the walk-in-the-door case, and the one that closes most of the gap between the two devices;
+- the platform's periodic background task;
+- a manual *Sync now* in the banner.
+
+Each trigger runs Phase 29 discovery first; "not home" is a silent no-op, not an error. A `4xx` other than a replayed-key hit marks the item failed with the server's message and moves on; failures are listed in the app, never silently dropped.
 
 ### Server changes
 
@@ -91,6 +104,8 @@ The app reads `serverVersion` from Phase 29's instance endpoint and shows *Updat
 6. Backgrounding the app mid-scan-session and returning resumes the session with unsynced scans intact.
 7. Sharing a CSV via the share target lands it in the chosen known player's snapshot (once Phase 21 exists).
 8. Wifi off → the app enters shop mode within the discovery budget with the last snapshot and its age shown; wifi on at home → home mode on the next foreground, queue pushed, snapshot refreshed, banner gone.
+12. In shop mode, a queued trade-away shows the card's quantity reduced with a *pending* badge, and a queued want appears in its list; after replay the badge is gone and the figures match the server's. A queued action that fails on replay is listed as failed and the overlay for it is removed.
+13. Joining the home wifi with the app in the background pushes the queue and refreshes the snapshot without the app being opened (observable on the desktop within the platform's background budget).
 9. Home mode is byte-for-byte the web client: no route, component, or style exists only in the shell.
 10. An older app against a newer server (and the reverse) syncs; a server older than the app's floor shows the update message rather than an error.
 11. `POST /api/v1/trades/record` completes atomically — a failing item leaves no draft trade behind.
@@ -99,5 +114,6 @@ The app reads `serverVersion` from Phase 29's instance endpoint and shows *Updat
 
 - Editing anything but the three queued inserts while offline. A deck edit in shop mode is not a queued action; it is not possible.
 - Live access from outside the home network. Phase 29 explains why; `deploy/README.md` keeps "bring your own Tailscale" for anyone who wants it anyway.
+- Syncing when the two devices are never home at the same time. Phase 30 (optional) adds a cloud folder as a second transport for exactly that; this phase's LAN path must work without it.
 - Rebuilding the web client's screens natively. The shell exists so that never has to happen.
 - Push notifications.
