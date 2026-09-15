@@ -99,12 +99,12 @@ describe('the action chip on a deck tile', () => {
 
   it('says what to buy when nobody else has it', () => {
     tile({ holdingDecks: [], owned: 0, covered: 0, missing: 3 });
-    expect(screen.getByText('Buy 3').getAttribute('data-kind')).toBe('buy');
+    expect(screen.getByText('Need 3').getAttribute('data-kind')).toBe('buy');
   });
 
   it('counts only the shortfall when some copies are already yours', () => {
     tile({ holdingDecks: [], owned: 1, available: 1, covered: 1, missing: 2 });
-    expect(screen.getByText('Buy 2 of 3')).toBeInTheDocument();
+    expect(screen.getByText('Need 2 of 3')).toBeInTheDocument();
   });
 
   it('reads as done when the deck can field the card', () => {

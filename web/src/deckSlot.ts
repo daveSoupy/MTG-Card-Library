@@ -91,7 +91,7 @@ export function slotAction(card: DeckCard, coverage?: BuildabilityRow | null): S
   if (proxied > 0) reasons.push(`${proxied} proxied`);
 
   return {
-    label: covered > 0 ? `Buy ${missing} of ${required}` : `Buy ${missing}`,
+    label: covered > 0 ? `Need ${missing} of ${required}` : `Need ${missing}`,
     kind: 'buy',
     title: reasons.length > 0
       ? `${reasons.join(' · ')}. Still short ${missing}.`
