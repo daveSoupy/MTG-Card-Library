@@ -1141,9 +1141,14 @@ input[type='date'] {
    the click back for a second tap — so with this rule live on a phone, a
    Lined-up strip took two taps to open and the first only showed a controls
    bar far below. Touch gets the controls from a tap (.controls-open) or the
-   card's own panel instead. */
+   card's own panel instead.
+   Not in a Lined-up cascade either: the bar sits at the bottom of the tile,
+   which is exactly the part the next card in the column paints over, so a
+   hover there revealed a bar nobody could see or reach. A click raises the
+   tile out of the pile (z-index, in the cascade rules) and shows the bar with
+   it — the only way in, on every kind of pointer. */
 @media (hover: hover) {
-  .deck-tile:hover .tile-controls { opacity: 1; pointer-events: auto; }
+  .deck-tile:hover:not(.cascade-col *) .tile-controls { opacity: 1; pointer-events: auto; }
 }
 .deck-tile:focus-within .tile-controls,
 /* Hover never fires on a touch screen, so a tap toggles the same controls. */
