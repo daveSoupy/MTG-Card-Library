@@ -1,0 +1,22 @@
+services:
+  mtg-library:
+    build: .
+    container_name: mtg-library
+    restart: unless-stopped
+    ports:
+      # host:container — change the left side if 8080 is taken on your machine.
+      - "8080:8080"
+    volumes:
+      # Everything worth keeping (your collection, decks, trades, backups) is
+      # in this volume. Card data and images re-download from Scryfall.
+      - mtg-data:/data
+    # Uncomment to keep the data in a folder you can see instead of a named
+    # volume. The folder must be writable by uid 1000 (the container's user):
+    #   mkdir -p ./data && sudo chown 1000:1000 ./data
+    # volumes:
+    #   - ./data:/data
+    environment:
+      MTG_LOG_LEVEL: info
+
+volumes:
+  mtg-data:

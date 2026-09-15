@@ -27,6 +27,7 @@ Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete sc
 - `server/scripts/` — `check-sqlite.mjs` (verify the SQLite build has FTS5 and trigram — run after any `npm rebuild`), `sync.mjs`, `search-check.mjs`.
 - `web/` — React + Vite client. Entry point `web/src/main.tsx`; components under `web/src/components/`.
 - `deploy/` — systemd unit and install notes.
+- `Dockerfile`, `docker-compose.yml`, `.dockerignore` — the container path for people hosting it that way. The image keeps the repo's directory shape because `server/dist` locates `schema.sql` and `web/dist` by walking up from its own path.
 - `phases/phase-1-core-database-search.md` (shipped)
 - `phases/phase-2-deck-building-format-rules.md` (shipped)
 - `phases/phase-3-commander-specific-rules.md` (shipped)

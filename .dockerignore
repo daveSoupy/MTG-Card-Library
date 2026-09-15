@@ -1,0 +1,27 @@
+# Dependencies and build output are produced inside the image.
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+
+# Local data never belongs in an image.
+data
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Not needed at runtime.
+.git
+.github
+.claude
+docs
+phases
+deploy
+Dockerfile
+docker-compose.yml
+.dockerignore
+.DS_Store
+**/.DS_Store
+MTG Library
+*.md

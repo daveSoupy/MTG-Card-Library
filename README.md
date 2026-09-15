@@ -1,30 +1,242 @@
 # MTG Library
 
-Self-hosted Magic: The Gathering collection, deck and trade manager.
+A self-hosted Magic: The Gathering collection, deck and trade manager. Runs on a
+machine at home; open it from your desktop to build decks and from your phone at
+a card shop to record a trade. All your data lives in one SQLite file on your
+own box.
 
-One server owns the database and the rules; clients only render. Runs on a machine at
-home and is reached over Tailscale, so the deck builder works at a desk and trades can
-be recorded from a phone at a card shop.
+- **Full card database** synced from [Scryfall](https://scryfall.com) bulk data,
+  so search never touches the internet and works with Scryfall's syntax
+  (`c:ur t:instant cmc<=2`, `o:"draw a card"`, plus `owned:`, `available:` and
+  `loc:` filters against your own collection)
+- **Deck builder** with format rules (Standard through Vintage, Pauper,
+  Commander and its singleton/colour-identity rules, Pauper Commander, Duel
+  Commander, PreDH), mana curve and mana-base analysis, templates, snapshots
+  with undo/redo, and a decklist import/export that round-trips with Moxfield
+  and Archidekt
+- **Collection tracking** per printing, per condition, per physical location
+  (binder, box, deck box), with market prices from Scryfall and optional manual
+  overrides — so "what is this box worth?" has an answer
+- **Allocation honesty** — a physical card can only be in one deck at a time.
+  The app knows which decks are claiming which copies, how buildable each deck is
+  from what you actually own, what it would cost to finish, and which decks are
+  fighting over the same card
+- **Pull sheets** for assembling a deck from your storage, grouped by where the
+  cards are, and a disassembly flow that puts them back
+- **Trades, want lists and trade lists** — completing a trade moves the cards in
+  and out of your collection automatically
+- **Game and draft log**, price-target alerts, scheduled backups, a phone layout
+  for the parts you'd use standing up
 
-- **Server** — Node + TypeScript, Fastify, SQLite (`better-sqlite3`), REST under `/api/v1`
-- **Client** — React + Vite, one codebase, desktop and phone layouts
-- **Card data** — [Scryfall](https://scryfall.com) bulk data, synced locally so search
-  never touches the network
+It is a **single-user** app with **no login**: it is built to sit on your home
+network (or a [Tailscale](https://tailscale.com) tailnet) and never be exposed
+to the public internet. See [Security](#security-read-this) before you put it
+anywhere else.
 
-## Quick start
+---
+
+## Running it
+
+You need one of:
+
+- **Docker** (Docker Desktop, or Docker Engine on a Linux box / NAS) — the
+  easiest path, or
+- **Node.js 22 or newer** to run it directly.
+
+Either way the first run downloads the card database from Scryfall (≈80 MB), which
+takes about 20 seconds to import. After that, everything is local.
+
+### Option A — Docker (recommended)
+
+```bash
+git clone https://github.com/daveSoupy/MTG-Card-Library.git
+cd MTG-Card-Library
+docker compose up -d --build
+```
+
+Then open <http://localhost:8080>. The first build takes a few minutes (it
+compiles the app inside the image); subsequent starts are instant.
+
+Your data is kept in a Docker volume called `mtg-data`. If you would rather have
+it in a folder you can see, uncomment the bind-mount lines in
+[`docker-compose.yml`](docker-compose.yml).
+
+Useful commands:
+
+```bash
+docker compose logs -f          # watch the server log
+docker compose restart          # restart the app
+docker compose down             # stop it (your data stays in the volume)
+docker compose down -v          # stop it AND delete the volume — this erases your data
+```
+
+To update after pulling new commits:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+### Option B — Node directly
+
+```bash
+git clone https://github.com/daveSoupy/MTG-Card-Library.git
+cd MTG-Card-Library
+npm install
+npm run build
+node server/scripts/check-sqlite.mjs   # must report FTS5 + trigram OK
+npm start                              # http://localhost:8080
+```
+
+`check-sqlite.mjs` matters: `better-sqlite3` is a native module compiled on
+install, and the app's search depends on SQLite having been built with FTS5 and
+the trigram tokenizer. If the check fails, run
+`npm rebuild better-sqlite3 --build-from-source` and try again.
+
+Data goes to `~/.local/share/mtg-library` by default (see
+[Configuration](#configuration)). To keep it running after you log out, see
+[`deploy/README.md`](deploy/README.md) for a systemd unit.
+
+### First run
+
+When the app opens with no card data it shows the sync dialog by itself. Keep
+the default, **`default_cards`**, and hit download. The two options are:
+
+| Bulk file | Size | What you get |
+|---|---|---|
+| `default_cards` | ~80 MB | Every printing of every card. Needed to price your collection per printing. **Pick this one.** |
+| `oracle_cards` | ~25 MB | One printing per card. Fine for trying the deck builder, but you'll want to re-sync before adding a collection. |
+
+You can re-sync any time from the **Data** tab — Scryfall refreshes prices daily,
+so a weekly sync keeps collection values roughly current. Card images are
+downloaded on demand and cached; the Data tab can pre-download them in bulk if
+you would rather.
+
+---
+
+## Using it from your phone
+
+The server binds to all interfaces (`0.0.0.0:8080`), so anything on the same
+network can reach it at `http://<your-machine>:8080`.
+
+To reach it away from home — at a card shop, say — install
+[Tailscale](https://tailscale.com/download) on the machine running the app and
+on your phone, sign both into the same tailnet, and the app is at
+`http://<machine-name>:8080` from anywhere. No port forwarding, no
+certificates, no accounts to manage. The app has a proper phone layout for
+trades, want lists and quick collection lookups.
+
+## Security (read this)
+
+**There is no login.** The app assumes the network it is on *is* the access
+control: your LAN, or your tailnet. That is a deliberate trade — one user, one
+database, zero auth code to get wrong.
+
+So: do **not** forward port 8080 on your router, and do not put it behind a
+Cloudflare Tunnel or a public reverse proxy. Anyone who can reach the port can
+read and edit your collection. If you genuinely need it on the open internet,
+put an authenticating proxy (Authelia, Cloudflare Access, Tailscale Funnel with
+an identity check…) in front of it first.
+
+---
+
+## Configuration
+
+All configuration is environment variables. With Docker, set them under
+`environment:` in `docker-compose.yml`; with Node, export them before `npm start`.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MTG_DATA_DIR` | `~/.local/share/mtg-library` (Node) · `/data` (Docker) | Database, cached card images and scheduled backups |
+| `MTG_PORT` | `8080` | Listen port |
+| `MTG_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to restrict to the local machine |
+| `MTG_LOG_LEVEL` | `info` | Fastify log level (`debug`, `info`, `warn`, `error`) |
+
+## Backups
+
+Everything irreplaceable is one file: `$MTG_DATA_DIR/library.sqlite`. The card
+database inside it re-downloads from Scryfall in seconds, so a backup is really
+about your collection, decks and trades.
+
+The server takes a backup on its own once a day into `$MTG_DATA_DIR/backups/`
+and keeps the last seven. You can also take one, download one, or restore one
+from the **Data** tab in the app.
+
+To copy the live database by hand, don't `cp` it — a running SQLite database can
+be mid-write. Use SQLite's own snapshot instead:
+
+```bash
+sqlite3 /path/to/library.sqlite "VACUUM INTO '/somewhere/safe/mtg-$(date +%F).sqlite'"
+```
+
+Or with Docker:
+
+```bash
+docker compose exec mtg-library node -e "require('better-sqlite3')('/data/library.sqlite').exec(\"VACUUM INTO '/data/backups/manual-$(date +%F).sqlite'\")"
+```
+
+The `images/` folder next to the database is a cache and does not need backing up.
+
+---
+
+## Development
+
+The server and the web client run separately in development so both hot-reload:
 
 ```bash
 npm install
-npm run build
-node server/scripts/check-sqlite.mjs   # confirm FTS5 + trigram are available
-npm run dev                            # http://127.0.0.1:8080
+npm run dev                    # Fastify API on :8080, restarts on change
+npm run dev --workspace=web    # Vite dev server on :5173, proxies /api to :8080
 ```
 
-The app offers to download the card database on first run — about 38,000 cards in
-roughly 17 seconds.
+Open <http://localhost:5173> for the live-reloading UI. `MTG_API` points the
+Vite proxy somewhere other than `127.0.0.1:8080` if you need it.
 
-See [`deploy/README.md`](deploy/README.md) for running it as a service, and
-[`CLAUDE.md`](CLAUDE.md) for the data model and build plan.
+```bash
+npm test                       # server (node --test) and web (node --test + vitest)
+npm run typecheck --workspace=server
+```
 
-Card data and images courtesy of Scryfall. This project is unaffiliated with Scryfall
-or Wizards of the Coast.
+Command-line tools, all under `server/scripts/` (they import the TypeScript
+source directly, hence the flag):
+
+```bash
+node server/scripts/check-sqlite.mjs                                        # verify the SQLite build
+node --experimental-strip-types server/scripts/sync.mjs --type default_cards  # sync without the UI
+node --experimental-strip-types server/scripts/search-check.mjs             # exercise the search layer
+node --experimental-strip-types server/scripts/repair-claims.mjs --dry-run  # re-derive deck claims
+```
+
+### How it's put together
+
+- **One server owns the data and the rules.** Deck validation, search parsing,
+  allocation maths and format rules all live in `server/`; the web client only
+  renders. That is what keeps a future phone app cheap — it hits the same
+  `/api/v1` endpoints.
+- `server/` — Fastify + `better-sqlite3`. Per-domain stores under `src/decks`,
+  `src/collection`, `src/trades`, `src/search`, `src/sync`, etc.
+- `web/` — React + Vite. One codebase, desktop and phone layouts.
+- `schema.sql` — the complete database schema for fresh installs;
+  `server/src/db/migrations.ts` upgrades existing databases and a test proves
+  the two agree.
+- `docs/CODEBASE-MAP.md` — a file-by-file map of the source, and
+  `docs/atlas/codebase-atlas.html` is the same thing as a clickable graph.
+- `phases/` — the design docs each feature was built from, kept as the record
+  of *why* things are the way they are.
+- `CLAUDE.md` — the project brief and data-model rules, written for the AI
+  assistant this was built with but a decent read for humans too.
+
+---
+
+## License
+
+[MIT](LICENSE). Run it, fork it, change it.
+
+## Credits
+
+Card data, images and prices are from [Scryfall](https://scryfall.com), used
+under their [API terms](https://scryfall.com/docs/api). Prices are Scryfall's
+daily figures from TCGplayer and Cardmarket; treat them as roughly a day old.
+
+This project is unaffiliated with Scryfall or Wizards of the Coast. Magic: The
+Gathering is a trademark of Wizards of the Coast LLC.

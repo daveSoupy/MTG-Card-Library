@@ -1,4 +1,8 @@
-# Deploying MTG Library
+# Deploying MTG Library as a systemd service
+
+This is the "bare metal on a Linux box" path. If you'd rather use Docker, the
+[main README](../README.md#option-a--docker-recommended) covers that in three
+commands and you don't need anything here.
 
 Runs on an always-on Linux box and is reached over Tailscale, so nothing is exposed to the public internet.
 
