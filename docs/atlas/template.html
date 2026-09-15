@@ -1,0 +1,304 @@
+<title>MTG Library Codebase Atlas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #f3f5f8;
+  --panel: #ffffff;
+  --ink: #1b2130;
+  --ink-2: #4a5468;
+  --ink-3: #8a93a6;
+  --line: #d9dee8;
+  --line-2: #c3cad8;
+  --chip: #ffffff;
+  --chip-hover: #e9eef6;
+  --band: #eaeef4;
+  --accent: #c8641e;
+  --accent-ink: #ffffff;
+  --accent-soft: #fbe9dc;
+  --imports: #2d6fb5;
+  --imports-soft: #dfeafa;
+  --importers: #2f8f5a;
+  --importers-soft: #ddf2e5;
+  --dim: 0.28;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #151a24; --panel: #1c2230; --ink: #dfe4ec; --ink-2: #a9b2c3; --ink-3: #6f7a8f;
+    --line: #2b3444; --line-2: #3a4457; --chip: #222a3a; --chip-hover: #2c3648; --band: #1a202c;
+    --accent: #e0803a; --accent-ink: #151a24; --accent-soft: #3a2a1c;
+    --imports: #6ea6e6; --imports-soft: #1f2f45; --importers: #5fc48a; --importers-soft: #1d3428;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #151a24; --panel: #1c2230; --ink: #dfe4ec; --ink-2: #a9b2c3; --ink-3: #6f7a8f;
+  --line: #2b3444; --line-2: #3a4457; --chip: #222a3a; --chip-hover: #2c3648; --band: #1a202c;
+  --accent: #e0803a; --accent-ink: #151a24; --accent-soft: #3a2a1c;
+  --imports: #6ea6e6; --imports-soft: #1f2f45; --importers: #5fc48a; --importers-soft: #1d3428;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.45; }
+.wrap { padding-inline: 20px; padding-block: 18px 40px; max-width: 1600px; margin: 0 auto; }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 14px; }
+header h1 { font: 600 20px/1.2 var(--sans); margin: 0; letter-spacing: -0.01em; }
+header .sub { color: var(--ink-2); font-size: 13px; }
+header .sub code { font-family: var(--mono); font-size: 12px; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.tabs { display: inline-flex; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+.tabs button { font: 500 13px var(--sans); padding: 6px 14px; border: 0; background: var(--panel); color: var(--ink-2); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+.tabs button:focus-visible, .chip:focus-visible, select:focus-visible, input:focus-visible, .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select, input[type="search"] { font: 13px var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 6px 10px; }
+input[type="search"] { min-width: 220px; font-family: var(--mono); font-size: 12.5px; }
+select { max-width: 340px; }
+.legend { display: flex; gap: 14px; margin-left: auto; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; }
+.legend span::before { content: ''; display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.legend .li::before { background: var(--imports); }
+.legend .lo::before { background: var(--importers); }
+.legend .lh::before { background: var(--accent); height: 10px; width: 10px; border-radius: 3px; }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .detail { position: static !important; } }
+
+.map { position: relative; }
+.map svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.band { position: relative; border: 1px solid var(--line); background: var(--band); border-radius: 8px; padding: 10px 12px 12px; margin-bottom: 10px; }
+.band-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.band-head h2 { font: 600 11px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); margin: 0; }
+.band-head .note { font-size: 12px; color: var(--ink-3); }
+.groups { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.group { display: flex; flex-direction: column; gap: 4px; }
+.group-label { font: 500 11px var(--mono); color: var(--ink-3); }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font: 500 12px/1 var(--mono); padding: 6px 8px; border-radius: 5px; border: 1px solid var(--line-2); background: var(--chip); color: var(--ink); cursor: pointer; transition: opacity .15s, background .12s; white-space: nowrap; }
+.chip:hover { background: var(--chip-hover); }
+.chip.hub { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 600; }
+.map.focused .chip { opacity: var(--dim); }
+.map.focused .chip.sel { opacity: 1; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.map.focused .chip.imp { opacity: 1; background: var(--imports-soft); border-color: var(--imports); }
+.map.focused .chip.by { opacity: 1; background: var(--importers-soft); border-color: var(--importers); }
+.map.focused .chip.imp.by { background: linear-gradient(90deg, var(--imports-soft), var(--importers-soft)); }
+.map.searching .chip { opacity: var(--dim); }
+.map.searching .chip.hit { opacity: 1; }
+.arrow { position: absolute; left: 50%; transform: translateX(-50%); bottom: -11px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid var(--line-2); }
+
+.detail { position: sticky; top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.detail .path { font: 600 13px var(--mono); word-break: break-all; margin: 0 0 2px; }
+.detail .meta { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+.detail .meta .layer { text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+.detail .blurb { margin: 0 0 14px; color: var(--ink); max-width: 60ch; }
+.detail h3 { font: 600 11px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; margin: 12px 0 6px; display: flex; align-items: center; gap: 8px; }
+.detail h3 .n { font: 500 11px var(--mono); color: var(--ink-3); letter-spacing: 0; text-transform: none; }
+.detail h3.ti { color: var(--imports); } .detail h3.to { color: var(--importers); }
+.detail ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.detail li .link { font: 12px var(--mono); color: var(--ink); background: none; border: 0; padding: 2px 0; cursor: pointer; text-align: left; }
+.detail li .link:hover { text-decoration: underline; }
+.detail .empty { font-size: 12px; color: var(--ink-3); }
+.detail .hint { font-size: 12.5px; color: var(--ink-2); max-width: 40ch; }
+.detail .hint p { margin: 0 0 8px; }
+.detail .hint kbd { font: 11px var(--mono); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 4px; }
+.detail .clear { margin-top: 12px; font: 12px var(--sans); color: var(--ink-2); background: none; border: 1px solid var(--line-2); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.stat { display: inline-block; font: 11px var(--sans); border-radius: 3px; padding: 1px 6px; border: 1px solid var(--line-2); color: var(--ink-2); }
+.stat.hub { color: var(--accent); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .chip { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>MTG Library Codebase Atlas</h1>
+    <div class="sub">143 source files · 408 import edges · computed from the tree on 2026-09-15 · full text in <code>docs/CODEBASE-MAP.md</code></div>
+  </header>
+
+  <div class="toolbar">
+    <div class="tabs" role="tablist">
+      <button id="tab-server" role="tab" aria-selected="true" data-side="server">Server · server/src</button>
+      <button id="tab-web" role="tab" aria-selected="false" data-side="web">Web · web/src</button>
+    </div>
+    <select id="task" aria-label="Where do I edit…">
+      <option value="">Where do I edit…</option>
+    </select>
+    <input id="q" type="search" placeholder="find a file" aria-label="Find a file" autocomplete="off">
+    <div class="legend"><span class="lh">allocation hub</span><span class="li">imports</span><span class="lo">imported by</span></div>
+  </div>
+
+  <div class="layout">
+    <div class="map" id="map">
+      <svg class="edges" id="edges" aria-hidden="true"></svg>
+      <div id="bands"></div>
+    </div>
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/;
+const LAYERS = {
+  server: [
+    ['entry',    'Entry',    'index.ts builds every store and registers every route file'],
+    ['routes',   'Routes',   'validate, call one store, map an error class to a status — no rules here'],
+    ['stores',   'Stores',   'every read and write of user data; each mutation ends by reconciling'],
+    ['engines',  'Engines',  'the figures: available → claim → coverage → contention'],
+    ['pure',     'Pure rules','no database, no I/O — tested with plain node --test'],
+    ['services', 'Services', 'reach outside: Scryfall sync, image cache, import/export/backup'],
+    ['data',     'Data',     'schema.sql is the source of truth; migrations.ts carries upgrades'],
+  ],
+  web: [
+    ['entry',      'Entry',        'App.tsx switches views by router.ts; styles.css is the only stylesheet'],
+    ['pages',      'Pages',        'one per top-level view'],
+    ['deckbuilder','Deck builder', 'DeckBuilder orchestrates; DeckPanes lays out; the rest are panels and dialogs'],
+    ['shared',     'Shared components', 'used by more than one page'],
+    ['helpers',    'Presentation helpers', 'pure .ts — they choose words for server figures and derive none'],
+    ['data',       'API client',   'the only file that calls fetch(); every shared type lives here'],
+  ],
+};
+const HUBS = new Set(['server/src/decks/allocation.ts', 'web/src/api.ts']);
+const byId = Object.fromEntries(DATA.nodes.map(n => [n.id, n]));
+const importers = {};
+for (const n of DATA.nodes) for (const t of n.imports) (importers[t] ||= []).push(n.id);
+
+const short = id => id.replace(/^server\/src\//, '').replace(/^web\/src\//, '').replace(/^components\//, '');
+let side = 'server', selected = null;
+
+const bandsEl = document.getElementById('bands');
+const mapEl = document.getElementById('map');
+const svg = document.getElementById('edges');
+const detail = document.getElementById('detail');
+
+function render() {
+  bandsEl.innerHTML = '';
+  const layers = LAYERS[side];
+  layers.forEach(([key, title, note], i) => {
+    const nodes = DATA.nodes.filter(n => n.side === (key === 'data' && side === 'server' ? n.side : side) && n.layer === key && (side === 'server' ? n.side === 'server' || n.id === 'schema.sql' : n.side === 'web'));
+    if (!nodes.length) return;
+    const band = document.createElement('section');
+    band.className = 'band';
+    band.innerHTML = `<div class="band-head"><h2>${title}</h2><span class="note">${note}</span></div>`;
+    const groups = {};
+    for (const n of nodes) (groups[n.group] ||= []).push(n);
+    const gwrap = document.createElement('div'); gwrap.className = 'groups';
+    for (const [g, ns] of Object.entries(groups)) {
+      const gel = document.createElement('div'); gel.className = 'group';
+      if (Object.keys(groups).length > 1 || g !== key) gel.innerHTML = `<div class="group-label">${g}/</div>`;
+      const chips = document.createElement('div'); chips.className = 'chips';
+      for (const n of ns.sort((a, b) => short(a.id).localeCompare(short(b.id)))) {
+        const b = document.createElement('button');
+        b.className = 'chip' + (HUBS.has(n.id) ? ' hub' : '');
+        b.dataset.id = n.id; b.textContent = short(n.id).replace(/^[a-z]+\//, '');
+        b.title = n.id;
+        b.addEventListener('click', () => select(n.id === selected ? null : n.id));
+        chips.appendChild(b);
+      }
+      gel.appendChild(chips); gwrap.appendChild(gel);
+    }
+    band.appendChild(gwrap);
+    if (i < layers.length - 1) { const a = document.createElement('div'); a.className = 'arrow'; band.appendChild(a); }
+    bandsEl.appendChild(band);
+  });
+  applySelection();
+}
+
+function chipFor(id) { return bandsEl.querySelector(`.chip[data-id="${CSS.escape(id)}"]`); }
+
+function select(id) {
+  selected = id;
+  if (id && byId[id].side !== side && id !== 'schema.sql') { setSide(byId[id].side); return; }
+  applySelection();
+  if (id) { const c = chipFor(id); c && c.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+}
+
+function applySelection() {
+  mapEl.classList.remove('searching');
+  for (const c of bandsEl.querySelectorAll('.chip')) c.classList.remove('sel', 'imp', 'by', 'hit');
+  svg.innerHTML = '';
+  if (!selected || !byId[selected]) { mapEl.classList.remove('focused'); renderDetail(null); return; }
+  const n = byId[selected];
+  mapEl.classList.add('focused');
+  chipFor(n.id)?.classList.add('sel');
+  for (const t of n.imports) chipFor(t)?.classList.add('imp');
+  for (const s of importers[n.id] || []) chipFor(s)?.classList.add('by');
+  drawEdges(n);
+  renderDetail(n);
+}
+
+function center(el) {
+  const r = el.getBoundingClientRect(), m = mapEl.getBoundingClientRect();
+  return { x: r.left - m.left + r.width / 2, y: r.top - m.top + r.height / 2, top: r.top - m.top, bottom: r.bottom - m.top };
+}
+function drawEdges(n) {
+  const from = chipFor(n.id); if (!from) return;
+  const a = center(from);
+  const path = (b, color) => {
+    const down = b.y > a.y;
+    const y0 = down ? a.bottom : a.top, y1 = down ? b.top : b.bottom;
+    const dy = (y1 - y0) / 2;
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', `M${a.x},${y0} C${a.x},${y0 + dy} ${b.x},${y1 - dy} ${b.x},${y1}`);
+    p.setAttribute('fill', 'none'); p.setAttribute('stroke', color); p.setAttribute('stroke-width', '1.5'); p.setAttribute('opacity', '0.75');
+    svg.appendChild(p);
+  };
+  for (const t of n.imports) { const c = chipFor(t); if (c) path(center(c), 'var(--imports)'); }
+  for (const s of importers[n.id] || []) { const c = chipFor(s); if (c) path(center(c), 'var(--importers)'); }
+}
+
+function renderDetail(n) {
+  if (!n) {
+    detail.innerHTML = `<div class="hint">
+      <p><strong>Click a file</strong> to see what it does, what it imports (blue) and what imports it (green).</p>
+      <p>The green list is the blast radius: change a signature and those files have to follow.</p>
+      <p>Bands read top to bottom the way a request does — a route calls a store, a store calls an engine, every engine reads <kbd>allocation.ts</kbd>.</p>
+      <p>Chips with an orange edge are the two hubs. Files with a <span class="stat">test</span> badge have a colocated <kbd>.test.ts</kbd>.</p>
+    </div>`;
+    return;
+  }
+  const list = (ids, cls, title) => {
+    const arr = (ids || []).slice().sort();
+    return `<h3 class="${cls}">${title} <span class="n">${arr.length}</span></h3>` +
+      (arr.length ? `<ul>${arr.map(i => `<li><button class="link" data-go="${i}">${short(i)}</button></li>`).join('')}</ul>` : `<div class="empty">none</div>`);
+  };
+  const layerName = (LAYERS[n.side === 'web' ? 'web' : 'server'].find(l => l[0] === n.layer) || [])[1] || n.layer;
+  detail.innerHTML = `
+    <p class="path">${n.id}</p>
+    <div class="meta"><span class="layer">${layerName}</span><span>${n.lines.toLocaleString()} lines</span>${n.test ? '<span class="stat">test</span>' : ''}${HUBS.has(n.id) ? '<span class="stat hub">hub</span>' : ''}</div>
+    <p class="blurb">${n.blurb || ''}</p>
+    ${list(n.imports, 'ti', 'Imports')}
+    ${list(importers[n.id], 'to', 'Imported by')}
+    <button class="clear" id="clear">Clear selection</button>`;
+  detail.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => select(b.dataset.go)));
+  document.getElementById('clear').addEventListener('click', () => select(null));
+}
+
+function setSide(s) {
+  side = s;
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.side === s)));
+  render();
+  if (selected) { const c = chipFor(selected); c && c.scrollIntoView({ block: 'nearest' }); }
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { if (selected && byId[selected]?.side !== b.dataset.side) selected = null; setSide(b.dataset.side); }));
+
+const taskSel = document.getElementById('task');
+for (const t of DATA.tasks) { const o = document.createElement('option'); o.value = t.id; o.textContent = `${t.label} → ${short(t.id)}`; taskSel.appendChild(o); }
+taskSel.addEventListener('change', () => { if (taskSel.value) select(taskSel.value); });
+
+const q = document.getElementById('q');
+q.addEventListener('input', () => {
+  const v = q.value.trim().toLowerCase();
+  if (!v) { applySelection(); return; }
+  selected = null; svg.innerHTML = ''; mapEl.classList.remove('focused'); mapEl.classList.add('searching'); renderDetail(null);
+  let first = null;
+  for (const c of bandsEl.querySelectorAll('.chip')) {
+    const hit = c.dataset.id.toLowerCase().includes(v);
+    c.classList.toggle('hit', hit); if (hit && !first) first = c;
+  }
+});
+q.addEventListener('keydown', e => { if (e.key === 'Enter') { const f = bandsEl.querySelector('.chip.hit'); if (f) { q.value = ''; select(f.dataset.id); } } });
+
+let raf = 0;
+window.addEventListener('resize', () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { svg.innerHTML = ''; if (selected) drawEdges(byId[selected]); }); });
+document.fonts?.ready.then(() => { if (selected) { svg.innerHTML = ''; drawEdges(byId[selected]); } });
+
+render();
+select('server/src/decks/allocation.ts');
+</script>
