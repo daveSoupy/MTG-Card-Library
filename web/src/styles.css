@@ -371,6 +371,23 @@ input[type='date'] {
   color: #fff; font-weight: 700; font-size: 10px; letter-spacing: .02em;
   border-radius: 999px; padding: 1px 7px;
 }
+/* The collection grid: every card here is owned, so the count is a quantity,
+   not an "owned" signal, and it takes the Lined-up badge's form — hanging
+   off the card's top-left corner into the grid gap, page-coloured ring and
+   all, so it covers neither the printed name nor the mana cost. The corner
+   it vacated takes the foil badge, hung off the top-right corner the same
+   way so it clears the mana cost too; the split badge sits inside under
+   that, over art rather than text, instead of overprinting the foil one
+   (both were top-left). */
+.owned-grid .owned-badge {
+  top: -7px; left: -7px; right: auto;
+  background: var(--text); color: var(--bg);
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  border-radius: 5px; padding: 1px 5px; min-width: 22px; text-align: center;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.owned-grid .foil-badge { top: -7px; left: auto; right: -7px; box-shadow: 0 0 0 2px var(--bg); }
+.owned-grid .split-badge { left: auto; right: 6px; top: 27px; }
 
 /* Holographic sheen laid over a foil card's art so it reads as foil at a
    glance. Sits above the image, never over the name/price below it. */

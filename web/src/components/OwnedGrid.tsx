@@ -24,7 +24,7 @@ export function OwnedGrid({
   const ultra = density === 'ultra';
 
   return (
-    <div className="grid">
+    <div className="grid owned-grid">
       {cards.map((card) => (
         <button
           className={`card${card.finish !== 'nonfoil' ? ' is-foil' : ''}`}
