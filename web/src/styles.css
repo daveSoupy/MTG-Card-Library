@@ -2431,10 +2431,18 @@ input[type='date'] {
    horizontal scrollbar. */
 .cascade-col {
   --cascade-card-w: 150px;
+  /* A gutter on the left for the quantity badge to hang into, so the card
+     itself stays --cascade-card-w wide. It is padding rather than a margin on
+     the tile so the tile's containing block (which the pull-up's percentage
+     margin resolves against) is still exactly the card's width. */
+  --cascade-gutter: 12px;
   flex: 0 0 auto; min-width: 0;
-  width: min(var(--cascade-card-w), 100%);
+  width: min(calc(var(--cascade-card-w) + var(--cascade-gutter)), 100%);
+  padding-left: var(--cascade-gutter);
 }
-.cascade-col h4 { margin: 0 0 6px; }
+/* The heading sits over the badges, not the card, so it stays flush with the
+   board title above it. */
+.cascade-col h4 { margin: 0 0 6px calc(-1 * var(--cascade-gutter)); }
 /* The pull-up. A card is 680/488 ≈ 1.393 times its own width tall, and a
    percentage margin resolves against the containing block's *width* — so
    -121% leaves about 13% of the card's height showing, which is its name and
@@ -2449,9 +2457,20 @@ input[type='date'] {
 .cascade-col .deck-tile.controls-open,
 .cascade-col .deck-tile:focus-within { z-index: 2; }
 /* Only the title strip of a stacked card shows, so the quantity badge has to
-   sit in it. Right side: the name is what a cascade is read by, the cost is
-   what it can afford to lose. */
-.cascade-col .tile-qty { top: 4px; left: auto; right: 5px; }
+   sit level with it — but not *in* it, where it would cover either the name
+   or the mana cost. It hangs off the card's left edge into the column's
+   gutter instead, half over the frame's black border, so the counts form
+   their own column to scan and nothing printed on the card is hidden. Over
+   page background rather than art, so it takes the page's text colour
+   inverted — dark on light, light on dark — instead of the grid's fixed dark
+   chip, which vanished against a dark theme and the frame's black border.
+   The ring in the page colour separates it from that border. */
+.cascade-col .tile-qty {
+  top: 3px; left: calc(-1 * var(--cascade-gutter)); right: auto;
+  min-width: 22px; text-align: center; padding: 1px 5px;
+  background: var(--text); color: var(--bg);
+  box-shadow: 0 0 0 2px var(--bg);
+}
 /* A card with no art of its own has no printed name in the strip either. */
 .cascade-strip {
   position: absolute; left: 0; right: 0; top: 0;
