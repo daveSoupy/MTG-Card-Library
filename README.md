@@ -41,7 +41,7 @@ You need one of:
 
 - **Docker** (Docker Desktop, or Docker Engine on a Linux box / NAS) — the
   easiest path, or
-- **Node.js 22 or newer** to run it directly.
+- **Node.js 22.6 or newer** to run it directly (`node --version`).
 
 Either way the first run downloads the card database from Scryfall (≈80 MB), which
 takes about 20 seconds to import. After that, everything is local.
@@ -176,6 +176,33 @@ docker compose exec mtg-library node -e "require('better-sqlite3')('/data/librar
 ```
 
 The `images/` folder next to the database is a cache and does not need backing up.
+
+## Testing it — found a bug?
+
+This is being shared for testing, so please do report things. Open an
+[issue](https://github.com/daveSoupy/MTG-Card-Library/issues) with:
+
+- what you did and what you expected instead
+- Docker or Node, and which OS
+- the server log around the time it happened — `docker compose logs --tail=100`
+  for Docker, or the terminal running `npm start` — and anything in the
+  browser console (F12 → Console) if the page itself misbehaved
+
+Nothing in your collection ever leaves your machine, so paste freely. The only
+outbound traffic the app makes is to Scryfall for card data, prices and images.
+
+### Not there yet
+
+The core loop — search, decks, collection, allocation, trades — is built and
+is what needs testing. Planned but not built, so not bugs:
+
+- price *history* and live price refresh (prices update on sync only)
+- sales tracking and event costs
+- shopping-cart export to TCGplayer / Card Kingdom
+- theming beyond light/dark, an onboarding tour, install-as-app (PWA)
+- shareable decklist links (the server is private by design — export is text)
+- a native phone app with OCR card scanning
+- importing friends' collections to trade against
 
 ---
 
