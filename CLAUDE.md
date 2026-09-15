@@ -15,7 +15,7 @@ Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete sc
 5. **Every phase file ends with a Verification section.** Implement those checks as tests where they're testable, and walk through the rest manually before calling the phase done.
 6. **Stop and wait for confirmation after each phase** rather than continuing to the next one unprompted.
 7. **Commit at the end of each completed phase.**
-8. Phase 0 is prep on shipped code and must precede Phase 9. Phases 7 and 8 are unsequenced and can be built at any point. Phase 16 (OCR-assisted entry) is optional — build it only if explicitly requested. Phase 20 (native iOS app) is a separate codebase against the same API.
+8. Phase 0 is prep on shipped code and must precede Phase 9. Phases 7 and 8 are unsequenced and can be built at any point. Phase 16 (OCR-assisted entry) is optional — build it only if explicitly requested. Phase 20 (companion phone app) is a separate build against the same API and needs Phase 29 first; Phases 28 and 29 are unsequenced.
 9. **Phase 22 comes before 23–27.** It rewrites how "available" is computed and puts that computation in one place (`server/src/decks/allocation.ts`). Phases 23–27 all call it rather than re-deriving the formula, and any phase built on the old rule produces numbers that are confidently wrong rather than visibly broken. Within that set, 24 precedes 25 and 26; 27 is last.
 
 ## Repo Layout
@@ -48,7 +48,7 @@ Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete sc
 - `phases/phase-17-onboarding.md`
 - Phase 18, Shareable Decklists — planned but not yet spec'd. Note the constraint before specing it: the server is never exposed publicly, so "shareable" means an exported artifact (a Moxfield-importable text blob, a file), not a public URL into this app.
 - `phases/phase-19-pwa-install-flow.md`
-- `phases/phase-20-native-companion-app.md` (native iOS client for OCR scanning and offline trade/sale/want recording — see the architecture notes below on what this means for the "no offline mode" rule)
+- `phases/phase-20-native-companion-app.md` (companion phone app, iOS and Android, Capacitor over `web/`: the web app at home, a snapshot-plus-queue "shop mode" away, syncing over the home network via Phase 29 — see the architecture notes below on what this means for the "no offline mode" rule. Rewritten after 28/29; needs 29, and 13 for sale recording)
 - `phases/phase-21-known-players.md` (capstone — after every other phase. A lighter alternative to full multi-user: friends' collections and want lists as read-only imported snapshots, no accounts, no `user_id` on any existing table)
 - `phases/phase-22-allocation-honesty.md` (shipped — deck status lifecycle, basic-land exemption, proxy counts, trade-list subtraction; establishes `server/src/decks/allocation.ts` as the single source of truth for "available")
 - `phases/phase-23-owned-aware-search.md` (shipped — `owned:` / `available:` / `loc:` / `indeck:` search predicates)
@@ -56,6 +56,8 @@ Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete sc
 - `phases/phase-25-assembly-pull-sheets.md` (shipped — resolves allocations to real lots at assembly time; pull sheets grouped by storage location, and disassembly that puts cards back. Its "write the claim from what was picked" step was superseded at build time, because the claim had become a derived figure; the doc says why and what replaced it)
 - `phases/phase-26-allocation-contention.md` (shipped — which decks are fighting over which copies, reassignment, teardown simulation. Its contested-set and alert sections were rewritten at build time for the derived claim; the doc carries both versions)
 - `phases/phase-27-owned-substitutes.md` (shipped — owned cards that could fill a slot you're short on, ranked by shared Tagger role / type / CMC in `server/src/decks/substitutes.ts`, with a keyword-heuristic fallback in `roleHeuristics.ts` for a database whose tag sync has never run. Read-only endpoints; accepting one is two ordinary card edits from the client, never a server-side swap)
+- `phases/phase-28-desktop-app.md` (the server packaged as a desktop app — Electron shell around the unmodified `server/dist`, tray/menu-bar lifecycle, auto-update, signed builds. A third way to run the same binary alongside systemd and Docker; LAN sharing off by default)
+- `phases/phase-29-pairing-and-lan-discovery.md` (instance id, `_mtglibrary._tcp` mDNS advertisement, one QR code that opens the web app or pairs the companion app. Home network only, deliberately — no tunnels, relays or embedded VPNs; "bring your own Tailscale" stays a documented advanced option)
 
 
 ## Overview
