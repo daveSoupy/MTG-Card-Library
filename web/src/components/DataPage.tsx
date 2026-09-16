@@ -10,6 +10,7 @@ import {
 } from '../api.ts';
 import { formatBytes, percent } from '../format.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
+import { HelpButton } from './helpTopics.tsx';
 import { BackToTop } from './BackToTop.tsx';
 import { THEME_LABEL, THEMES, type Theme } from '../theme.ts';
 
@@ -335,6 +336,24 @@ export function DataPage({
           per device rather than in the library — a phone can be dark while the desktop is not.
         </p>
 
+        {/* Phase 17. Clearing the flag is all it takes: App shows the welcome
+            whenever the flag is false and card data exists, so it appears
+            here, now, without waiting for a sync. */}
+        {settings && (
+          <div className="btnrow">
+            <button
+              className="btn secondary"
+              onClick={() => saveSetting('welcomeSeen', false)}
+              disabled={!settings.welcomeSeen}
+            >
+              Show the welcome walkthrough again
+            </button>
+          </div>
+        )}
+        <p className="hint">
+          The three-link welcome that appeared after the first card sync.
+        </p>
+
         {settings && (
           <label className="check">
             <input
@@ -651,7 +670,7 @@ export function DataPage({
 
         {batches.length > 0 && (
           <>
-            <h4>Recent imports</h4>
+            <h4>Recent imports <HelpButton topic="reopenPool" /></h4>
             <div className="backup-list">
               {batches.map((batch) => (
                 <div className="backup-row" key={batch.id}>

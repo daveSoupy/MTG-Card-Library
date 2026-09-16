@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import {
   addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchSettings, fetchStatus,
   fetchWantItemsForOracle, fetchWantList, fetchWantLists, imageUrl, removeWantItem, searchCards,
+  updateSettings,
   type AppSettings, type CardSummary, type FormatRecord, type NamedList, type SetRecord,
   type StatusResponse, type StorageLocation,
 } from './api.ts';
@@ -10,7 +11,8 @@ import { CardDetailPane } from './components/CardDetailPane.tsx';
 import { SyncGate } from './components/SyncGate.tsx';
 import { DeckList } from './components/DeckList.tsx';
 import { DeckBuilder } from './components/DeckBuilder.tsx';
-import { SyntaxHelp } from './components/SyntaxHelp.tsx';
+import { HelpIndex, HelpTopicPanel, type HelpTopicId } from './components/helpTopics.tsx';
+import { Welcome } from './components/Welcome.tsx';
 import { CollectionPage } from './components/CollectionPage.tsx';
 import { DataPage } from './components/DataPage.tsx';
 import { TradesPage } from './components/TradesPage.tsx';
@@ -145,7 +147,11 @@ export default function App() {
       Random
     </button>
   );
-  const [showSyntax, setShowSyntax] = useState(false);
+  // Phase 17. One slot for the app-level help overlays — the topbar index and
+  // whichever topic it (or the search box's "syntax" link) opened — so opening
+  // a topic from the index replaces the index rather than stacking on it.
+  // The `?` beside each control owns its own panel and is not tracked here.
+  const [help, setHelp] = useState<HelpTopicId | 'index' | null>(null);
   // Parse warnings from the last search — an unknown storage location, a count
   // that was not a number. Kept beside the results rather than raised as an
   // error: the search still ran.
@@ -258,6 +264,8 @@ export default function App() {
   // Parked features hide their tab. Switching one off while looking at it would
   // otherwise leave the page on screen with no way back to it.
   const showGameLog = Boolean(settings?.showGameLog);
+  const showWelcome = settings?.welcomeSeen === false
+    && Boolean(status?.library.hasCardData) && !showSync;
   // A replace, not a push: the page went away under the user, so leaving
   // /games in the history would make Back a step onto a tab that isn't there.
   useEffect(() => {
@@ -361,8 +369,10 @@ export default function App() {
         event.preventDefault();
         searchInput.current?.focus();
       } else if (event.key === '?' && document.activeElement !== searchInput.current) {
+        // The same thing the topbar's ? opens; the search reference is the
+        // first entry in it.
         event.preventDefault();
-        setShowSyntax(true);
+        setHelp('index');
       } else if (event.key === 'Escape') {
         setSelected(null);
         setFiltersOpen(false);
@@ -410,6 +420,16 @@ export default function App() {
             className={view.name === 'data' ? 'on' : ''}
             onClick={() => navigate({ name: 'data' })}
           >Data</button>
+          {/* Phone only (styles.css hides it wider): the first row holds
+              exactly the brand, five tabs and the bell, so the help index
+              rides at the end of the tab strip and scrolls the way an
+              optional sixth tab does. Desktop gets the button by the bell. */}
+          <button
+            className="tabs-help"
+            onClick={() => setHelp('index')}
+            title="Help"
+            aria-label="Help"
+          >?</button>
         </nav>
 
         {view.name === 'browse' && <div className="searchbox">
@@ -421,7 +441,7 @@ export default function App() {
             spellCheck={false}
             aria-label="Search cards"
           />
-          <button className="hint syntax-link" onClick={() => setShowSyntax(true)} title="Search syntax reference">
+          <button className="hint syntax-link" onClick={() => setHelp('syntax')} title="Search syntax reference">
             syntax
           </button>
         </div>}
@@ -492,6 +512,12 @@ export default function App() {
             reach for mid-search, and the top bar was four rows of buttons on
             a phone. */}
         <AlertsBell refreshKey={alertKey} />
+        <button
+          className="btn secondary topbar-help"
+          onClick={() => setHelp('index')}
+          title="Help"
+          aria-label="Help"
+        >?</button>
       </header>
 
       {view.name === 'collection' && (
@@ -731,7 +757,32 @@ export default function App() {
       </div>
       )}
 
-      {showSyntax && <SyntaxHelp onClose={() => setShowSyntax(false)} />}
+      {help === 'index' && (
+        <HelpIndex onOpen={(topic) => setHelp(topic)} onClose={() => setHelp(null)} />
+      )}
+      {help !== null && help !== 'index' && (
+        <HelpTopicPanel
+          topic={help}
+          onClose={() => setHelp(null)}
+          onBack={() => setHelp('index')}
+        />
+      )}
+
+      {/* Phase 17. Shown while the flag is false and there is card data —
+          which is the moment the first sync lands (loadStatus flips
+          hasCardData, the settings then load) and again after the Data
+          page's "show it again" clears the flag. Never over the sync gate
+          itself. Dismissing writes the flag before the request lands so the
+          screen does not linger. */}
+      {showWelcome && (
+        <Welcome
+          onGo={(to) => navigate({ name: to })}
+          onDone={() => {
+            setSettings((current) => (current ? { ...current, welcomeSeen: true } : current));
+            updateSettings({ welcomeSeen: true }).catch(() => undefined);
+          }}
+        />
+      )}
 
       {showSync && status && (
         <SyncGate

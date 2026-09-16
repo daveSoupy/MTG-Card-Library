@@ -56,7 +56,7 @@ export function SyncGate({
         <h2>{isFirstRun ? 'Download the card database' : 'Refresh card data'}</h2>
         <p>
           {isFirstRun
-            ? 'The app keeps a local copy of every Magic card so search stays instant and works offline. This runs once.'
+            ? 'The app keeps a local copy of every Magic card so search stays instant. This runs once.'
             : `Currently holding ${status.library.oracleCards.toLocaleString()} cards from ` +
               `${status.library.sets.toLocaleString()} sets.`}
         </p>

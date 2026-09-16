@@ -25,6 +25,8 @@ import { FLAG, MONEY } from './schema.ts';
  * the matching map below (boolean, enum, or number).
  */
 
+export const WELCOME_SEEN = 'welcome_seen';
+
 interface BooleanSetting { key: string; default: boolean; }
 interface EnumSetting { key: string; default: string; allowed: readonly string[]; }
 interface NumberSetting { key: string; default: number; }
@@ -49,6 +51,11 @@ const BOOLEAN_SETTINGS: Record<string, BooleanSetting> = {
   // The safe version is useful on its own, so the destructive one is a
   // decision rather than a default.
   assemblyMovesLots: { key: ASSEMBLY_MOVES_LOTS, default: ASSEMBLY_MOVES_LOTS_DEFAULT },
+  // Phase 17. Whether the one-time welcome step has been dismissed. The client
+  // shows it while this is false and card data exists; "show it again" on the
+  // Data page just writes false back. Migration v21 marks installs that
+  // predate the flag as seen, so only a genuinely fresh library gets it.
+  welcomeSeen: { key: WELCOME_SEEN, default: false },
 };
 
 /**

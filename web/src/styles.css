@@ -1220,6 +1220,66 @@ input[type='date'] {
 }
 .syntax-row span { font-size: 12px; color: var(--text-2); }
 
+/* ---------- help panels (Phase 17) ---------- */
+/* The shell every reference panel renders into is .syntax-card above; these
+   are the additions for prose topics, the topbar index and the welcome. */
+.help-overlay .syntax-head .btnrow { margin: 0; }
+/* Prose topics read as one column; the syntax and import tables keep two. */
+.syntax-card.help-single { width: min(600px, 100%); }
+.syntax-card.help-single .syntax-body { grid-template-columns: 1fr; }
+.help-prose { font-size: 12.5px; color: var(--text-2); line-height: 1.55; }
+.help-prose p { margin: 0 0 8px; }
+.help-prose p:last-child { margin-bottom: 0; }
+.help-prose code, .welcome .note code {
+  font-family: var(--mono); font-size: 11.5px; color: var(--accent);
+  background: var(--panel-2); border-radius: 4px; padding: 1px 4px;
+}
+.help-prose strong { color: var(--text); }
+/* A section with both a table and prose: the prose introduces the table. */
+.syntax-body section .help-prose + .syntax-row,
+.syntax-body section .syntax-row + .help-prose { margin-top: 6px; }
+
+/* The ? beside a control. Sized to the text it sits in, not the 40px touch
+   rule — it is a footnote, and the panel it opens has a full-size Close. */
+.help-btn {
+  display: inline-grid; place-items: center; vertical-align: middle;
+  width: 17px; height: 17px; border-radius: 999px; padding: 0; margin-left: 4px;
+  background: none; border: 1px solid var(--line-strong); color: var(--text-3);
+  font-family: var(--mono); font-size: 11px; line-height: 1; cursor: pointer;
+}
+.help-btn:hover { color: var(--accent); border-color: var(--accent); }
+h3 .help-btn, h4 .help-btn { margin-left: 6px; }
+
+.topbar-help { font-family: var(--mono); font-weight: 700; padding: 7px 11px; }
+/* The phone's copy of the same button, inside the tab strip; see App.tsx. */
+.tabs .tabs-help { display: none; font-family: var(--mono); font-weight: 700; }
+/* Phone: the header's two buttons stay one line each beside a title that wraps. */
+@media (max-width: 620px) {
+  .help-overlay .syntax-head .btn { white-space: nowrap; padding: 7px 10px; font-size: 12.5px; }
+  .help-overlay .syntax-head h2 { font-size: 16px; }
+}
+
+.help-index { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.help-index-row {
+  width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 9px 12px; color: var(--text-2); cursor: pointer;
+}
+.help-index-row:hover { border-color: var(--accent); }
+.help-index-row strong { color: var(--text); font-size: 13px; }
+.help-index-row span { font-size: 12px; }
+
+.welcome-stops { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.welcome-stop {
+  text-align: left; display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px; color: var(--text-2); cursor: pointer; min-height: 120px;
+}
+.welcome-stop:hover { border-color: var(--accent); }
+.welcome-stop strong { color: var(--accent); font-size: 15px; }
+.welcome-stop span { font-size: 12.5px; line-height: 1.45; }
+.welcome .note { margin-top: 14px; }
+
 /* ---------- mana base ---------- */
 .manabase-head, .manabase-row {
   display: grid; grid-template-columns: 1fr 46px 62px;
@@ -1327,8 +1387,8 @@ input[type='date'] {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   position: sticky; top: 0; z-index: 5;
 }
-.entry-bar label { display: flex; flex-direction: column; gap: 4px; }
-.entry-bar label > span {
+.entry-bar label, .entry-bar .entry-field { display: flex; flex-direction: column; gap: 4px; }
+.entry-bar label > span, .entry-bar .entry-field > span {
   font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
   color: var(--text-3); font-family: var(--mono);
 }
@@ -2065,6 +2125,8 @@ input[type='date'] {
   .topbar .brand { order: -3; }
   .topbar .tabs { order: -2; }
   .topbar .alerts-bell { order: -1; }
+  .topbar .topbar-help { display: none; }
+  .tabs .tabs-help { display: block; }
   /* The tabs are the flexible item on this row; a spacer beside them would
      take half of what they need. */
   .topbar-spacer { display: none; }
@@ -2074,6 +2136,8 @@ input[type='date'] {
   .topbar .density-toggle { display: none; }
   .topbar .btn.secondary { padding: 7px 11px; font-size: 12.5px; }
   .topbar .alerts-bell .btn { padding: 7px 9px; }
+  .welcome-stops { grid-template-columns: 1fr; }
+  .welcome-stop { min-height: 0; }
   .searchbox { flex-basis: 100%; }
   /* Once the bar wraps, the chips' vertical margin sits on top of the row
      gap and the chip row is 16px taller than its neighbours for nothing. */

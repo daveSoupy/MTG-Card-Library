@@ -1,4 +1,5 @@
 import { imageUrl, type DeckStats, type DeckValidation, type ManaBase, type TemplateProgress } from '../api.ts';
+import { HelpButton } from './helpTopics.tsx';
 
 const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
@@ -324,7 +325,7 @@ export function DeckStatsPanel({
       </div>
 
       <div className="fgroup">
-        <h3>Collection</h3>
+        <h3>Collection <HelpButton topic="allocation" /></h3>
         <div className="kv"><span>From your collection</span><span>{stats.ownedCount}</span></div>
         {stats.proxiedCount > 0 && (
           <div className="kv"><span>Proxied</span><span>{stats.proxiedCount}</span></div>

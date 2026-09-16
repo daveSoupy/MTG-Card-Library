@@ -287,6 +287,43 @@ test('v20 cancels open pull sheets on decks that no longer reserve', () => {
   db.close();
 });
 
+/**
+ * v21 is Phase 17's guard against greeting an established library as new: the
+ * welcome shows while welcome_seen is unset and card data exists, so an
+ * install that predates the flag gets it marked seen. A library with no cards
+ * yet is a fresh install mid-setup and keeps its welcome; a user who already
+ * dismissed it (or asked to see it again) is not overwritten.
+ */
+test('v21 marks the welcome seen only on libraries that already hold card data', () => {
+  const v21 = MIGRATIONS.find((m) => m.version === 21);
+  assert.ok(v21, 'expected a v21 migration');
+  assert.ok(isDataOnly(v21.sql), 'v21 should be data-only');
+
+  const readFlag = (db: InstanceType<typeof Database>) =>
+    (db.prepare("SELECT value FROM app_settings WHERE key = 'welcome_seen'").get() as { value: string } | undefined)?.value ?? null;
+
+  const withCards = new Database(':memory:');
+  withCards.exec(SCHEMA_SQL);
+  withCards.prepare("INSERT INTO oracle_cards (oracle_id, name, name_normalized) VALUES ('bolt', 'Lightning Bolt', 'lightning bolt')").run();
+  withCards.exec(v21.sql);
+  assert.equal(readFlag(withCards), '1', 'an established library is not a newcomer');
+  withCards.close();
+
+  const empty = new Database(':memory:');
+  empty.exec(SCHEMA_SQL);
+  empty.exec(v21.sql);
+  assert.equal(readFlag(empty), null, 'a library with no cards still gets its welcome after the first sync');
+  empty.close();
+
+  const reset = new Database(':memory:');
+  reset.exec(SCHEMA_SQL);
+  reset.prepare("INSERT INTO oracle_cards (oracle_id, name, name_normalized) VALUES ('bolt', 'Lightning Bolt', 'lightning bolt')").run();
+  reset.prepare("INSERT INTO app_settings (key, value) VALUES ('welcome_seen', '0')").run();
+  reset.exec(v21.sql);
+  assert.equal(readFlag(reset), '0', 'an explicit value is left alone');
+  reset.close();
+});
+
 test('filter_presets enforces unique names case-insensitively', () => {
   const db = new Database(':memory:');
   db.exec(SCHEMA_SQL);

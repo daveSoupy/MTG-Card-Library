@@ -1,7 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import App from './App.tsx';
-import { ApiError, type CardSummary, type SearchParams, type Trade, type TradeSummary } from './api.ts';
+import {
+  ApiError, fetchSettings, updateSettings,
+  type AppSettings, type CardSummary, type SearchParams, type Trade, type TradeSummary,
+} from './api.ts';
+import { HELP_TOPICS, HELP_TOPIC_ORDER } from './components/helpTopics.tsx';
 
 const hit = (overrides: Partial<CardSummary> = {}): CardSummary => ({
   oracleId: 'O-1', name: 'Lightning Bolt', manaCost: '{R}', cmc: 1,
@@ -26,7 +30,16 @@ const searchCards = vi.fn(async (_params: SearchParams) => ({ cards: results, to
 
 // Hoisted so the mock factory below, which vitest lifts above the imports,
 // can read them without tripping the temporal dead zone.
-const { TRADES } = vi.hoisted(() => {
+const { TRADES, SETTINGS } = vi.hoisted(() => {
+  // Mutable so a test can flip welcomeSeen before rendering; the defaults
+  // match a library that has been in use, so nothing greets the other tests.
+  const SETTINGS = {
+    autoMaintainLands: false, showDeckTemplates: false, showGameLog: false,
+    allocationIgnoresBasics: true, brewsReserveCopies: false, tradelistReducesAvailable: true,
+    defaultCostMethod: 'unknown', defaultCostFixedUsd: 0, draftBoosterPriceUsd: 4,
+    deckbuilderDefaultScope: 'all', assemblyMovesLots: false, substituteSuggestionCount: 6,
+    welcomeSeen: true,
+  };
   const summary = (overrides: Partial<TradeSummary> & Pick<TradeSummary, 'id' | 'counterpartyName'>): TradeSummary => ({
     counterpartyContact: null, status: 'completed', tradeDate: '2026-09-01', completedAt: '2026-09-01T12:00:00Z',
     locationNote: null, notes: null, valueOutUsd: 10, valueInUsd: 12,
@@ -37,7 +50,7 @@ const { TRADES } = vi.hoisted(() => {
     summary({ id: 6, counterpartyName: 'Bill' }),
     summary({ id: 8, counterpartyName: 'Alice', status: 'draft', completedAt: null }),
   ];
-  return { TRADES };
+  return { TRADES, SETTINGS };
 });
 
 vi.mock('./api.ts', async (importOriginal) => ({
@@ -59,6 +72,8 @@ vi.mock('./api.ts', async (importOriginal) => ({
     if (!found) throw new ApiError(`No trade with id ${id}.`, 404, false);
     return { ...found, items: [] };
   }),
+  fetchSettings: vi.fn(async () => ({ ...SETTINGS } as AppSettings)),
+  updateSettings: vi.fn(async (changes: Partial<AppSettings>) => ({ ...SETTINGS, ...changes } as AppSettings)),
   fetchSets: vi.fn(async () => []),
   fetchFormats: vi.fn(async () => []),
   fetchLocations: vi.fn(async () => []),
@@ -324,5 +339,93 @@ describe('routing', () => {
     render(<App />);
     expect(await screen.findByText('No trade with that id.')).toBeInTheDocument();
     expect(url()).toBe('/trades/999999');
+  });
+});
+
+describe('help and welcome (Phase 17)', () => {
+  const dialog = (name: string) => screen.queryByRole('dialog', { name });
+
+  beforeEach(() => {
+    localStorage.clear();
+    SETTINGS.welcomeSeen = true;
+    vi.mocked(fetchSettings).mockClear();
+    vi.mocked(updateSettings).mockClear();
+    window.history.replaceState(null, '', '/collection');
+  });
+
+  it('the topbar ? opens an index that reaches every panel, one panel at a time', async () => {
+    const { container } = render(<App />);
+    // Two ? buttons exist — one by the bell for desktop, one at the end of
+    // the tab strip for phones; CSS shows one at a time. Both open the index.
+    const helpButtons = screen.getAllByRole('button', { name: 'Help' });
+    expect(helpButtons.map((b) => b.className)).toEqual(['tabs-help', 'btn secondary topbar-help']);
+    expect(container.querySelector('.topbar .tabs .tabs-help')).not.toBeNull();
+    fireEvent.click(helpButtons[1]);
+    expect(dialog('Help')).not.toBeNull();
+
+    for (const id of HELP_TOPIC_ORDER) {
+      const { title } = HELP_TOPICS[id];
+      fireEvent.click(within(dialog('Help')!).getByRole('button', { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }));
+      // The topic replaces the index rather than stacking on it.
+      expect(dialog('Help')).toBeNull();
+      expect(dialog(title)).not.toBeNull();
+      expect(document.querySelectorAll('.help-overlay').length).toBe(1);
+      // And the way back is the index again.
+      fireEvent.click(within(dialog(title)!).getByRole('button', { name: 'All topics' }));
+      expect(dialog(title)).toBeNull();
+      expect(dialog('Help')).not.toBeNull();
+    }
+
+    fireEvent.click(within(dialog('Help')!).getByRole('button', { name: 'Close' }));
+    expect(document.querySelector('.help-overlay')).toBeNull();
+
+    fireEvent.click(helpButtons[0]);
+    expect(dialog('Help')).not.toBeNull();
+  });
+
+  it('the search box link opens the syntax reference with its original content, and Escape dismisses it', async () => {
+    window.history.replaceState(null, '', '/browse');
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'syntax' }));
+    const panel = dialog('Search syntax');
+    expect(panel).not.toBeNull();
+    expect(within(panel!).getByText('c:azorius')).toBeInTheDocument();
+    expect(within(panel!).getByText('Your collection')).toBeInTheDocument();
+    // App-level panels always offer the index, whichever way they were opened.
+    expect(within(panel!).getByRole('button', { name: 'All topics' })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(dialog('Search syntax')).toBeNull();
+  });
+
+  it('shows the welcome while the flag is off and card data exists; dismissing writes the flag', async () => {
+    SETTINGS.welcomeSeen = false;
+    render(<App />);
+    const welcome = await screen.findByRole('dialog', { name: 'Welcome' });
+    expect(within(welcome).getByRole('button', { name: /^Browse/ })).toBeInTheDocument();
+
+    fireEvent.click(within(welcome).getByRole('button', { name: 'Close' }));
+    expect(dialog('Welcome')).toBeNull();
+    expect(updateSettings).toHaveBeenCalledWith({ welcomeSeen: true });
+  });
+
+  it('does not show the welcome once the flag is set', async () => {
+    render(<App />);
+    await waitFor(() => expect(fetchSettings).toHaveBeenCalled());
+    // Give the settings promise a turn to land before asserting the negative.
+    await screen.findAllByRole('button', { name: 'Help' });
+    await waitFor(() => expect(vi.mocked(fetchSettings).mock.results[0]?.value).resolves.toBeTruthy());
+    expect(dialog('Welcome')).toBeNull();
+  });
+
+  it('a welcome link lands on that page and dismisses the welcome', async () => {
+    SETTINGS.welcomeSeen = false;
+    const { container } = render(<App />);
+    const welcome = await screen.findByRole('dialog', { name: 'Welcome' });
+    fireEvent.click(within(welcome).getByRole('button', { name: /^Decks/ }));
+    expect(dialog('Welcome')).toBeNull();
+    expect(window.location.pathname).toBe('/decks');
+    const nav = container.querySelector('.topbar .tabs') as HTMLElement;
+    expect(within(nav).getByRole('button', { name: 'Decks' }).className).toBe('on');
   });
 });

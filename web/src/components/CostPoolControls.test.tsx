@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { CostPoolFields, type CostPoolState } from './CostPoolControls.tsx';
 
 function fakeState(overrides: Partial<CostPoolState> = {}): CostPoolState {
@@ -36,5 +36,26 @@ describe('CostPoolFields', () => {
     render(<CostPoolFields state={state} />);
 
     expect(screen.getByPlaceholderText('e.g. 12')).toBeInTheDocument();
+  });
+
+  it('the Cost label still labels the select, and its ? is not the label\'s control', () => {
+    // A <button> is labelable, so a ? inside the <label> would have become
+    // the control the label activates — every click on the caption opened
+    // help, and the help backdrop's click re-opened it through the label.
+    render(<CostPoolFields state={fakeState()} />);
+    const select = screen.getByLabelText('Cost');
+    expect(select.tagName).toBe('SELECT');
+
+    fireEvent.click(screen.getByText('Cost'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Help: Cost pools/ }));
+    const panel = screen.getByRole('dialog', { name: /^Cost pools/ });
+    // Portalled: the overlay is a child of <body>, not of the entry bar.
+    expect(document.querySelector('.help-overlay')!.parentElement).toBe(document.body);
+    expect(within(panel).getByText(/re-divides every time the count/)).toBeInTheDocument();
+
+    fireEvent.click(document.querySelector('.help-overlay')!);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });
