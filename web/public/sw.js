@@ -29,7 +29,7 @@
  *     the next load rather than after the browser's 24-hour ceiling.
  */
 
-const CACHE = 'mtg-library-shell-v1';
+const CACHE = 'mtg-library-shell-v2';
 
 /** The page itself, under one key whatever route it was loaded at. */
 const PAGE = '/index.html';
@@ -79,10 +79,12 @@ async function networkFirst(event) {
   const key = isPage ? PAGE : request;
   try {
     const response = await fetch(request);
-    // Only a real, complete 200 replaces the cached copy — never the
-    // server's 404 JSON, a redirect, or a partial response. The write
-    // happens after the response is handed back, not in front of it.
-    if (response.ok && response.status === 200 && response.type === 'basic') {
+    // Only a real, complete 200 of the kind asked for replaces the cached
+    // copy — never the server's 404 JSON, a redirect, a partial response, or
+    // HTML under a bundle's name (a stale page asking for a bundle that no
+    // longer exists). The write happens after the response is handed back,
+    // not in front of it.
+    if (response.ok && response.status === 200 && response.type === 'basic' && kindMatches(request, response)) {
       const copy = response.clone();
       event.waitUntil((async () => {
         const cache = await caches.open(CACHE);
@@ -96,6 +98,12 @@ async function networkFirst(event) {
     if (cached) return cached;
     throw error;
   }
+}
+
+/** An HTML body belongs to a navigation and to nothing else. */
+function kindMatches(request, response) {
+  const isHtml = (response.headers.get('content-type') || '').includes('text/html');
+  return request.mode === 'navigate' ? isHtml : !isHtml;
 }
 
 /**
