@@ -61,7 +61,9 @@ Generated from the import graph on 2026-09-16 (Phases 0–11, 17, 22–27, 31, 3
 | **Desktop:** the persisted port, the sharing flag, "is this port free" | `desktop/src/config.ts` | The probe binds *and* connects — a bind alone lies on macOS. |
 | **Desktop:** how the server child is spawned, stopped (SIGTERM / stdin close), health-polled | `desktop/src/server.ts` | Bundled Node, never `ELECTRON_RUN_AS_NODE`. |
 | **Desktop:** the log file and its rotation | `desktop/src/logging.ts` | `<userData>/logs/server.log`. |
-| **Desktop:** what ships and where it lands in the bundle | `desktop/electron-builder.yml`, `desktop/scripts/stage.mjs` | Read the yml's header first. `check-packaged.mjs` is the gate. |
+| **Desktop:** auto-update — check on launch and daily, download in the background, "Restart to update", the one dialog behind "Check for updates…" | `desktop/src/updates.ts` (electron-updater), `desktop/src/updateState.ts` (state + wording, tested) | Phase 34. Never an unasked dialog. Quit goes through `app.quit()` so the on-quit install fires. |
+| **Desktop:** what ships and where it lands in the bundle; signing, notarisation, the publish target | `desktop/electron-builder.yml`, `desktop/build/entitlements.mac*.plist`, `desktop/scripts/stage.mjs` | Read the yml's header first. `check-packaged.mjs` is the gate, signature included. |
+| **Desktop:** the release — one `v*` tag → draft GitHub Release → mac + windows jobs → publish | `.github/workflows/desktop.yml` | Its header lists the secrets. The tag must equal `desktop/package.json`'s version. |
 | **Web:** the HTTP client and every shared TS type | `web/src/api.ts` | Every component imports from here. Server type change → mirror here first. |
 | **Web:** top-level views, nav, topbar, global state (settings/density/theme) | `web/src/App.tsx` | Also the help index / topic overlay slot and the welcome gate (Phase 17). |
 | **Web:** a `?` help panel beside a control, or the topbar help index | `web/src/components/helpTopics.tsx` | Add a topic to `HELP_TOPICS`, drop `<HelpButton topic=… />` beside the control. Never inside a `<label>` — a button is labelable. |
@@ -403,19 +405,36 @@ src/server.ts    ServerProcess: spawn server/dist/index.js on the bundled Node w
 src/config.ts    desktop-config.json (port, sharing, keepAwake, launchAtLogin, notices, window bounds);
                  choosePort / isPortFree. Tested.
 src/logging.ts   RotatingLog (size-rotated file), bootMessage (pino line → msg), LineSplitter. Tested.
+src/updates.ts   Phase 34. Updates: electron-updater wired to check on launch and daily, download in the
+                 background, apply on quit; `check()` for the tray's manual check, `restartToUpdate()`.
+                 A no-op in development. Logs through RotatingLog so "Show logs" covers it.
+src/updateState.ts  the Electron-free half: UpdateState, updateStatusLine (the tray line),
+                 manualCheckMessage (the dialog's words), CHECK_INTERVAL_MS. Tested.
 assets/          tray icons (trayTemplate.png + @2x for the macOS menu bar, tray.png for Windows).
 build/icon.png   the app icon; electron-builder makes the .icns/.ico. Both from scripts/render-icons.mjs.
+build/entitlements.mac.plist          hardened-runtime entitlements for the .app (Phase 34).
+build/entitlements.mac.inherit.plist  the same three keys for everything else in the bundle — the bundled
+                 Node (it JITs: allow-jit is the one that matters) and better_sqlite3.node.
 electron-builder.yml   what ships and where: app.asar (the shell), Resources/mtg-library (the staged server
-                 tree), Resources/node (the bundled Node). Its header explains every non-obvious line.
+                 tree), Resources/node (the bundled Node); signing (hardenedRuntime, entitlements, binaries,
+                 signIgnore — only Mach-O files may be signed), notarize, publish (GitHub Releases; becomes
+                 Resources/app-update.yml). Its header explains every non-obvious line.
+scripts/after-pack.mjs      electron-builder afterPack hook: clears extended attributes on the mac bundle
+                            before signing (Electron's extracted zip carries thousands).
 scripts/fetch-node.mjs      the pinned Node release per target, SHA-256 checked, into vendor/ (gitignored).
 scripts/stage.mjs           the Dockerfile's runtime stage per target into staging/ (gitignored): fresh
                             npm ci --omit=dev, workspace symlinks and .bin dirs removed, dist trees copied,
                             better_sqlite3.node swapped per platform with prebuild-install.
-scripts/check-packaged.mjs  the gate: layout, binary formats, and check-sqlite.mjs on the packaged Node.
+scripts/check-packaged.mjs  the gate: layout, binary formats, check-sqlite.mjs on the packaged Node, the
+                            updater's files, and on a Mac the signature (strict verify, Developer ID, the
+                            bundled Node's hardened runtime + allow-jit); --require-signed / --require-notarized
+                            (spctl, stapler) for the workflow.
 scripts/package.mjs         `npm run desktop:package`: fetch → stage → tsc → gate → electron-builder → gate.
+                            Detects a File Provider (iCloud) ancestor and symlinks out/ to ~/Library/Caches —
+                            codesign cannot win a race with the sync's FinderInfo stamping.
 scripts/verify-lifecycle.mjs  drives the doc's verification items 4–6, plus Phase 33's advertise-follows-sharing
-                            (dns-sd on macOS) and "Pair a phone…" checks, over electron --inspect, against the
-                            dev app or (--app) a packaged one.
+                            (dns-sd on macOS) and "Pair a phone…" checks, and Phase 34's manual update check,
+                            over electron --inspect, against the dev app or (--app) a packaged one.
 ```
 
 Runtime shape:
@@ -462,5 +481,5 @@ MTG Library.app (Electron main)  ──spawn──►  Resources/node/node Resou
 - **Web:** `cd web && npm test` — `test:unit` (`node --test` over pure `.ts` helpers) then `test:dom` (`vitest` over `.tsx` components). `npm run dev` for Vite.
 - **Storage:** `server/src/db/migrations.test.ts` is the one to run after any DDL.
 - **Manual checks:** `server/scripts/check-sqlite.mjs` after `npm rebuild`; `server/scripts/sync.mjs` to sync from the CLI.
-- **Desktop:** `cd desktop && npm test` — `node --test` over `config.test.ts` and `logging.test.ts`. `npm run desktop:dev` at the root runs the shell from the working tree; `npm run desktop:package` builds the .dmg/.zip and the Windows installer, gates included; `node desktop/scripts/verify-lifecycle.mjs` walks the lifecycle checks.
-- **Deploy:** `deploy/mtg-library.service` (systemd) + `deploy/README.md`. Data dir from `MTG_DATA_DIR`. Or the desktop app — the same `server/dist`, a third way to set the same three variables.
+- **Desktop:** `cd desktop && npm test` — `node --test` over `config.test.ts`, `logging.test.ts` and `updateState.test.ts`. `npm run desktop:dev` at the root runs the shell from the working tree; `npm run desktop:package` builds the .dmg/.zip and the Windows installer, gates included; `node desktop/scripts/verify-lifecycle.mjs` walks the lifecycle checks.
+- **Deploy:** `deploy/mtg-library.service` (systemd) + `deploy/README.md`. Data dir from `MTG_DATA_DIR`. Or the desktop app — the same `server/dist`, a third way to set the same three variables. `.github/workflows/docker.yml` publishes the image; `.github/workflows/desktop.yml` builds, signs, notarises and publishes the desktop installers — both on a `v*` tag.

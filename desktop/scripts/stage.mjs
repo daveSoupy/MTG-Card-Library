@@ -32,11 +32,12 @@
 
 import { execFileSync } from 'node:child_process';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readSync, readdirSync, rmSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { NODE_TARGETS, bundledNodeVersion } from './fetch-node.mjs';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const desktopDir = join(here, '..');
 const rootDir = join(desktopDir, '..');
 const stagingDir = join(desktopDir, 'staging');
@@ -168,7 +169,7 @@ export function stage(targets) {
   rmSync(base, { recursive: true, force: true });
 }
 
-const isMain = process.argv[1] && new URL(import.meta.url).pathname === process.argv[1];
+const isMain = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const args = process.argv.slice(2);
   const targets = [];

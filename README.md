@@ -103,6 +103,16 @@ stop. No Docker, no Node, no terminal. It is for people *without* a home
 server — it keeps its own library, and there is no syncing between it and a
 self-hosted install, so it is one or the other.
 
+**Download:** the latest release on the
+[Releases page](https://github.com/daveSoupy/MTG-Card-Library/releases/latest) —
+`MTG-Library-<version>-mac-arm64.dmg` for a Mac, `MTG-Library-<version>-win-x64-setup.exe`
+for Windows. It is 150–250 MB, most of it the bundled runtime. **It updates
+itself:** the app checks for a new release when it opens and once a day,
+downloads it in the background, and applies it the next time you quit (or
+sooner from *Restart to update* in the menu). Nothing interrupts you
+mid-session, and your library is untouched by an update — the database
+migrates itself on the next open, exactly as a server install does.
+
 It runs in the background: closing the window keeps the server up (the
 menu-bar / tray icon reopens it), and only **Quit** stops it. It starts at
 login by default. The tray menu also has *Allow other devices on this network*
@@ -110,27 +120,21 @@ login by default. The tray menu also has *Allow other devices on this network*
 QR code: point the phone's camera at it, it opens the app in the phone's
 browser, then *Add to Home Screen*; if the computer's address ever changes,
 scan it again), *Keep this computer awake while sharing*, *Show data folder*
-(the `library.sqlite` in there is your whole backup) and *Show logs*. The QR
-lives on the Data page, so any browser already on the app can show it too.
+(the `library.sqlite` in there is your whole backup), *Show logs* and *Check
+for updates…*. The QR lives on the Data page, so any browser already on the
+app can show it too.
 
-The download is 150–200 MB, most of it the bundled runtime.
+What the two operating systems say on first open:
 
-**For now the builds are unsigned**, which the two operating systems treat
-differently:
-
-- **macOS** — a build you make yourself (below) opens normally. One
-  *downloaded* from someone else is quarantined and Gatekeeper reports it as
-  "damaged". Until the signed release exists, clear the flag once from a
-  terminal, then open it as usual:
-
-  ```bash
-  xattr -d com.apple.quarantine "/Applications/MTG Library.app"
-  ```
-
-- **Windows** — SmartScreen shows *"Windows protected your PC"* for the
-  installer. Click **More info → Run anyway**. The first time you turn on
-  *Allow other devices on this network*, Windows Defender Firewall asks about
-  `node.exe`; allow it on private networks or phones will not find the app.
+- **macOS** — nothing. The build is signed with a Developer ID and notarised
+  by Apple, so the `.dmg` opens straight from the browser download with no
+  warning and no terminal.
+- **Windows** — the installer is not signed yet (a code-signing certificate
+  is a separate purchase), so SmartScreen shows *"Windows protected your PC"*.
+  Click **More info → Run anyway**; that is the whole of it. The first time
+  you turn on *Allow other devices on this network*, Windows Defender Firewall
+  asks about `node.exe`; allow it on private networks or phones will not find
+  the app.
 
 To build it yourself (macOS, with the repository set up as under
 [Development](#development)):
@@ -139,11 +143,16 @@ To build it yourself (macOS, with the repository set up as under
 npm run desktop:package
 ```
 
-That produces `desktop/out/MTG Library-<version>-mac-arm64.dmg` and
-`desktop/out/MTG Library-<version>-win-x64-setup.exe` — the Windows installer
-is built on the Mac too. `npm run desktop:dev` runs the app from the working
-tree. Signed, notarised, self-updating builds are the next step for the
-desktop app (Phase 34).
+That produces `desktop/out/MTG-Library-<version>-mac-arm64.dmg` (and the
+`.zip` the updater uses) and `desktop/out/MTG-Library-<version>-win-x64-setup.exe`
+— the Windows installer is built on the Mac too. Your own build is signed if
+a *Developer ID Application* certificate is in your keychain and notarised if
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are in the
+environment; without a certificate it is unsigned and runs only where it was
+built. `npm run desktop:dev` runs the app from the working tree. Releases are
+cut by tagging: `.github/workflows/desktop.yml` builds, signs, notarises and
+publishes both installers on a `v*` tag (its header lists the secrets it
+needs).
 
 ---
 
