@@ -29,6 +29,8 @@ import { join } from 'node:path';
 import { choosePort, readConfig, writeConfig, type DesktopConfig } from './config.ts';
 import { RotatingLog, bootMessage } from './logging.ts';
 import { ServerProcess, waitForHealth } from './server.ts';
+import { manualCheckMessage, updateStatusLine } from './updateState.ts';
+import { Updates } from './updates.ts';
 
 const APP_NAME = 'MTG Library';
 const isMac = process.platform === 'darwin';
@@ -83,6 +85,10 @@ const firstLaunch = !existsSync(configPath);
 const config: DesktopConfig = readConfig(configPath);
 const log = new RotatingLog(join(logsDir, 'server.log'));
 const server = new ServerProcess();
+// Phase 34: checks on launch and daily, downloads in the background, applies
+// on quit. Its only visible surface is two tray items and one dialog the
+// user asks for.
+const updates = new Updates(log);
 
 let tray: Tray | null = null;
 let win: BrowserWindow | null = null;
@@ -392,6 +398,29 @@ function setLaunchAtLogin(on: boolean): void {
   updateTray();
 }
 
+// ---------- updates ------------------------------------------------------------
+
+let checkingManually = false;
+
+/**
+ * "Check for updates…": the one time the updater is allowed a dialog, because
+ * the user asked. The automatic checks say nothing; a downloaded update only
+ * ever shows up as the tray's "Restart to update".
+ */
+async function checkForUpdatesManually(): Promise<void> {
+  if (checkingManually) return;
+  checkingManually = true;
+  updateTray();
+  try {
+    const state = await updates.check();
+    const { message, detail } = manualCheckMessage(state, app.getVersion());
+    await dialog.showMessageBox({ type: state.kind === 'error' ? 'warning' : 'info', title: APP_NAME, message, detail, buttons: ['OK'] });
+  } finally {
+    checkingManually = false;
+    updateTray();
+  }
+}
+
 // ---------- menus ------------------------------------------------------------
 
 function trayTemplate(): MenuItemConstructorOptions[] {
@@ -417,10 +446,26 @@ function trayTemplate(): MenuItemConstructorOptions[] {
     { label: 'Pair a phone…', enabled: server.running && port !== null && !showingStatus, click: openPairing },
     { label: 'Show data folder', click: () => void shell.openPath(dataDir) },
     { label: 'Show logs', click: () => void shell.openPath(logsDir) },
-    // TODO(Phase 34): electron-updater. Present, inert.
-    { label: 'Check for updates…', enabled: false },
+    ...updateItems(),
     { type: 'separator' },
     { label: `Quit ${APP_NAME}`, click: () => app.quit() },
+  ];
+}
+
+/**
+ * The updater's two items. "Restart to update" exists only while an update
+ * is staged; "Check for updates…" is disabled while a check or download is
+ * under way (the status line above it says which), and in development,
+ * where there is nothing to check.
+ */
+function updateItems(): MenuItemConstructorOptions[] {
+  const state = updates.state;
+  const line = updateStatusLine(state);
+  const busy = checkingManually || state.kind === 'checking' || state.kind === 'downloading';
+  return [
+    ...(line ? [{ label: line, enabled: false }] : []),
+    ...(state.kind === 'ready' ? [{ label: `Restart to update to ${state.version}`, click: () => updates.restartToUpdate() }] : []),
+    { label: 'Check for updates…', enabled: updates.active && !busy && state.kind !== 'ready', click: () => void checkForUpdatesManually() },
   ];
 }
 
@@ -489,9 +534,14 @@ async function shutdown(): Promise<void> {
   }, 1_000);
   const { graceful } = await server.stop();
   clearTimeout(slow);
+  updates.stop();
   log.note(graceful ? 'quit' : 'quit after killing a server that would not stop');
   log.close();
-  app.exit(0);
+  // Through app.quit(), not app.exit(): `quitting` is set, so before-quit and
+  // the window's close handler now let it through, and Electron's `quit`
+  // event fires — which is where electron-updater installs a downloaded
+  // update (Windows) and what Squirrel.Mac waits on. app.exit() skips it.
+  app.quit();
 }
 
 async function main(): Promise<void> {
@@ -528,6 +578,9 @@ async function main(): Promise<void> {
 
   await startServer();
   if (!launchedAtLogin) await showBackgroundNoticeOnce();
+  // After the server is up: an update check is the least urgent thing at launch.
+  updates.on('change', updateTray);
+  updates.start();
 }
 
 // Scripted verification (scripts/verify-lifecycle.mjs): the tray's actions,
@@ -558,7 +611,10 @@ if (process.env.MTG_DESKTOP_INSPECT === '1') {
         loginItem: app.isPackaged ? app.getLoginItemSettings().openAtLogin : null,
         // An empty image is an invisible menu-bar item — worth asserting on a packaged build.
         trayIcon: trayImage ? { empty: trayImage.isEmpty(), template: trayImage.isTemplateImage(), ...trayImage.getSize() } : null,
+        update: updates.state,
+        version: app.getVersion(),
       }),
+      checkForUpdates: () => updates.check(),
     },
   });
 }

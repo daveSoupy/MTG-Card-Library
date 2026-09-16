@@ -1,0 +1,244 @@
+# Builds, signs and publishes the desktop app (Phase 34).
+#
+#   tag v1.2.3   -> one GitHub Release "v1.2.3" carrying
+#                     MTG-Library-1.2.3-mac-arm64.dmg      what a Mac user downloads
+#                     MTG-Library-1.2.3-mac-arm64.zip      what an installed Mac app's updater fetches
+#                     MTG-Library-1.2.3-win-x64-setup.exe  the Windows installer
+#                     latest-mac.yml, latest.yml           electron-updater's pointers to the above
+#                     *.blockmap                           differential-download indexes
+#                     SHA256SUMS
+#
+# The same tag triggers docker.yml, so one `git tag` produces the image and
+# both installers. docker.yml is not touched by this file and knows nothing
+# about it.
+#
+# The release is created as a draft first and published only after both
+# builds have passed their gates and uploaded, so an installed app that
+# checks for updates never sees a release with half its files. If either job
+# fails the draft stays a draft — delete it or fix and re-run; a re-run
+# uploads over it.
+#
+# The tag must equal desktop/package.json's version: that version is what the
+# running app compares against latest*.yml, so a tag that does not match it
+# would ship an app that thinks it is something else. The first job checks
+# and fails fast with the command to fix it.
+#
+# Secrets (Settings -> Secrets and variables -> Actions):
+#
+#   macOS — all five required, or the Mac job fails (a Mac build that is not
+#   notarised is one nobody else can open, so there is no unsigned fallback):
+#     CSC_LINK                    the Developer ID Application certificate as a
+#                                 .p12 exported from Keychain Access, base64:
+#                                   base64 -i DeveloperID.p12 | pbcopy
+#     CSC_KEY_PASSWORD            the password given when exporting the .p12
+#     APPLE_ID                    the Apple ID email of the developer account
+#     APPLE_APP_SPECIFIC_PASSWORD an app-specific password made at
+#                                 appleid.apple.com -> Sign-In and Security ->
+#                                 App-Specific Passwords. Never the real one.
+#     APPLE_TEAM_ID               the ten-character Team ID (developer.apple.com
+#                                 -> Membership details)
+#
+#   Windows — optional pair. With both set the installer is signed; with
+#   neither, it is built unsigned and the job says so. A signed installer from
+#   a new certificate still shows SmartScreen until the certificate accrues
+#   reputation; an EV certificate skips it.
+#     WIN_CSC_LINK                the code-signing certificate as a .pfx, base64
+#     WIN_CSC_KEY_PASSWORD        its password
+#
+#   GITHUB_TOKEN is provided by Actions and needs only `contents: write`.
+#   The repository is public, so installed apps need no token to read the
+#   release.
+
+name: Desktop app
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  # ------------------------------------------------------------------------
+  # The version must match the tag, and the release exists (as a draft)
+  # before either build starts uploading.
+  # ------------------------------------------------------------------------
+  release:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches desktop/package.json
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(node -p "require('./desktop/package.json').version")"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag but desktop/package.json is $version. Run: npm version $tag --workspace=desktop --no-git-tag-version, commit, and re-tag."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME exists; uploading over it"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "MTG Library $GITHUB_REF_NAME" \
+              --notes "Desktop app for macOS (Apple silicon) and Windows. Installed apps update to this release on their own. The Docker image is ghcr.io/davesoupy/mtg-card-library:${GITHUB_REF_NAME#v}."
+          fi
+
+  # ------------------------------------------------------------------------
+  # macOS: arm64, signed with the Developer ID, hardened runtime, notarised
+  # and stapled by electron-builder; then the gate proves all of it.
+  # ------------------------------------------------------------------------
+  mac:
+    needs: release
+    runs-on: macos-latest # Apple silicon since macos-14; the build is arm64-only
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Mac secrets are all present
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repository secret(s):$missing — see the comment at the top of .github/workflows/desktop.yml"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+
+      # fetch → stage → tsc → check-sqlite on the staged tree → electron-builder
+      # (sign, notarise, staple, dmg + zip) → check-packaged. The two
+      # --require flags make an unsigned or un-notarised result a failure.
+      - name: Package, sign, notarise
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run package --workspace=desktop -- --mac --require-signed --require-notarized
+
+      - name: Runs under the hardened runtime
+        # The packaged app, launched for real: the server comes up on the
+        # bundled Node, answers /api/v1/health, and the lifecycle checks pass.
+        # A JIT crash would show here, not on a user's Mac. Run from desktop/ —
+        # the script resolves scratch and vendor paths from its own location.
+        run: node desktop/scripts/verify-lifecycle.mjs --app "desktop/out/mac-arm64/MTG Library.app/Contents/MacOS/MTG Library"
+
+      - name: What was built
+        run: ls -la desktop/out/*.dmg desktop/out/*.zip desktop/out/*.blockmap desktop/out/latest-mac.yml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            desktop/out/*.dmg
+            desktop/out/*.zip
+            desktop/out/*.blockmap
+            desktop/out/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  # ------------------------------------------------------------------------
+  # Windows: x64 NSIS installer, signed if a certificate is configured.
+  # ------------------------------------------------------------------------
+  windows:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Signed or unsigned?
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+        run: |
+          if [ -n "$WIN_CSC_LINK" ]; then
+            echo "::notice::Windows installer will be SIGNED with the certificate in WIN_CSC_LINK"
+          else
+            echo "::notice::Windows installer will be UNSIGNED — no WIN_CSC_LINK secret. SmartScreen will show 'Windows protected your PC'; More info -> Run anyway."
+          fi
+
+      - run: npm ci
+      - run: npm run build
+
+      # fetch → stage → tsc → check-sqlite on the staged tree (the bundled
+      # Windows Node runs here, so the gate is real on this runner) →
+      # electron-builder → check-packaged.
+      - name: Package
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npm run package --workspace=desktop -- --win
+
+      - name: What was built
+        shell: bash
+        run: ls -la desktop/out/*.exe desktop/out/*.blockmap desktop/out/latest.yml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            desktop/out/*.exe
+            desktop/out/*.blockmap
+            desktop/out/latest.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  # ------------------------------------------------------------------------
+  # Both passed: one SHA256SUMS over everything, upload, publish the draft.
+  # ------------------------------------------------------------------------
+  publish:
+    needs: [release, mac, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: SHA256SUMS
+        working-directory: release
+        run: |
+          sha256sum *.dmg *.zip *.exe *.yml *.blockmap > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload to the release and publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: release
+        run: |
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber ./*
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          echo "published: https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"

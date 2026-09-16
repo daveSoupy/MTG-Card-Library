@@ -18,9 +18,10 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const desktopDir = join(here, '..');
 const rootDir = join(desktopDir, '..');
 
@@ -112,7 +113,7 @@ export async function fetchNode(target) {
   }
 }
 
-const isMain = process.argv[1] && new URL(import.meta.url).pathname === process.argv[1];
+const isMain = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const args = process.argv.slice(2);
   const targets = [];

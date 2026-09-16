@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
+  "author": "David Campbell",
   "description": "MTG Library as a desktop app: the server on a bundled Node, the web client in a window",
   "productName": "MTG Library",
   "type": "module",
@@ -24,5 +25,8 @@
     "electron": "44.4.1",
     "electron-builder": "^26.15.3",
     "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

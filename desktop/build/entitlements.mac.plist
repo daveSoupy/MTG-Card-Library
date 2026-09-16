@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the app bundle itself (Electron). Phase 34.
+
+  electron-builder signs the .app with this file and everything else it finds
+  in the bundle with entitlements.mac.inherit.plist. The two are the same
+  three keys on purpose — V8 JITs in the Electron process and in the bundled
+  Node alike, and both load a native module (Electron its own, Node the
+  better-sqlite3 binary). Keep them identical unless one process gains a need
+  the other does not have.
+
+  allow-jit / allow-unsigned-executable-memory   V8's JIT needs writable
+                                                 executable pages.
+  disable-library-validation                     load a .node addon that is
+                                                 not signed by Apple. Ours is
+                                                 re-signed with our identity,
+                                                 which library validation would
+                                                 accept, but Node's own official
+                                                 binary ships with this key and
+                                                 the release runs on that.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

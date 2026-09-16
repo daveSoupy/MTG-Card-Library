@@ -21,7 +21,9 @@
 // window opens on screen while it runs. Items 1–3 are manual — see the
 // phase doc. Phase 33 adds: the mDNS advertisement follows the sharing
 // toggle (browsed with `dns-sd` on macOS), and "Pair a phone…" lands the
-// window on the Data page's pairing panel.
+// window on the Data page's pairing panel. Phase 34 adds: a manual update
+// check settles in a state the tray can show (packaged), or says it needs
+// the installed app (development).
 
 import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
@@ -29,8 +31,9 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const desktopDir = join(here, '..');
 const args = process.argv.slice(2);
 const argValue = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
@@ -299,6 +302,19 @@ async function main() {
     check('unchecking Launch at login removes it', (await main.state()).loginItem === false);
     await main.evaluate('__mtgDesktop.setLaunchAtLogin(true)');
     check('checking it again registers it', (await main.state()).loginItem === true);
+
+    // Phase 34: the updater is wired and a check ends in a state the tray can
+    // show. Against a repository with no release yet (or no network) the
+    // honest answer is an error, recorded in the log — still the machine
+    // working; "up to date" or "downloading" once a release exists.
+    const version = (await main.state()).version;
+    check('packaged app reports its version', /^\d+\.\d+\.\d+/.test(version ?? ''), version);
+    const update = await main.evaluate('__mtgDesktop.checkForUpdates()');
+    check('check for updates settles', ['up-to-date', 'downloading', 'ready', 'error'].includes(update?.kind), JSON.stringify(update));
+    check('updater state is what the tray shows', JSON.stringify((await main.state()).update) === JSON.stringify(update));
+  } else {
+    const update = await main.evaluate('__mtgDesktop.checkForUpdates()');
+    check('development app: check for updates says it only works installed', update?.kind === 'error' && /installed app/.test(update.message), update?.message);
   }
 
   // Item 4: Quit stops the server, cleanly.

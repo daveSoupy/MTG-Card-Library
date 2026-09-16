@@ -15,8 +15,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = new URL('.', import.meta.url).pathname;
+const here = fileURLToPath(new URL('.', import.meta.url));
 const APP_ICON_SVG = readFileSync(join(here, '..', '..', 'web', 'public', 'icons', 'icon.svg'), 'utf8');
 
 // Three fanned cards, solid black: the same idea as the app icon, reduced to

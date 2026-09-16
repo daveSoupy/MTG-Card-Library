@@ -28,6 +28,36 @@
 # node_modules at the root of any source, unconditionally, so the staged tree's
 # node_modules is copied from its own root. check-packaged.mjs is what caught
 # this.
+#
+# Signing and updates (Phase 34):
+#
+#   macOS    Developer ID Application, found in the login keychain locally or
+#            imported from CSC_LINK (base64 .p12) + CSC_KEY_PASSWORD on CI.
+#            Hardened runtime with the entitlements in build/ — the inherit
+#            file is what the bundled Node and better_sqlite3.node are signed
+#            with, and both need allow-jit. @electron/osx-sign walks all of
+#            Contents/ and signs every Mach-O it finds, Resources/ included;
+#            `binaries` lists the bare `node` executable anyway so the intent
+#            is explicit and survives a walker change. `notarize: true` reads
+#            APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID from the
+#            environment and staples the ticket; with none of them set the
+#            build is signed but not notarised (a logged skip, not a failure).
+#            No identity in the keychain at all → unsigned, as before.
+#   Windows  signed when WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD are set, unsigned
+#            when not; nothing here decides, the environment does.
+#   publish  where electron-updater looks (Resources/app-update.yml is written
+#            from this) and what makes electron-builder write latest-mac.yml /
+#            latest.yml into out/. Uploading is the workflow's job with `gh`
+#            (`--publish never` here); the yml files are generated regardless.
+#
+# electron-builder 26's option layout: hardenedRuntime, entitlements,
+# entitlementsInherit, binaries and identity are flat keys under `mac`. The
+# phase doc describes a `mac.sign` object from a v27 that had not shipped at
+# build time; `mac.sign` in 26 is a custom sign *function* — do not move them.
+#
+# Artifact names carry no spaces. GitHub rewrites a space in an asset name to
+# a dot and electron-updater to a hyphen; a name with neither is fetched as
+# written.
 
 appId: com.davesoupy.mtglibrary
 productName: MTG Library
@@ -46,21 +76,46 @@ asar: true
 npmRebuild: false
 nodeGypRebuild: false
 buildDependenciesFromSource: false
+# Strips extended attributes on macOS before signing; codesign refuses a file
+# carrying them, and Electron's extracted zip carries thousands.
+afterPack: scripts/after-pack.mjs
+
+publish:
+  provider: github
+  owner: daveSoupy
+  repo: MTG-Card-Library
 
 mac:
   target:
+    # The .dmg is what a person downloads; the .zip is what an installed app's
+    # updater fetches (latest-mac.yml cannot be generated without one).
     - target: dmg
       arch: [arm64]
-    # Phase 34's updater needs the zip; produced now so the layout is settled.
     - target: zip
       arch: [arm64]
+  artifactName: MTG-Library-${version}-mac-arm64.${ext}
   category: public.app-category.utilities
   darkModeSupport: true
-  # TODO(Phase 34): Developer ID signing, hardened runtime with entitlements
-  # for the bundled Node (it JITs), notarisation. Until then the build is
-  # unsigned: it runs where it was built; a downloaded copy needs
-  # `xattr -d com.apple.quarantine`.
-  identity: null
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # Relative to the .app. The walk would find it; this says so.
+  binaries:
+    - Contents/Resources/node/node
+  # Only Mach-O files may be signed. @electron/osx-sign signs every file whose
+  # *content* looks binary — the web client's PNG icons, a .jpg and a .zip in
+  # some package's test fixtures — and codesign stores a non-Mach-O file's
+  # signature in an extended attribute, which the outer bundle then refuses
+  # when sealing Resources/ ("resource fork, Finder information, or similar
+  # detritus not allowed"). Electron's own .pak files are inside a nested
+  # framework bundle, so stock Electron apps never see this; our extra
+  # resources are sealed by the app itself. The one Mach-O in the staged tree
+  # is better_sqlite3.node, which must be signed, so the ignore spares .node.
+  signIgnore:
+    - /Resources/mtg-library/.*(?<!\.node)$
+  notarize: true
+  # spctl only accepts a notarised app; the workflow runs it after notarisation.
+  gatekeeperAssess: false
   extraResources:
     - from: staging/darwin-arm64
       to: mtg-library
@@ -71,15 +126,13 @@ mac:
     - from: vendor/node/darwin-arm64/LICENSE
       to: node/LICENSE
 
-dmg:
-  artifactName: ${productName}-${version}-mac-arm64.${ext}
-
 win:
   target:
     - target: nsis
       arch: [x64]
-  # TODO(Phase 34): sign when a certificate exists; unsigned until then
-  # (SmartScreen: More info → Run anyway).
+  # Signed iff WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD are in the environment;
+  # unsigned otherwise (SmartScreen: More info → Run anyway). The workflow
+  # says which it did.
   extraResources:
     - from: staging/win32-x64
       to: mtg-library
@@ -95,7 +148,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   runAfterFinish: true
-  artifactName: ${productName}-${version}-win-x64-setup.${ext}
+  artifactName: MTG-Library-${version}-win-x64-setup.${ext}
 
 # Never: systemd and Docker cover Linux.
 linux:
