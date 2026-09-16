@@ -17,6 +17,8 @@ Phase 19 (PWA install) is not a prerequisite and is not replaced — a phone wit
 **Capacitor** wrapping the existing `web/` build, for iOS and Android from one codebase. The web app is the UI; the shell adds a native origin (which browsers treat as secure, so camera and the rest need no HTTPS), native plugins, and a mode switch.
 
 - **Home mode** — Phase 29's discovery found the paired server. The app is the web app, unchanged, against the live server. Deck building, collection, everything. This is the same client as the browser; it must never grow a branch of its own.
+
+  **Home mode loads the UI from the server, not from a copy bundled in the app.** After discovery the WebView navigates to the server's origin, and what renders is whatever `web/dist` that server is serving. A change to `web/` or `server/` reaches the phone the next time it opens the app, with no app-store build in between — the app only needs rebuilding when the pairing screen, the shop-mode surface or a native plugin changes. The bundled copy of `web/dist` exists for shop mode, which has no server to load from. Capacitor's `server.allowNavigation` must list the paired origins; whether plugins are reachable from the server's origin is verified at build time, and home mode needs none of them in any case.
 - **Shop mode** — discovery failed within its budget. The app renders a small offline surface from the last snapshot: search your collection and decks by name, see where copies live, browse and add to want lists, record a trade, record a sale (Phase 13). Every write goes into a local queue. A banner says *Shop mode · last synced 3 hours ago · 4 actions waiting* and never pretends to be live.
 
 ### The snapshot shows your own pending actions
@@ -29,7 +31,7 @@ The switch is automatic and re-evaluated on foreground. Shop mode is *not* a gen
 
 ### `web/src` changes the shell needs
 
-- **A configurable API base.** `api.ts` builds relative `/api/v1/...` URLs; in the shell they must be prefixed with the paired server's origin. One `apiBase()` read by `apiFetch`, empty in the browser.
+- **A configurable API base.** `api.ts` builds relative `/api/v1/...` URLs. In home mode they resolve against the server's origin because the page *came from* that origin; the shop-mode surface, served from the bundled copy, needs an `apiBase()` read by `apiFetch` — empty in the browser and in home mode, the paired origin otherwise.
 - **`CONNECTIVITY_MESSAGE`** names the tailnet. In the shell, an unreachable server is not an error, it is shop mode; the message becomes context-aware or the shell intercepts before it renders.
 - **The shop-mode surface** lives in `web/src` too (it is React), gated on the shell's mode flag, and reads from the snapshot store rather than `api.ts`. Kept deliberately small — a few screens, phone layout only, reusing the Phase 9 one-handed patterns.
 

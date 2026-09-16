@@ -18,7 +18,7 @@ Migrations run on open (`db/index.ts`), so an updated app over an old database i
 
 A new `desktop/` workspace: Electron, `electron-builder`, a `main.ts` of a few hundred lines. No renderer code — the window loads `http://127.0.0.1:<port>/` and the existing web client renders as it does in a browser. `contextIsolation` on, `nodeIntegration` off; the page has no reason to touch Node.
 
-The server runs as a **separate child process**, not inside Electron's main process: `child_process.spawn(process.execPath, [serverEntry], { env: { ELECTRON_RUN_AS_NODE: '1', ... } })`, or `utilityProcess.fork`. Either way it is the unmodified `server/dist/index.js`. A crash in the server is a restart with a notice, not a dead window; a stuck quit is a killed child, not a hung app.
+The server runs as a **separate child process**, not inside Electron's main process, and it runs on a **bundled official Node binary** — the `node` release matching `engines.node`, downloaded at package time and shipped in the app's resources — not on Electron's Node (`ELECTRON_RUN_AS_NODE`). This costs ~50 MB and buys the removal of the phase's biggest risk: `better-sqlite3`'s prebuilt binary for stock Node works as installed, so there is no `@electron/rebuild` step and no way for a rebuild to silently drop FTS5 or the trigram tokenizer. `check-sqlite.mjs` still runs against the packaged copy as a gate; it just has nothing to catch. Either way it is the unmodified `server/dist/index.js`. A crash in the server is a restart with a notice, not a dead window; a stuck quit is a killed child, not a hung app.
 
 ### Environment the shell sets
 
@@ -46,11 +46,12 @@ The server runs as a **separate child process**, not inside Electron's main proc
 
 This is where the phase's actual risk lives.
 
-- **Native module ABI.** `better-sqlite3` is compiled against a Node ABI. Running the server with Electron's bundled Node means rebuilding it for Electron's ABI (`@electron/rebuild`). After every rebuild, `server/scripts/check-sqlite.mjs` must run **against the packaged app's copy** — FTS5 and the trigram tokenizer are the things a rebuild silently loses, and nothing works without them. This is a release gate, not a one-time check.
+- **Native module ABI.** Avoided by the bundled-Node decision above. If that is ever reversed (to save the 50 MB), `better-sqlite3` must be rebuilt for Electron's ABI with `@electron/rebuild`, and `server/scripts/check-sqlite.mjs` must run **against the packaged app's copy** after every rebuild — FTS5 and the trigram tokenizer are what a rebuild silently loses. Keep the gate in the release workflow regardless; it is cheap.
 - **Archive layout.** Electron packs the app into an `.asar`; native `.node` binaries and `new Worker(path)` (`sync/syncManager.ts`) cannot load from inside one. `server/**`, `schema.sql`, and `node_modules/better-sqlite3/**` go in `asarUnpack` — or asar is disabled outright; either is fine as long as the walk-up from `server/dist` still lands on `schema.sql` and `web/dist`.
 - **Updates.** `electron-updater` against GitHub Releases, checked on launch and daily, applied on next quit. The user sees a *Restart to update* item, never a prompt mid-session. No migration step is needed in the shell; the server does that.
 - **Signing and notarisation are part of the deliverable.** An unsigned macOS download is *"damaged and can't be opened"* — a dead end, not a warning — and Windows SmartScreen interposes a scary screen. Apple Developer Program for the Mac build; a code-signing certificate for Windows if it ships. Without these the app is not "dead simple" for anyone, and the phase is not done.
 - **Size.** ~150–250 MB. Say so on the download page.
+- **macOS is Apple silicon only.** No Intel or universal build; an Intel Mac runs the self-hosted install. Decided, so a future session does not add the second Node binary out of thoroughness.
 
 ## What this phase does not change
 
@@ -73,4 +74,4 @@ This is where the phase's actual risk lives.
 
 - Moving or choosing the data directory from the UI. `MTG_DATA_DIR` in the environment covers the developer case.
 - Any remote access. Phase 29 covers the home network; nothing here or there reaches outside it.
-- Bundling a standalone Node instead of rebuilding against Electron's ABI — a valid alternative if the rebuild proves fragile, decided at build time.
+- Running the server on Electron's own Node to save the bundled binary's ~50 MB. Possible later, at the cost of the ABI rebuild and its gate.

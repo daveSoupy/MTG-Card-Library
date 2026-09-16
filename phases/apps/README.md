@@ -6,6 +6,10 @@ The phases that turn the server into things people install: a desktop app at hom
 
 The desktop app runs the server at home. The phone app is the web client at home and a snapshot-plus-queue "shop mode" away, syncing whenever it is back on the home wifi. Nothing outside the house is in the path — no VPN, no account, no tunnel, no port forwarding — because each of those is something the user cannot fix when it changes. Live access from away is not built; `deploy/README.md`'s "bring your own Tailscale" remains for anyone who wants it. A cloud folder can optionally carry the same two streams for a household where the devices are never home at the same time.
 
+## Starting to build
+
+`BUILD-BRIEF.md` is the viability cut: three sessions — the desktop app for Windows and macOS, pairing, the Android app in home mode — with the scope trimmed to what is needed to judge the idea and copy-pasteable prompts for each. Start there rather than at a phase doc. The targets are Windows, macOS and Android; the UI is the React client on every platform, and the only Apple-specific item is notarisation, deferred with Windows signing.
+
 ## Reading order
 
 | Phase | What | Depends on |
