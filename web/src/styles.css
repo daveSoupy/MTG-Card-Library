@@ -1628,6 +1628,16 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .mono { font-family: var(--mono); font-size: 11px; }
 .dim { color: var(--text-3); }
 
+/* Phase 33: the pairing panel. The QR is black on white in every theme —
+   an inverted code is a code some cameras will not read. */
+.pair-layout { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.pair-qr { width: 200px; height: 200px; flex: none; border-radius: 8px; background: #fff; }
+.pair-details { display: grid; gap: 8px; flex: 1 1 220px; min-width: 0; }
+.pair-addresses { display: grid; gap: 3px; }
+.pair-addresses .mono { font-size: 12px; overflow-wrap: anywhere; }
+.pair-addresses .dim:first-child { font-size: 12px; }
+.pair-cta { border-top: 1px solid var(--line); padding-top: 10px; }
+
 .storage-grid { display: grid; gap: 6px; margin: 4px 0 2px; }
 .storage-grid > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .storage-grid .dim:first-child { min-width: 110px; }

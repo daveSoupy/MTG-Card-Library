@@ -374,6 +374,26 @@ export const fetchCard = (oracleId: string, signal?: AbortSignal) =>
 export const fetchStatus = (signal?: AbortSignal) =>
   getJson<StatusResponse>('/api/v1/status', signal);
 
+/**
+ * Phase 33. Who this server is and where it is — what the pairing panel's QR
+ * encodes and what a paired phone checks an address against. `addresses` is
+ * empty on a loopback bind, which the panel reads as "sharing is off".
+ */
+export interface InstanceInfo {
+  instanceId: string;
+  /** The OS hostname. */
+  name: string;
+  version: string;
+  port: number;
+  /** Non-loopback addresses the server is bound on, home network first. */
+  addresses: string[];
+  /** `mtg-library-<first 4 of id>.local`. */
+  mdnsName: string;
+}
+
+export const fetchInstance = (signal?: AbortSignal) =>
+  getJson<InstanceInfo>('/api/v1/instance', signal);
+
 export const fetchSets = (signal?: AbortSignal) =>
   getJson<{ sets: SetRecord[] }>('/api/v1/sets', signal).then((r) => r.sets);
 

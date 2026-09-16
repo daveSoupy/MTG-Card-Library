@@ -10,6 +10,7 @@ import {
 } from '../api.ts';
 import { formatBytes, percent } from '../format.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
+import { PairPhonePanel } from './PairPhonePanel.tsx';
 import { HelpButton } from './helpTopics.tsx';
 import { BackToTop } from './BackToTop.tsx';
 import { THEME_LABEL, THEMES, type Theme } from '../theme.ts';
@@ -210,6 +211,10 @@ export function DataPage({
           <button className="btn" onClick={onSync}>Sync card data</button>
         </div>
       </section>
+
+      {/* Phase 33. Also outside the storage gate: a phone should be able to
+          pair with a library that has not synced yet. */}
+      <PairPhonePanel />
 
       {storage && (
         <section className="data-section">

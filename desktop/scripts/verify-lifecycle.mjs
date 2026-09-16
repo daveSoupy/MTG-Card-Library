@@ -19,7 +19,9 @@
 // (LAN refused with sharing off, answering with it on) and 6 (a busy port is
 // skipped, the chosen one persisted and reused on the next launch). The
 // window opens on screen while it runs. Items 1–3 are manual — see the
-// phase doc.
+// phase doc. Phase 33 adds: the mDNS advertisement follows the sharing
+// toggle (browsed with `dns-sd` on macOS), and "Pair a phone…" lands the
+// window on the Data page's pairing panel.
 
 import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
@@ -73,6 +75,32 @@ function lanAddress() {
     }
   }
   return null;
+}
+
+/**
+ * Phase 33: the instance ids `dns-sd -B _mtglibrary._tcp` can see right now,
+ * macOS only (the tool ships with it). Browses for two seconds, then resolves
+ * each listed instance for its TXT record.
+ */
+async function advertisedIds() {
+  if (process.platform !== 'darwin') return null;
+  const browse = spawn('dns-sd', ['-B', '_mtglibrary._tcp']);
+  let listing = '';
+  browse.stdout.on('data', (chunk) => { listing += chunk; });
+  await sleep(2_000);
+  browse.kill();
+  const names = [...listing.matchAll(/_mtglibrary\._tcp\.\s+(.+?)\s*$/gm)].map((m) => m[1]);
+  const ids = [];
+  for (const name of names) {
+    const lookup = spawn('dns-sd', ['-L', name, '_mtglibrary._tcp']);
+    let record = '';
+    lookup.stdout.on('data', (chunk) => { record += chunk; });
+    await sleep(1_500);
+    lookup.kill();
+    const id = /\bid=(\S+)/.exec(record)?.[1];
+    if (id) ids.push(id);
+  }
+  return ids;
 }
 
 /** A listener on the port the app would otherwise take first, to force the search. */
@@ -178,8 +206,10 @@ async function main() {
   let main = new MainProcess();
   await main.connect();
   await until('the server to answer', async () => {
-    const s = await main.state();
-    return s.running && s.port !== null && (await health('127.0.0.1', s.port));
+    // The inspector answers before main.ts has finished loading, so the
+    // handle may not exist on the first polls.
+    const s = await main.state().catch(() => null);
+    return s !== null && s.running && s.port !== null && (await health('127.0.0.1', s.port));
   });
   let state = await main.state();
   const port = state.port;
@@ -219,6 +249,19 @@ async function main() {
     check('sharing on restarts the child', state.pid !== pidBefore, `pid ${pidBefore} → ${state.pid}`);
     check('sharing on keeps the same port', state.port === port);
     check('sharing on: LAN address answers', await health(lan, port));
+
+    // Phase 33: sharing on → advertised under this library's id, and the
+    // instance endpoint lists the LAN address the QR will carry.
+    const instance = await (await fetch(`http://127.0.0.1:${port}/api/v1/instance`)).json();
+    check('instance endpoint lists a LAN address while sharing', instance.addresses.includes(lan), instance.addresses.join(', '));
+    check('shell reports the advertise flag on', state.advertise === true);
+    const seen = await advertisedIds();
+    if (seen !== null) check('dns-sd sees this library while sharing', seen.includes(instance.instanceId), `saw [${seen.join(', ')}]`);
+
+    // "Pair a phone…" lands the window on the pairing panel.
+    await main.evaluate('__mtgDesktop.openPairing()');
+    await until('the pairing panel', async () => (await main.state()).url === `http://127.0.0.1:${port}/data#pair`);
+    check('Pair a phone… opens /data#pair in the window', true);
   }
 
   // Item 4a: the power assertion needs both toggles.
@@ -241,6 +284,12 @@ async function main() {
     });
     check('sharing off again → blocker released even with keep-awake on', (await main.state()).blocking === false);
     check('sharing off again: LAN address refused', !(await health(lan, port)));
+    // Phase 33: and the advertisement is gone, not just stale.
+    const instance = await (await fetch(`http://127.0.0.1:${port}/api/v1/instance`)).json();
+    check('sharing off: instance endpoint lists no address', instance.addresses.length === 0);
+    check('shell reports the advertise flag off', (await main.state()).advertise === false);
+    const seen = await advertisedIds();
+    if (seen !== null) check('dns-sd no longer sees this library', !seen.includes(instance.instanceId), `saw [${seen.join(', ')}]`);
   }
 
   // Item 4: a fresh install registers a login item; unchecking removes it.

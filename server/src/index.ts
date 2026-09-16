@@ -3,8 +3,8 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveDataDir, resolveHost, resolvePort } from './config.ts';
-import { openLibrary, libraryStatus } from './db/index.ts';
+import { resolveAdvertise, resolveDataDir, resolveHost, resolvePort, resolveServerVersion } from './config.ts';
+import { instanceId, openLibrary, libraryStatus } from './db/index.ts';
 import { CardSearchStore } from './search/store.ts';
 import { DeckStore } from './decks/store.ts';
 import { CollectionStore } from './collection/store.ts';
@@ -29,6 +29,9 @@ import { registerTradeListRoutes } from './routes/tradeLists.ts';
 import { registerAlertRoutes } from './routes/alerts.ts';
 import { registerEventRoutes } from './routes/events.ts';
 import { registerWebClient } from './routes/webClient.ts';
+import { registerInstanceRoutes } from './routes/instance.ts';
+import { describeInstance } from './discovery/instance.ts';
+import { advertiseDecision, startAdvertisement, type Advertisement } from './discovery/advertise.ts';
 import { errorHandler } from './routes/errorHandler.ts';
 import { ImageDownloadManager } from './images/downloadManager.ts';
 import { AlertStore } from './alerts/store.ts';
@@ -83,6 +86,11 @@ registerTradeListRoutes(app, tradeLists);
 registerAlertRoutes(app, alerts);
 registerEventRoutes(app, events);
 
+const port = resolvePort();
+const host = resolveHost();
+const version = resolveServerVersion();
+registerInstanceRoutes(app, library.db, { port, host, version });
+
 app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 
 // The built front end, when there is one. In development Vite serves the UI on
@@ -106,11 +114,19 @@ function warmCache(): void {
   }
 }
 
+let advertisement: Advertisement | null = null;
+
 let closing = false;
 const close = async () => {
   // SIGTERM and a closed stdin can both arrive; the second is a no-op.
   if (closing) return;
   closing = true;
+  // Goodbye packets first, so a browsing phone drops the record now rather
+  // than when its TTL runs out — but a socket that will not close must not
+  // hold up the exit, so a second is all it gets.
+  if (advertisement) {
+    await Promise.race([advertisement.stop(), new Promise((resolve) => setTimeout(resolve, 1_000).unref())]);
+  }
   // A running sync worker should terminate quickly, but never let a stuck
   // one hang shutdown indefinitely — Tailscale/systemd expect the process to
   // actually exit.
@@ -141,9 +157,22 @@ if (process.env.MTG_SHUTDOWN_ON_STDIN_CLOSE === '1') {
   process.stdin.resume();
 }
 
-const port = resolvePort();
-const host = resolveHost();
 await app.listen({ port, host });
+
+// Phase 33: tell the local link where we are, when asked to and when it
+// could matter. The decision is pure and tested; this is only the wiring.
+switch (advertiseDecision(resolveAdvertise(), host)) {
+  case 'advertise': {
+    const info = describeInstance({ instanceId: instanceId(library.db), version, port, host });
+    advertisement = startAdvertisement(info, app.log);
+    break;
+  }
+  case 'loopback':
+    app.log.info(`MTG_ADVERTISE is set but the server is bound to ${host}; nothing to advertise.`);
+    break;
+  case 'off':
+    break;
+}
 
 const status = libraryStatus(library.db);
 warmCache();

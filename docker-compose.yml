@@ -29,6 +29,17 @@ services:
     #   - ./data:/data
     environment:
       MTG_LOG_LEVEL: info
+      # Announce the server on the home network over mDNS so a phone paired by
+      # QR finds it after its address changes. Multicast does not leave the
+      # default bridge network: this only works together with host networking
+      # on a Linux host (uncomment both lines below — `ports:` above is then
+      # ignored and the server listens on the host's own 8080; Docker Desktop
+      # on a Mac or PC keeps multicast inside its VM either way). Without it
+      # the QR still works, by address: open the Data page at this computer's
+      # own network address (http://192.168.x.x:8080/data, not localhost) and
+      # the code carries that address, which a phone on the wifi can reach.
+      # MTG_ADVERTISE: "1"
+    # network_mode: host
 
 volumes:
   mtg-data:

@@ -106,9 +106,12 @@ self-hosted install, so it is one or the other.
 It runs in the background: closing the window keeps the server up (the
 menu-bar / tray icon reopens it), and only **Quit** stops it. It starts at
 login by default. The tray menu also has *Allow other devices on this network*
-(off by default — phones on your wifi can then open it; the next release adds
-a QR code for that), *Keep this computer awake while sharing*, *Show data
-folder* (the `library.sqlite` in there is your whole backup) and *Show logs*.
+(off by default — phones on your wifi can then open it), *Pair a phone…* (a
+QR code: point the phone's camera at it, it opens the app in the phone's
+browser, then *Add to Home Screen*; if the computer's address ever changes,
+scan it again), *Keep this computer awake while sharing*, *Show data folder*
+(the `library.sqlite` in there is your whole backup) and *Show logs*. The QR
+lives on the Data page, so any browser already on the app can show it too.
 
 The download is 150–200 MB, most of it the bundled runtime.
 
@@ -257,6 +260,7 @@ All configuration is environment variables. With Docker, set them under
 | `MTG_DATA_DIR` | `~/.local/share/mtg-library` (Node) · `/data` (Docker) | Database, cached card images and scheduled backups |
 | `MTG_PORT` | `8080` | Listen port |
 | `MTG_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to restrict to the local machine |
+| `MTG_ADVERTISE` | unset | `1` announces the server on the local network over mDNS (`_mtglibrary._tcp`) so a phone that scanned the QR on the Data page finds it after its address changes. Ignored on a loopback bind. Multicast has to reach the network — see the note in `docker-compose.yml` |
 | `MTG_LOG_LEVEL` | `info` | Fastify log level (`debug`, `info`, `warn`, `error`) |
 | `MTG_SHUTDOWN_ON_STDIN_CLOSE` | unset | `1` makes the server shut down cleanly when its stdin closes. Set by the desktop app, which owns the server's stdin — Windows has no SIGTERM to send — and never under systemd, where stdin is `/dev/null` and would end at once |
 
