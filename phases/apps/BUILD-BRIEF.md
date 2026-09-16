@@ -120,6 +120,14 @@ Update docs/CODEBASE-MAP.md with the new workspace and rerun
 README.md: both builds unsigned for now — how SmartScreen is dismissed on
 Windows, and the quarantine step on a Mac.
 
+Write desktop/CLAUDE.md (~30 lines, auto-loaded by any later session that
+touches desktop/): no renderer code and no Electron branches in web/src;
+bundled Node, never ELECTRON_RUN_AS_NODE, no @electron/rebuild, the
+check-sqlite gate; the env vars the shell owns and why MTG_HOST is loopback
+here while config.ts stays 0.0.0.0; close hides / Quit stops on every
+platform; the asar layout and why; a "signing" heading left as a TODO for
+session 4. Rules only — not a copy of the phase doc.
+
 Done means: `npm run desktop:package` produces a Windows installer and a
 mac .app that each, on a machine with no Node installed, install, open,
 offer the first sync, complete it, and search — and Phase 28's
