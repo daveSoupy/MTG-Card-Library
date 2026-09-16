@@ -18,22 +18,34 @@ export async function registerWebClient(app: FastifyInstance, webDist: string): 
   // rejects as a module script.
   await app.register(fastifyStatic, { root: webDist });
 
-  // The service worker is the one file the browser may otherwise hold for up
-  // to 24 hours before checking for a new version. `no-cache` means
-  // "revalidate every time", not "never store": a changed worker is picked
-  // up on the next load. Hashed /assets/* need nothing — a new build is a
-  // new name. An onSend hook rather than the plugin's `setHeaders` option,
-  // which writes to the raw response and is then overwritten by the
-  // plugin's own computed Cache-Control.
+  // Two files must be revalidated on every load; `no-cache` means exactly
+  // that, not "never store". The service worker, which the browser may
+  // otherwise hold for up to 24 hours before checking for a new version.
+  // And the page itself: every build renames the hashed bundle it points
+  // at, so a browser that reuses a stale index.html (an iOS home-screen
+  // launch will) asks for a bundle that is gone and shows a white screen.
+  // Hashed /assets/* need nothing — a new build is a new name. An onSend
+  // hook rather than the plugin's `setHeaders` option, which writes to the
+  // raw response and is then overwritten by the plugin's own Cache-Control.
   app.addHook('onSend', (request, reply, payload, done) => {
-    if (request.url.split('?')[0] === '/sw.js') reply.header('Cache-Control', 'no-cache');
+    const path = request.url.split('?')[0];
+    const isPage = path === '/sw.js' || String(reply.getHeader('content-type')).startsWith('text/html');
+    if (isPage) reply.header('Cache-Control', 'no-cache');
     done(null, payload);
   });
 
   // Client-side routing: anything not under /api falls back to index.html.
+  // A missing *file* must not: a bundle from an earlier build that a stale
+  // page still names would come back as HTML with a 200, which the browser
+  // refuses to run as a module and the service worker would happily cache
+  // under the bundle's name. Client routes never live under these prefixes.
   app.setNotFoundHandler((request, reply) => {
-    if (request.url.startsWith('/api/')) {
+    const path = request.url.split('?')[0];
+    if (path.startsWith('/api/')) {
       return reply.status(404).send({ error: 'No such endpoint.' });
+    }
+    if (path.startsWith('/assets/') || path.startsWith('/icons/')) {
+      return reply.status(404).type('text/plain').send('Not found');
     }
     return reply.sendFile('index.html');
   });

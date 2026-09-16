@@ -26,7 +26,7 @@ function fixture() {
   return dist;
 }
 
-test('sw.js is served with Cache-Control: no-cache; nothing else is', async () => {
+test('sw.js and the page are served Cache-Control: no-cache; hashed assets are not', async () => {
   const dist = fixture();
   const app = Fastify();
   try {
@@ -40,9 +40,13 @@ test('sw.js is served with Cache-Control: no-cache; nothing else is', async () =
     assert.equal(asset.statusCode, 200);
     assert.notEqual(asset.headers['cache-control'], 'no-cache', 'a hashed bundle is a new name per build');
 
+    // The page revalidates every time too: it names the hashed bundle, and a
+    // stale copy after a rebuild names one that no longer exists.
     const page = await app.inject({ method: 'GET', url: '/' });
     assert.equal(page.statusCode, 200);
-    assert.notEqual(page.headers['cache-control'], 'no-cache');
+    assert.equal(page.headers['cache-control'], 'no-cache');
+    const route = await app.inject({ method: 'GET', url: '/decks/3' });
+    assert.equal(route.headers['cache-control'], 'no-cache');
   } finally {
     await app.close();
     rmSync(dist, { recursive: true, force: true });
@@ -68,7 +72,7 @@ test('the manifest and icons are reachable at the paths index.html names', async
   }
 });
 
-test('client routes fall back to index.html; unknown API paths stay a JSON 404', async () => {
+test('client routes fall back to index.html; API paths and missing files are real 404s', async () => {
   const dist = fixture();
   const app = Fastify();
   try {
@@ -80,6 +84,14 @@ test('client routes fall back to index.html; unknown API paths stay a JSON 404',
     const api = await app.inject({ method: 'GET', url: '/api/v1/nothing-here' });
     assert.equal(api.statusCode, 404);
     assert.deepEqual(api.json(), { error: 'No such endpoint.' });
+
+    // A bundle from an earlier build is gone, not the page: served as HTML it
+    // is a white screen, and a cacheable one.
+    const stale = await app.inject({ method: 'GET', url: '/assets/index-OLDHASH.js' });
+    assert.equal(stale.statusCode, 404);
+    assert.doesNotMatch(String(stale.headers['content-type']), /html/);
+    const icon = await app.inject({ method: 'GET', url: '/icons/missing.png' });
+    assert.equal(icon.statusCode, 404);
   } finally {
     await app.close();
     rmSync(dist, { recursive: true, force: true });
