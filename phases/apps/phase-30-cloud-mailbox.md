@@ -1,5 +1,7 @@
 # Phase 30 — Cloud Mailbox (optional)
 
+> **Parked with Phase 20.** A second transport for an app that is not being built.
+
 A second transport for the companion app, for the household where the desktop and the phone are never home at the same time. A folder in the user's own cloud storage — iCloud Drive, Dropbox, Google Drive, OneDrive, Syncthing, whatever they already have — carries snapshots one way and the write queue the other. Each side talks to the folder on its own schedule.
 
 **Optional, and never the only path.** Phase 20's LAN sync must work with this off, and a user who never sets it up loses nothing. Build it only once Phases 20, 28 and 29 are shipped and someone actually hits the gap it closes.

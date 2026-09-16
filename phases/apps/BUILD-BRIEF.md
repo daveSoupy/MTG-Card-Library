@@ -1,27 +1,28 @@
-# Build brief — Windows and macOS apps, Android companion, viability cut
+# Build brief — Windows and macOS desktop app, every phone through a browser
 
-How to get a Windows and macOS desktop app and an Android companion app running against the existing code, in three Claude Code sessions, without redoing any UI and without the self-hosted version stopping being the thing you develop. Each session is one phase, per CLAUDE.md's rules; this file is the scope cut and the prompts. `@`-mention it alongside the phase file.
+How to get a Windows and macOS desktop app running the existing server, reachable from any phone in the house, in four Claude Code sessions, without redoing any UI and without the self-hosted version stopping being the thing you develop. Each session is one phase, per CLAUDE.md's rules; this file is the scope and the prompts. `@`-mention it alongside the phase file.
 
-**Targets are Windows, macOS and Android.** The desktop shell ships for both Windows and macOS from the same `desktop/` workspace — Electron makes the second one a build target, not a second app — and macOS is also the development loop since that is where development happens. iOS is not built in this cut and is one added platform in the same `mobile/` project if it is ever wanted. The UI is the React client on every platform, the native code is discovery plumbing, and the Swift that appears in the phase docs has a Kotlin twin named beside it.
+**Targets are Windows and macOS for the desktop app, and any phone with a browser for the rest.** The desktop shell ships for both from the same `desktop/` workspace — Electron makes the second one a build target, not a second app — and macOS is also the development loop since that is where development happens. There is no phone app: the phone opens the web client from the desktop, pins it to the home screen, and gets every update the moment the desktop has it. The companion app that used to be the third leg of this plan is parked; the README says why, and its prompts are in the appendix so nothing is lost if it comes back.
 
-## What "viable" means
+## What "done" means
 
-Three checkpoints, in order. Stop and look at each before the next session.
+Four checkpoints, in order. Stop and look at each before the next session.
 
-1. **An installer on a Windows machine, and a `.app` on a Mac, each with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** (Phase 28, cut down.)
-2. **A phone browser scans a QR on that machine and lands in the app.** (Phase 29, essentially whole.)
-3. **An Android app scans the same QR once, and from then on opens straight into the app whenever it is on the home wifi — including after the PC's IP changes.** (Phase 20, home mode only.)
+1. **An installer on a Windows machine, and a `.app` on a Mac, each with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** (Phase 28, first session.)
+2. **A phone's camera scans a QR on that machine and lands in the app.** (Phase 29.)
+3. **The phone pins it to the home screen with its own icon, and from then on opens it like an app whenever it is on the home wifi.** If the PC's address changes, scanning the QR again fixes it, and the app says so. (Phase 19.)
+4. **A friend downloads the Mac build and it opens with no warning; the Windows build installs with no SmartScreen dead end; and both update themselves.** (Phase 28, second session.)
 
-Shop mode, the queue, OCR, iOS and the cloud mailbox come after, if the three above feel right. None of them is needed to judge the idea.
+The fourth is the one that decides whether a layperson can use this. Everything before it works for *you*; it is what makes it work for someone you hand a link to.
 
 ## How changes keep flowing from the self-hosted version
 
-This is the property the whole cut is designed around, and it is worth being precise about, because it is the reason the apps can be started now without freezing anything.
+This is the property the whole plan is designed around, and it is worth being precise about, because it is the reason the desktop app can be started now without freezing anything.
 
-- **Neither app contains UI or rules.** `desktop/` and `mobile/` are workspaces beside `server/` and `web/`. They hold a shell, a pairing screen and build config. If a session finds itself copying a component, a type, or a rule into either, that is the mistake to stop and undo.
+- **The app contains no UI or rules.** `desktop/` is a workspace beside `server/` and `web/`. It holds a shell and build config. If a session finds itself copying a component, a type, or a rule into it, that is the mistake to stop and undo.
 - **The desktop app is `server/dist` + `web/dist` + a Node binary.** `npm run build` at the root builds both as it does today; `npm run desktop:package` wraps the result. Every change to the self-hosted version is in the next package, unchanged. The systemd and Docker paths are untouched and still the way *you* run it.
-- **The Android app loads the UI from the server.** After pairing, its WebView (Chromium) navigates to the PC's origin and renders whatever `web/dist` the PC is serving. A change to `web/` or `server/` reaches the phone the next time the app opens, with no Android Studio build and no store in between. The app is rebuilt only when the pairing screen or a native plugin changes — rarely.
-- **The web client is already phone-shaped.** Phase 9's one-handed layouts for trades, wants and collection lookups are what the Android app shows. Nothing is redesigned; the phone gets a home-screen icon and automatic discovery, and that is the whole difference from Chrome.
+- **The phone loads the UI from the desktop.** Whatever `web/dist` the desktop is serving is what the phone renders. A change to `web/` reaches every phone in the house on its next page load, with no store, no build and no install in between.
+- **The web client is already phone-shaped.** Phase 9's one-handed layouts for trades, wants and collection lookups are what the phone shows. Nothing is redesigned; the phone gets a home-screen icon, and that is the whole difference from Chrome.
 
 The one discipline this needs going forward: `web/` must keep working when served from a LAN address rather than `localhost`, and `server/` must keep being configurable purely by environment. Both are true today.
 
@@ -32,35 +33,35 @@ These are not design decisions; they are the places a first run fails for reason
 **Windows**
 - **The firewall prompt.** The first time the server binds `0.0.0.0`, Windows Defender Firewall asks whether to allow the bundled `node.exe` on private networks. *Cancel* means LAN sharing silently does not work. The shell explains this in a sentence right before flipping the toggle, and *Show logs* is where "the phone can't find it" gets diagnosed.
 - **Close hides to the tray; Quit is explicit.** Windows convention is close-means-quit, so the first-launch notice matters most here: a user who "closes" it must not believe it is off.
-- **SmartScreen** interposes "Windows protected your PC" for an unsigned installer. Friends click *More info → Run anyway*. A code-signing certificate removes it; not before the idea is judged.
+- **SmartScreen** interposes "Windows protected your PC" for an unsigned installer. Until session 4, friends click *More info → Run anyway*.
 - **Building from a Mac.** electron-builder produces the Windows NSIS installer on macOS. The tray behaviour, the firewall prompt and the close semantics only show on real Windows — verify on a machine or a VM before calling checkpoint 1 met.
 
 **macOS**
-- **Gatekeeper is a dead end, not a warning.** An unsigned `.app` downloaded from the internet says *"is damaged and can't be opened"*; the workaround (`xattr -d com.apple.quarantine`) is a terminal command, which is the thing the app exists to avoid. Your own build runs on your own Mac without any of this. Giving it to other Mac users needs Apple's developer program for signing and notarisation — deferred with Windows signing, but it is the harder of the two to skip.
+- **Gatekeeper is a dead end, not a warning.** An unsigned `.app` downloaded from the internet says *"is damaged and can't be opened"*; the workaround (`xattr -d com.apple.quarantine`) is a terminal command, which is the thing the app exists to avoid. Your own build runs on your own Mac without any of this. Giving it to other Mac users needs Apple's developer program for signing and notarisation — session 4.
 - **Apple silicon only — decided, not deferred.** No Intel build now or later; an Intel Mac runs the self-hosted version. A universal build would double the bundled Node for a platform Apple stopped selling in 2023.
 - Close leaves the app running (Dock icon, menu-bar item); ⌘Q quits. Same rule as Windows, and the one Mac users already expect.
 
-**Android**
-- **Discovery is `NsdManager`**, and the plugin must hold a `WifiManager.MulticastLock` while browsing or the wifi driver drops the multicast packets. `.local` name resolution is unreliable on Android, so the browse step and the recorded-address fallback in Phase 29's order carry the weight.
-- **Cleartext HTTP is blocked by default** in Android apps. A network security config allowing `http://` to private ranges and `.local` is required or the WebView shows nothing. (iOS has the same gate, App Transport Security, if it is ever added.)
-- **Use a real phone, not the emulator.** Emulator networking makes mDNS miserable. USB debugging on, same wifi as the PC.
-- **Distribution is an APK** on the GitHub release page, sideloaded. No developer account, no expiry. Play Store is optional and later.
+**Phones**
+- **The QR must carry an IP address, not the `.local` name.** iPhones resolve `mtg-library-XXXX.local` natively; Android browsers often do not. The URL in the QR is the desktop's current LAN IP; the `.local` name is shown beside it as text for anyone who can use it.
+- **Plain `http://` on the LAN, and what that costs.** iOS *Add to Home Screen* works over HTTP and launches standalone. Android Chrome's automatic install banner needs HTTPS, so on Android the user adds it from the browser menu and gets a home-screen shortcut that behaves the same. Camera *capture* through `<input capture>` works over HTTP on both; `getUserMedia` (live viewfinder) does not, and nothing in the web client uses it.
+- **When the PC's IP changes,** the pinned icon opens to a connection error. Home routers rarely reassign, but the web client's unreachable message must say *scan the QR code on your computer again* rather than mention the tailnet — session 3 makes it say that when the page was reached over a LAN address.
+- **Sleep is the outage.** A PC that sleeps is a phone that cannot connect. Phase 28's *Keep this computer awake while sharing* is the setting; the phone's error message is the tell.
 
 ## The cut, per phase
 
-**Phase 28 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login* (default on), *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
-**Defer:** auto-update, signing, Linux packaging, log rotation.
+**Phase 28, session 1 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
+**Session 4:** signing and notarisation, `electron-updater` against GitHub Releases, the release workflow. **Never:** Linux packaging (systemd and Docker cover it), Intel Macs.
 
-**Phase 29 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. It is small, and the Android session needs every piece.
+**Phase 29 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. The "Phone: discovery order" section is the parked app's contract and is not built.
 
-**Phase 20 — build:** `mobile/` Capacitor project with the Android platform; a bundled pairing screen (plain HTML/TS, a few hundred lines, not React — it must not import from `web/`); QR scan; Phase 29's discovery order, verified against `instanceId`; navigate the WebView to the server; a "can't find your library" screen with *Retry* and *Re-pair*; the network security config.
-**Defer:** shop mode and the snapshot, the queue and idempotency table, the composite trade endpoint, OCR, background sync, share target, iOS, Play Store.
+**Phase 19 — build:** all of it, over plain HTTP. Manifest, icons, `index.html` tags, the no-op service worker, plus the LAN-aware unreachable message the doc does not mention because it predates Phase 29.
 
 ## Before session 1
 
 - Node 22.6+ and the repo building clean (`npm run build && npm test`).
-- Android Studio installed (it runs on the Mac), an Android phone with USB debugging on, and the phone on the same wifi as the machine running the server.
 - Access to a Windows machine or VM for checkpoint 1's Windows half. Development and the macOS half happen on the Mac.
+- A phone — any — on the same wifi, for checkpoints 2 and 3.
+- For session 4: the Apple Developer Program membership is in hand — it needs a *Developer ID Application* certificate in the login keychain, an app-specific password for notarisation, and the Team ID. A Windows code-signing certificate is a separate purchase, still undecided; the workflow builds Windows unsigned until one exists.
 
 ---
 
@@ -133,8 +134,8 @@ should show.
 ```
 @CLAUDE.md @phases/apps/phase-29-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 29 in full — it is small and the Android session needs every
-piece.
+Build Phase 29 in full — it is small, and the QR code it produces is how
+every phone reaches the app.
 
 - instance_id written to app_settings on first open via setSetting in
   db/index.ts (not through the settings route).
@@ -155,10 +156,107 @@ piece.
   Browser" from the store) is the easiest check.
 
 Update docs/CODEBASE-MAP.md and the atlas. Walk through the doc's
-verification items 1–3 and 7 (4–6 need the phone app) and report.
+verification items 1–3 and 7 and report; 4–6 describe the parked companion
+app and are not in scope. The "Phone: discovery order" section is that
+app's contract — leave it in the doc, build none of it.
 ```
 
-## Session 3 prompt — Phase 20, Android companion (home mode only)
+## Session 3 prompt — Phase 19, home-screen install
+
+```
+@CLAUDE.md @phases/apps/phase-19-pwa-install-flow.md @phases/apps/phase-29-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
+
+Build Phase 19 in full, over plain HTTP — the doc's HTTPS section is an
+open decision and the answer is "skip it": the phone reaches the desktop
+app over a LAN address with no certificate, and the degraded Android
+install (from the browser menu, no automatic banner) is accepted.
+
+- web/public/ with manifest.webmanifest (name "MTG Library", display
+  standalone, start_url "/", theme and background colours matching the
+  default theme in styles.css) and icons: 192, 512, maskable 512, and an
+  apple-touch-icon. Original artwork — a simple mark, no card art, no
+  Wizards marks. Commit the source (SVG) alongside the PNGs.
+- index.html: manifest link, apple-touch-icon, apple-mobile-web-app-capable
+  and status-bar-style, theme-color.
+- A no-op service worker at web/public/sw.js — no fetch handler, no Cache
+  API, a comment saying it is permanently a no-op and why. Registered from
+  main.tsx.
+- The pairing panel in DataPage.tsx (Phase 29) gains one line under the QR:
+  "On your phone, open this and choose Add to Home Screen."
+- CONNECTIVITY_MESSAGE in web/src/api.ts mentions the tailnet. When the page
+  was loaded from a private LAN address (10/8, 172.16/12, 192.168/16, or a
+  .local host — decide in one small pure function with a test), the
+  unreachable message says instead that the computer running MTG Library
+  may be asleep or on a different address, and to scan the QR code on it
+  again. Keep the tailnet wording for every other origin.
+
+Verification per the doc, items 1, 2 and 4; item 3 is skipped with the HTTPS
+decision. Then on a real phone: scan the QR, add to home screen, open from
+the icon (standalone, no browser chrome on iOS), then put the desktop to
+sleep and open the icon again — the new message shows.
+```
+
+## Session 4 prompt — Phase 28, signing and updates
+
+```
+@CLAUDE.md @phases/apps/phase-28-desktop-app.md @phases/apps/BUILD-BRIEF.md
+
+Finish Phase 28: signing, notarisation and auto-update. Verification items 7
+and 8 are the target. Nothing in server/src or web/src changes.
+
+- macOS: hardened runtime, entitlements for the bundled Node binary (it
+  JITs — allow-jit and allow-unsigned-executable-memory at minimum; confirm
+  the packaged app runs under the hardened runtime before notarising),
+  notarisation through electron-builder's notarize option with APPLE_ID,
+  APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID from the environment,
+  stapled. Verify with spctl --assess and by downloading the .dmg on a
+  second Mac.
+- Windows: sign with the certificate in the environment if present; if
+  absent, build unsigned and say so in the workflow output rather than
+  failing. Note in the README what SmartScreen shows for each.
+- electron-updater against GitHub Releases: check on launch and daily,
+  download in the background, a "Restart to update" tray item, applied on
+  next quit. No mid-session prompt, ever. The server's migrations run on the
+  next open, which is the whole of the shell's migration story.
+- .github/workflows/desktop.yml: on a v* tag, build the mac arm64 .dmg on
+  macos-latest and the Windows x64 installer on windows-latest, run
+  server/scripts/check-sqlite.mjs against each packaged app's Node +
+  better-sqlite3 as a gate, and upload the artifacts plus electron-updater's
+  latest*.yml to the release. Leave docker.yml alone.
+- README "Desktop app" section: the download links, that it updates itself,
+  the size, and the either/or with a home server.
+
+Done means: a tagged release produces both installers; a second Mac opens
+the .dmg from a browser download with no warning; an older installed build
+updates itself to it on next quit with the data directory intact. Tell me
+which steps need my Apple and GitHub credentials and exactly where each goes.
+```
+
+---
+
+## After the four sessions
+
+The desktop app is the product. What changes next comes through `web/` and `server/` as it always has, and reaches every install through the updater and every phone on its next page load.
+
+If a checkpoint doesn't hold, the most likely reasons, in the order I would check: the packaged app cannot find `schema.sql` (directory shape); the Windows firewall prompt was dismissed (sharing looks on, nothing answers on the LAN address); the machine was asleep (the phone's error is the tell — see the keep-awake setting); the router isolates clients (the QR's IP answers from the PC itself but not from the phone — a router setting, and the README should name it); or the phone cached an old address (rescan the QR). None of those is a sign the idea is wrong.
+
+The trigger for un-parking the companion app is one sentence: *I wanted to record a trade at the shop and couldn't.* When that is said, the order is 20a (server, no phone), then the Android home-mode session below, then shop mode. Both prompts are kept here as written; the README's parked section has the reasoning.
+
+---
+
+## Appendix — parked prompts (companion app)
+
+Kept verbatim from the earlier plan. Do not run without reading the README's parked section first.
+
+### Android plumbing
+
+**Android**
+- **Discovery is `NsdManager`**, and the plugin must hold a `WifiManager.MulticastLock` while browsing or the wifi driver drops the multicast packets. `.local` name resolution is unreliable on Android, so the browse step and the recorded-address fallback in Phase 29's order carry the weight.
+- **Cleartext HTTP is blocked by default** in Android apps. A network security config allowing `http://` to private ranges and `.local` is required or the WebView shows nothing. (iOS has the same gate, App Transport Security, if it is ever added.)
+- **Use a real phone, not the emulator.** Emulator networking makes mDNS miserable. USB debugging on, same wifi as the PC.
+- **Distribution is an APK** on the GitHub release page, sideloaded. No developer account, no expiry. Play Store is optional and later.
+
+### Parked session — Phase 20, Android companion (home mode only)
 
 ```
 @CLAUDE.md @phases/apps/phase-20-native-companion-app.md @phases/apps/phase-29-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
@@ -205,10 +303,58 @@ items 4–6 and Phase 20's item 9 (home mode is the web client byte-for-byte)
 and report; tell me which of those need me on the physical phone.
 ```
 
----
+### Parked session — Phase 20a, sync contract (server only)
 
-## After the three sessions
+Pure server work; needs Phase 29 and nothing else. The first thing to run if the app is un-parked.
 
-If the checkpoints hold, the next sessions are the rest of Phase 20 in this order — the snapshot and shop-mode surface; the queue, `idempotency_keys` and `POST /api/v1/trades/record`; the pending overlay; background sync (`WorkManager`) and the wifi-join trigger — then signing (Windows certificate, Apple notarisation) and auto-update for Phase 28 — still Apple silicon only — then Phase 30 only if the never-home-together gap actually shows up. OCR (ML Kit on Android) waits on Phase 16. iOS, if ever, is `npx cap add ios`, the Bonjour twin of the discovery plugin, and an Apple developer account.
+```
+@CLAUDE.md @phases/apps/phase-20a-sync-contract.md @phases/apps/phase-20-native-companion-app.md
 
-If they don't hold, the most likely reasons, in the order I would check: the packaged app cannot find `schema.sql` (directory shape); the Windows firewall prompt was dismissed (sharing looks on, nothing answers on the LAN address); the machine was asleep (the phone's *Last synced* age is the tell — see the keep-awake setting); multicast dropped on the phone (no `MulticastLock`, or a router with client isolation — try the recorded addresses, which the doc's fallbacks exist for); cleartext blocked (WebView blank, `ERR_CLEARTEXT_NOT_PERMITTED` in logcat); or `allowNavigation` missing a host pattern. None of those is a sign the idea is wrong.
+Build Phase 20a in full: the server side of the companion app's sync
+contract. Server and one migration only — nothing in mobile/, nothing in
+web/src beyond the new alert kind's type and label. The umbrella Phase 20
+doc is context for what the phone will do with this; where the two differ,
+20a is the decision and says why.
+
+- New server/src/companion/: snapshot.ts (buildSnapshot) and idempotency.ts
+  (withIdempotencyKey). Routes in server/src/routes/companion.ts,
+  registered in index.ts. Never use the bare word "snapshot" for a type or
+  function — the codebase already has deck snapshots and the collection
+  value snapshot, and this is neither.
+- GET /api/v1/snapshot: the document shaped exactly as the doc shows,
+  gzipped with zlib (no compression plugin). The per-card owned / reserved /
+  tradeListed / available / tracked come from allocation.ts, never
+  re-derived; decks carry reserves(status); catalog is an array of tuples.
+  formatVersion 1, additive-only, with that rule as a comment at the top of
+  snapshot.ts.
+- idempotency_keys in both schema.sql and migrations.ts, next unused
+  user_version. withIdempotencyKey does the lookup, the store call and the
+  key insert inside ONE db.transaction, returns { status, body, replayed },
+  stores 4xx results as well as successes, and prunes rows older than 30
+  days on insert. Not a preHandler — the doc explains the crash window.
+- POST /api/v1/trades/record: Idempotency-Key required (400 without);
+  create + addItem per item + complete({ conflictMode: 'alert' }) in one
+  transaction; 201 { trade, result }. TradeShortfallError → 409 with the
+  shortfalls, nothing applied, the 409 stored — and map TradeShortfallError
+  to 409 in errorHandler.ts, where it is missing today.
+- New alert kind replay_failed: widen the CHECK on alerts.kind by rebuilding
+  the table in the migration and recreating idx_alerts_active identically;
+  add the kind to AlertKind in alerts/store.ts, its mirror in web/src/api.ts,
+  and a label in AlertsBell.tsx. Raised on the 409 only, dedupe_key
+  'replay_failed:<key>', payload = the request body.
+- POST /api/v1/want-lists/:id/items: Idempotency-Key optional; when present,
+  wrap in the helper; when absent, behave exactly as now (existing tests
+  unchanged).
+- serverVersion read through the same function Phase 29's instance endpoint
+  uses.
+
+Tests for every verification item in the doc (1–11), via app.inject where a
+route is involved, and migrations.test.ts must pass with the rebuilt alerts
+table. Update docs/CODEBASE-MAP.md (new directory and route file, the
+"where do I edit" row for idempotency) and rerun python3 docs/atlas/build.py.
+
+Done means all eleven verification items pass as tests, and the three
+follow-up edits listed under "After this ships" in the 20a doc are applied
+to phase-20-native-companion-app.md and phase-30-cloud-mailbox.md.
+```
+
