@@ -6,7 +6,8 @@
   "description": "Self-hosted Magic: The Gathering collection, deck and trade manager",
   "workspaces": [
     "server",
-    "web"
+    "web",
+    "desktop"
   ],
   "engines": {
     "node": ">=22.6"
@@ -15,6 +16,8 @@
     "dev": "npm run dev --workspace=server",
     "start": "npm run start --workspace=server",
     "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "desktop:dev": "npm run build && npm run dev --workspace=desktop",
+    "desktop:package": "npm run build && npm run package --workspace=desktop"
   }
 }

@@ -1,0 +1,28 @@
+{
+  "name": "@mtg-library/desktop",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "MTG Library as a desktop app: the server on a bundled Node, the web client in a window",
+  "productName": "MTG Library",
+  "type": "module",
+  "main": "dist/main.js",
+  "config": {
+    "nodeVersion": "22.23.2"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.json && electron .",
+    "fetch-node": "node scripts/fetch-node.mjs",
+    "stage": "node scripts/stage.mjs",
+    "package": "node scripts/package.mjs",
+    "test": "node --test --experimental-strip-types --no-warnings 'src/**/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "electron": "44.4.1",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,9 @@
+# Fetched at package time (bundled Node binaries) — never committed.
+vendor/
+# Assembled at package time from the built server and web client.
+staging/
+# electron-builder output.
+out/
+# The root .gitignore excludes build/ (a build-output convention); here it is
+# electron-builder's *input* directory — the app icon lives in it.
+!/build/

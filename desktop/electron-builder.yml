@@ -1,0 +1,102 @@
+# electron-builder configuration for the desktop app (Phase 32).
+#
+# What gets packaged, and where it lands inside the app:
+#
+#   app.asar                      the shell: dist/main.js (+ config, logging,
+#                                 server), assets/ (tray icons), package.json.
+#                                 asar stays ON for these — they are the only
+#                                 thing in it.
+#   Resources/mtg-library/        the staged server tree (scripts/stage.mjs):
+#                                 schema.sql, server/dist, web/dist, a
+#                                 production node_modules. Shipped as
+#                                 extraResources, which is never put in an
+#                                 asar — better-sqlite3's .node binary and the
+#                                 sync worker (`new Worker(path)`) cannot load
+#                                 from inside one. Named "mtg-library", not
+#                                 "app": Electron treats Resources/app as the
+#                                 application itself if that directory exists.
+#   Resources/node/node(.exe)     the bundled official Node (scripts/fetch-node.mjs)
+#                                 the server runs on. Never Electron's Node.
+#
+# `files` is the shell only; it never points at the workspace. Rebuilding
+# native modules is off: the staged tree already holds the prebuilt
+# better-sqlite3 for the bundled Node's ABI, and a rebuild is exactly what
+# could lose FTS5.
+#
+# node_modules is a separate extraResources entry on purpose: electron-builder's
+# copy filter (app-builder-lib/out/util/filter.js) drops a directory named
+# node_modules at the root of any source, unconditionally, so the staged tree's
+# node_modules is copied from its own root. check-packaged.mjs is what caught
+# this.
+
+appId: com.davesoupy.mtglibrary
+productName: MTG Library
+copyright: MIT licence — see LICENSE
+
+directories:
+  output: out
+  buildResources: build
+
+files:
+  - dist/**/*
+  - "!dist/**/*.map"
+  - assets/**/*
+  - package.json
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    # Phase 34's updater needs the zip; produced now so the layout is settled.
+    - target: zip
+      arch: [arm64]
+  category: public.app-category.utilities
+  darkModeSupport: true
+  # TODO(Phase 34): Developer ID signing, hardened runtime with entitlements
+  # for the bundled Node (it JITs), notarisation. Until then the build is
+  # unsigned: it runs where it was built; a downloaded copy needs
+  # `xattr -d com.apple.quarantine`.
+  identity: null
+  extraResources:
+    - from: staging/darwin-arm64
+      to: mtg-library
+    - from: staging/darwin-arm64/node_modules
+      to: mtg-library/node_modules
+    - from: vendor/node/darwin-arm64/node
+      to: node/node
+    - from: vendor/node/darwin-arm64/LICENSE
+      to: node/LICENSE
+
+dmg:
+  artifactName: ${productName}-${version}-mac-arm64.${ext}
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # TODO(Phase 34): sign when a certificate exists; unsigned until then
+  # (SmartScreen: More info → Run anyway).
+  extraResources:
+    - from: staging/win32-x64
+      to: mtg-library
+    - from: staging/win32-x64/node_modules
+      to: mtg-library/node_modules
+    - from: vendor/node/win32-x64/node.exe
+      to: node/node.exe
+    - from: vendor/node/win32-x64/LICENSE
+      to: node/LICENSE
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  runAfterFinish: true
+  artifactName: ${productName}-${version}-win-x64-setup.${ext}
+
+# Never: systemd and Docker cover Linux.
+linux:
+  target: []

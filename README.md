@@ -95,11 +95,60 @@ covered [below](#backups).
 
 ---
 
+## Desktop app
+
+The same server as an ordinary application for a Mac (Apple silicon) or a
+Windows PC: double-click to start, quit from the menu bar or system tray to
+stop. No Docker, no Node, no terminal. It is for people *without* a home
+server — it keeps its own library, and there is no syncing between it and a
+self-hosted install, so it is one or the other.
+
+It runs in the background: closing the window keeps the server up (the
+menu-bar / tray icon reopens it), and only **Quit** stops it. It starts at
+login by default. The tray menu also has *Allow other devices on this network*
+(off by default — phones on your wifi can then open it; the next release adds
+a QR code for that), *Keep this computer awake while sharing*, *Show data
+folder* (the `library.sqlite` in there is your whole backup) and *Show logs*.
+
+The download is 150–200 MB, most of it the bundled runtime.
+
+**For now the builds are unsigned**, which the two operating systems treat
+differently:
+
+- **macOS** — a build you make yourself (below) opens normally. One
+  *downloaded* from someone else is quarantined and Gatekeeper reports it as
+  "damaged". Until the signed release exists, clear the flag once from a
+  terminal, then open it as usual:
+
+  ```bash
+  xattr -d com.apple.quarantine "/Applications/MTG Library.app"
+  ```
+
+- **Windows** — SmartScreen shows *"Windows protected your PC"* for the
+  installer. Click **More info → Run anyway**. The first time you turn on
+  *Allow other devices on this network*, Windows Defender Firewall asks about
+  `node.exe`; allow it on private networks or phones will not find the app.
+
+To build it yourself (macOS, with the repository set up as under
+[Development](#development)):
+
+```bash
+npm run desktop:package
+```
+
+That produces `desktop/out/MTG Library-<version>-mac-arm64.dmg` and
+`desktop/out/MTG Library-<version>-win-x64-setup.exe` — the Windows installer
+is built on the Mac too. `npm run desktop:dev` runs the app from the working
+tree. Signed, notarised, self-updating builds are the next step for the
+desktop app (Phase 34).
+
+---
+
 ## Running it
 
-The section above is the whole story if you're happy with Docker. The rest of
-this README is for people who'd rather run it under Node, host it as a
-service, reach it from a phone, or work on the code.
+The sections above are the whole story if you're happy with Docker or the
+desktop app. The rest of this README is for people who'd rather run it under
+Node, host it as a service, reach it from a phone, or work on the code.
 
 ### Option A — Docker
 
@@ -209,6 +258,7 @@ All configuration is environment variables. With Docker, set them under
 | `MTG_PORT` | `8080` | Listen port |
 | `MTG_HOST` | `0.0.0.0` | Bind address. Set to `127.0.0.1` to restrict to the local machine |
 | `MTG_LOG_LEVEL` | `info` | Fastify log level (`debug`, `info`, `warn`, `error`) |
+| `MTG_SHUTDOWN_ON_STDIN_CLOSE` | unset | `1` makes the server shut down cleanly when its stdin closes. Set by the desktop app, which owns the server's stdin — Windows has no SIGTERM to send — and never under systemd, where stdin is `/dev/null` and would end at once |
 
 ## Backups
 
@@ -304,6 +354,9 @@ endpoints and reimplement nothing.
   `src/collection`, `src/trades`, `src/search`, `src/sync`, and so on; routes
   hold no rules, they call a store.
 - `web/` — React + Vite. One codebase, desktop and phone layouts.
+- `desktop/` — the Electron shell around the unmodified server: a bundled
+  Node runs `server/dist`, the window shows `web/dist`. No UI or rules of its
+  own; `desktop/CLAUDE.md` has what must stay true.
 - `schema.sql` — the complete database schema for fresh installs;
   `server/src/db/migrations.ts` upgrades existing databases, and a test proves
   the two produce identical databases.
