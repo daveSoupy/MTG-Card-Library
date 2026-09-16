@@ -43,7 +43,7 @@ Spend the first ten minutes of the session on this, in order:
 
 1. `curl https://api.scryfall.com/bulk-data` and read the list. If there's a tags file,
    Phase 7's sync step is real; build it (it's self-contained; read
-   `phases/phase-7-deck-templates.md`) and proceed with full ranking.
+   `phases/shipped/phase-7-deck-templates.md`) and proceed with full ranking.
 2. If not, check whether Phase 7 (if built) populated `card_categories` some other way,
    and whether that way is reproducible. If yes, use it.
 3. If neither, **ship this phase degraded and say so in the commit message**: type line,

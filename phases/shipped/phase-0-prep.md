@@ -35,7 +35,7 @@ The four web tests are pure logic. Phases 9, 10, and 17 verify DOM behavior. Add
 
 ## 6. Phase-doc alignment check
 
-Grep every `phases/phase-*.md` for the component and function names it references and confirm each exists after the split above (`ValueChart`, `startPress`, `.tile-controls`, `onPreview`, `groupCards`, …). Fix the doc, not the code, where a name moved to a new file.
+Grep every `phases/**/phase-*.md` for the component and function names it references and confirm each exists after the split above (`ValueChart`, `startPress`, `.tile-controls`, `onPreview`, `groupCards`, …). Fix the doc, not the code, where a name moved to a new file.
 
 ## Verification
 

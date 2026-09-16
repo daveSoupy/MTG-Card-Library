@@ -1,6 +1,6 @@
 # MTG Deck Builder — Project Instructions
 
-This file is auto-loaded by Claude Code at the start of every session. Keep it lean — it holds only what's relevant to *every* session: the build process, the tech stack, and the full data model (since nearly every phase touches the data layer). Phase-specific feature requirements live separately in `phases/` and are **not** auto-loaded — reference the specific one you're working on with an `@`-mention (e.g. `@phases/phase-11-game-draft-log.md`) only for the session working on that phase.
+This file is auto-loaded by Claude Code at the start of every session. Keep it lean — it holds only what's relevant to *every* session: the build process, the tech stack, and the full data model (since nearly every phase touches the data layer). Phase-specific feature requirements live separately in `phases/` and are **not** auto-loaded — reference the specific one you're working on with an `@`-mention (e.g. `@phases/phase-12-price-history-live-pricing.md`) only for the session working on that phase.
 
 ## Where the project stands
 
@@ -29,18 +29,19 @@ Phases 0–11, 17, 22–27 and 31–33 are built and shipped. `schema.sql` is th
 - `deploy/` — systemd unit and install notes.
 - `desktop/` — the Electron shell (Phase 32): the unmodified `server/dist` on a bundled Node, the window on `http://127.0.0.1:<port>/`. No UI, no rules. `desktop/CLAUDE.md` is auto-loaded for any session touching it and holds what must stay true; `npm run desktop:package` builds the mac `.dmg` and the Windows installer, `npm run desktop:dev` runs it from the tree.
 - `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.github/workflows/docker.yml` — the container path. The workflow publishes `ghcr.io/davesoupy/mtg-card-library` (`edge` from main, `latest` from a `v*` tag); compose pulls that image and carries no `build:` so the file works on its own. The image keeps the repo's directory shape because `server/dist` locates `schema.sql` and `web/dist` by walking up from its own path.
-- `phases/phase-1-core-database-search.md` (shipped)
-- `phases/phase-2-deck-building-format-rules.md` (shipped)
-- `phases/phase-3-commander-specific-rules.md` (shipped)
-- `phases/phase-4-collection-pricing.md` (shipped)
-- `phases/phase-5-import-export-backup.md` (shipped)
-- `phases/phase-6-trades-want-trade-lists.md` (shipped)
-- `phases/phase-0-prep.md` (shipped)
-- `phases/phase-7-deck-templates.md` (shipped)
-- `phases/phase-8-quick-fixes.md` (shipped)
-- `phases/phase-9-mobile-overhaul.md` (shipped)
-- `phases/phase-10-display-density.md` (shipped)
-- `phases/phase-11-game-draft-log.md` (shipped)
+- `phases/` — one design doc per feature. Unbuilt phases sit at the top level; `phases/shipped/` holds the ones that are built (kept as the record of what was specced and how it changed at build time); `phases/apps/` is the install/distribution track with its own README. `phases/README.md` is the index.
+- `phases/shipped/phase-1-core-database-search.md` (shipped)
+- `phases/shipped/phase-2-deck-building-format-rules.md` (shipped)
+- `phases/shipped/phase-3-commander-specific-rules.md` (shipped)
+- `phases/shipped/phase-4-collection-pricing.md` (shipped)
+- `phases/shipped/phase-5-import-export-backup.md` (shipped)
+- `phases/shipped/phase-6-trades-want-trade-lists.md` (shipped)
+- `phases/shipped/phase-0-prep.md` (shipped)
+- `phases/shipped/phase-7-deck-templates.md` (shipped)
+- `phases/shipped/phase-8-quick-fixes.md` (shipped)
+- `phases/shipped/phase-9-mobile-overhaul.md` (shipped)
+- `phases/shipped/phase-10-display-density.md` (shipped)
+- `phases/shipped/phase-11-game-draft-log.md` (shipped)
 - `phases/phase-12-price-history-live-pricing.md`
 - `phases/phase-13-sales-event-costs.md`
 - `phases/phase-14-shopping-cart-export.md`
@@ -58,12 +59,12 @@ Phases 0–11, 17, 22–27 and 31–33 are built and shipped. `schema.sql` is th
   - `phases/apps/parked/phase-36-native-companion-app.md` (**parked** — companion phone app, iOS and Android, Capacitor over `web/`: the web app at home, a snapshot-plus-queue "shop mode" away, syncing over the home network via Phase 33 — see the architecture notes below on what this means for the "no offline mode" rule. Rewritten after 32/33; needs 33, and 13 for sale recording. Un-park only when recording a trade away from home is actually wanted)
   - `phases/apps/parked/phase-35-sync-contract.md` (**parked** — the companion app's server half: `GET /api/v1/snapshot`, `idempotency_keys`, `POST /api/v1/trades/record`, a `replay_failed` alert kind. Testable with `app.inject`, no phone; the first session to run if the app is un-parked)
   - `phases/apps/parked/phase-37-cloud-mailbox.md` (**parked**; optional, after 32/33/36 — a folder in the user's own cloud storage as a second transport: snapshots one way, the write queue the other, immutable files, each side writes only its own directories. The desktop consumer injects queue files into the server's own routes so idempotency and alert rules apply unchanged. Never the only path)
-- `phases/phase-22-allocation-honesty.md` (shipped — deck status lifecycle, basic-land exemption, proxy counts, trade-list subtraction; establishes `server/src/decks/allocation.ts` as the single source of truth for "available")
-- `phases/phase-23-owned-aware-search.md` (shipped — `owned:` / `available:` / `loc:` / `indeck:` search predicates)
-- `phases/phase-24-deck-buildability.md` (shipped — buildable %, missing count, cost to complete, deck-list sorting)
-- `phases/phase-25-assembly-pull-sheets.md` (shipped — resolves allocations to real lots at assembly time; pull sheets grouped by storage location, and disassembly that puts cards back. Its "write the claim from what was picked" step was superseded at build time, because the claim had become a derived figure; the doc says why and what replaced it)
-- `phases/phase-26-allocation-contention.md` (shipped — which decks are fighting over which copies, reassignment, teardown simulation. Its contested-set and alert sections were rewritten at build time for the derived claim; the doc carries both versions)
-- `phases/phase-27-owned-substitutes.md` (shipped — owned cards that could fill a slot you're short on, ranked by shared Tagger role / type / CMC in `server/src/decks/substitutes.ts`, with a keyword-heuristic fallback in `roleHeuristics.ts` for a database whose tag sync has never run. Read-only endpoints; accepting one is two ordinary card edits from the client, never a server-side swap)
+- `phases/shipped/phase-22-allocation-honesty.md` (shipped — deck status lifecycle, basic-land exemption, proxy counts, trade-list subtraction; establishes `server/src/decks/allocation.ts` as the single source of truth for "available")
+- `phases/shipped/phase-23-owned-aware-search.md` (shipped — `owned:` / `available:` / `loc:` / `indeck:` search predicates)
+- `phases/shipped/phase-24-deck-buildability.md` (shipped — buildable %, missing count, cost to complete, deck-list sorting)
+- `phases/shipped/phase-25-assembly-pull-sheets.md` (shipped — resolves allocations to real lots at assembly time; pull sheets grouped by storage location, and disassembly that puts cards back. Its "write the claim from what was picked" step was superseded at build time, because the claim had become a derived figure; the doc says why and what replaced it)
+- `phases/shipped/phase-26-allocation-contention.md` (shipped — which decks are fighting over which copies, reassignment, teardown simulation. Its contested-set and alert sections were rewritten at build time for the derived claim; the doc carries both versions)
+- `phases/shipped/phase-27-owned-substitutes.md` (shipped — owned cards that could fill a slot you're short on, ranked by shared Tagger role / type / CMC in `server/src/decks/substitutes.ts`, with a keyword-heuristic fallback in `roleHeuristics.ts` for a database whose tag sync has never run. Read-only endpoints; accepting one is two ordinary card edits from the client, never a server-side swap)
 
 
 ## Overview
@@ -139,5 +140,5 @@ This was originally specced as a native macOS app, single-device by design. That
 The app is a self-hosted server that owns the database and the rules, with clients against it. Practical effects:
 
 - **Any device on the tailnet works** — phone at a card shop, desktop at home — with no sync layer, because there is only ever one database.
-- **The server has to be up, with one narrow, deliberate exception.** Clients are always-connected by design; there is no general offline mode and no local cache to reconcile — a deliberate trade for having zero conflict-resolution code. Phase 36 (parked) carves out exactly one scenario: OCR scanning and trade/sale/want recording in the native app, queued locally and synced when connectivity returns. It's tractable because those three actions are inserts, not edits, and each queued action carries a client-generated idempotency key so a retried upload can never apply twice. It doesn't reopen the general question for anything else. Phase 33's service worker is not an exception: it caches the web client's *static bundle*, network-first, so a phone that can't reach the server sees the app's own reconnect screen instead of the browser's error page — nothing from `/api/*` is ever cached, and no write is ever queued.
+- **The server has to be up, with one narrow, deliberate exception.** Clients are always-connected by design; there is no general offline mode and no local cache to reconcile — a deliberate trade for having zero conflict-resolution code. Phase 36 (parked) carves out exactly one scenario: OCR scanning and trade/sale/want recording in the native app, queued locally and synced when connectivity returns. It's tractable because those three actions are inserts, not edits, and each queued action carries a client-generated idempotency key so a retried upload can never apply twice. It doesn't reopen the general question for anything else. Phase 31's service worker is not an exception: it caches the web client's *static bundle*, network-first, so a phone that can't reach the server sees the app's own reconnect screen instead of the browser's error page — nothing from `/api/*` is ever cached, and no write is ever queued.
 - **Backups are one file.** `library.sqlite` plus the phase docs is the whole of it; the card cache re-downloads from Scryfall in about 17 seconds.

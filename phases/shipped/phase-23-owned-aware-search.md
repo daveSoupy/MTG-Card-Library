@@ -50,7 +50,7 @@ restriction to the *search pane*, or only validates on add. If it's validation-o
 off-color cards are visible in results today and get rejected at insert — in which case
 this phase carries the filter itself rather than assuming it, using the same indexable
 subset test Phase 3 already uses: `(color_identity_mask & ~:cmdr_mask) = 0`. Read
-`phases/phase-3-commander-specific-rules.md` and the shipped search code before
+`phases/shipped/phase-3-commander-specific-rules.md` and the shipped search code before
 deciding; don't infer it from behaviour.
 
 ## Schema
