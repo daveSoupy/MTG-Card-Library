@@ -55,7 +55,8 @@ Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 
 | DB open, `getSetting`/`setSetting`, library status | `server/src/db/index.ts` | |
 | Env vars (`MTG_DATA_DIR`, port, host) | `server/src/config.ts` | |
 | **Web:** the HTTP client and every shared TS type | `web/src/api.ts` | Every component imports from here. Server type change → mirror here first. |
-| **Web:** top-level views, nav, topbar, global state (settings/density/theme) | `web/src/App.tsx` | |
+| **Web:** top-level views, nav, topbar, global state (settings/density/theme) | `web/src/App.tsx` | Also the help index / topic overlay slot and the welcome gate (Phase 17). |
+| **Web:** a `?` help panel beside a control, or the topbar help index | `web/src/components/helpTopics.tsx` | Add a topic to `HELP_TOPICS`, drop `<HelpButton topic=… />` beside the control. Never inside a `<label>` — a button is labelable. |
 | **Web:** URL ↔ view mapping | `web/src/router.ts` | History-based; every route round-trips. |
 | **Web:** the deck builder page (data loading, panels, dialogs, undo) | `web/src/components/DeckBuilder.tsx` | Orchestrator. Layout is in `DeckPanes.tsx`. |
 | **Web:** deck builder three-pane layout, picker, lined-up view, hover preview | `web/src/components/DeckPanes.tsx` | 1,127 lines. Renders `DeckRow`/`DeckTile`/`DeckStatsPanel`/`CardDetailPane`. |
@@ -262,7 +263,7 @@ main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPag
 | File | Does | Imports | Imported by |
 |---|---|---|---|
 | `main.tsx` | Mounts `<App/>`. | `App` | — |
-| `App.tsx` | The shell: topbar, nav tabs, route → view switch, global settings load, density/theme init, `SyncGate` wrapper, browse view (search + `FilterPanel` + results + `CardDetailPane`), `AlertsBell`. Route names: `collection` (with tab), `decks`, `deck/:id`, `browse`, `trades`, `games`, `data`. | `api`, `router`, `deckView`, `density`, `ownedBadge`, `searchScope`, `theme`, and the page components | `main` |
+| `App.tsx` | The shell: topbar, nav tabs, route → view switch, global settings load, density/theme init, `SyncGate` wrapper, browse view (search + `FilterPanel` + results + `CardDetailPane`), `AlertsBell`, the help index / topic slot and the `Welcome` gate (Phase 17). Route names: `collection` (with tab), `decks`, `deck/:id`, `browse`, `trades`, `games`, `data`. | `api`, `router`, `deckView`, `density`, `ownedBadge`, `searchScope`, `theme`, and the page components | `main` |
 | `api.ts` | **The HTTP client and every shared type** (`CardSummary`, `Deck`, `DeckCard`, `BuildabilityDetail`, `AssemblySheet`, `ContestedCard`, `CollectionCard`, `Trade`, `WantList`, `Alert`, `AppSettings`, …). One exported function per endpoint. `ApiError`, `isConnectivityError`, `imageUrl`, `subscribeToSync` (SSE). | — | Everything |
 | `router.ts` | `Route` union, `parseRoute` / `formatRoute` (pure, round-trip), `readRoute` / `pushRoute` / `replaceRoute` / `onRouteChange` (window). | — | `App`, `CollectionPage` |
 | `styles.css` | All CSS. Sections are `/* ---------- name ---------- */`. `docs/CSS-INDEX.md` (generated) maps every class → section + line → components using it. Breakpoints (760px etc.) are mirrored in `viewport.ts`. | | |
@@ -348,7 +349,10 @@ main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPag
 | `GameLogDialog.tsx` | Log a game. |
 | `AlertsBell.tsx` | Topbar inbox. |
 | `SyncGate.tsx` | Blocks only when there's no card data; background refresh otherwise. |
-| `SyntaxHelp.tsx` | Search syntax reference (only what's implemented). |
+| `HelpPanel.tsx` | Phase 17. The shell every reference panel renders into: overlay, centred card, header with Close (+ "All topics"), Escape in the capture phase so a panel over a dialog closes alone. Sections are syntax rows or prose. |
+| `helpTopics.tsx` | Phase 17. The registry of every `?` panel (`HELP_TOPICS`), `HelpButton` (the `?` beside a control, panel portalled to `<body>`), `HelpIndex` (the topbar list), `HelpTopicPanel`. |
+| `SyntaxHelp.tsx` | Search syntax reference (only what's implemented); content only, exported as `SYNTAX_HELP` for the index. |
+| `Welcome.tsx` | Phase 17. The one-time welcome after the first sync: three links to Browse / Collection / Decks. Shown by `App` while `welcomeSeen` is false and card data exists. |
 | `ManaCost.tsx` | `5 ●●` with the full cost as tooltip. |
 | `BackToTop.tsx` | Works inside any scrolling container (capture-phase listener). |
 | `UndoToast.tsx` | "Removed X · Undo", last step only. |

@@ -657,4 +657,19 @@ export const MIGRATIONS: Migration[] = [
          AND deck_id IN (SELECT id FROM decks WHERE status IN ('brew', 'disassembled'));
     `,
   },
+  {
+    version: 21,
+    description: 'Mark the first-run welcome as seen on libraries that already have card data',
+    sql: `
+      -- Data only, no DDL. Phase 17 shows a one-time welcome while
+      -- welcome_seen is unset and card data exists. A library that predates
+      -- the flag has been in use for months; it should not greet its owner
+      -- as a newcomer on the next load. A fresh install runs schema.sql and
+      -- never reaches this migration, so it still gets the welcome. The key
+      -- is settings.ts's WELCOME_SEEN, spelled out here because migrations
+      -- must not import from the modules they predate.
+      INSERT OR IGNORE INTO app_settings (key, value)
+      SELECT 'welcome_seen', '1' WHERE EXISTS (SELECT 1 FROM oracle_cards);
+    `,
+  },
 ];

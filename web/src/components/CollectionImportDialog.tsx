@@ -3,6 +3,7 @@ import {
   previewCollectionCsv, importCollectionCsv,
   type CsvPreview, type ColumnRole, type StorageLocation,
 } from '../api.ts';
+import { HelpButton } from './helpTopics.tsx';
 
 const ROLES: Array<[ColumnRole, string]> = [
   ['ignore', 'Ignore'],
@@ -120,6 +121,7 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
             <p className="hint">
               An export from Deckbox, ManaBox, TCGplayer, Moxfield or a spreadsheet of your
               own. The columns are matched by name, and you can correct them next.
+              {' '}<HelpButton topic="importFormats" />
             </p>
             <input type="file" accept=".csv,text/csv" onChange={(e) => onFile(e.target.files?.[0])} />
             {busy && <p className="loading">Reading…</p>}

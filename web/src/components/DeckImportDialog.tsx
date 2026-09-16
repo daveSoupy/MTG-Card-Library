@@ -3,6 +3,7 @@ import {
   previewDecklist, importIntoDeck, importAsNewDeck,
   type DecklistPreview, type PreviewLine, type ImportBoard, type FormatRecord,
 } from '../api.ts';
+import { HelpButton } from './helpTopics.tsx';
 
 const BOARDS: Array<[ImportBoard, string]> = [
   ['main', 'Deck'], ['side', 'Sideboard'], ['command', 'Command zone'], ['maybe', 'Maybe'],
@@ -97,7 +98,7 @@ export function DeckImportDialog({ deckId, deckName, formats, onClose, onImporte
             <p className="hint">
               Paste a list from anywhere — Moxfield, Archidekt, Arena, MTGO, or just
               “4 Lightning Bolt” a line at a time. Set codes and section headers are
-              understood if they are there.
+              understood if they are there. <HelpButton topic="importFormats" />
             </p>
             <textarea
               className="export-text"

@@ -1063,6 +1063,11 @@ export interface AppSettings {
   assemblyMovesLots: boolean;
   /** Phase 27: how many owned stand-ins the substitute sheet offers. */
   substituteSuggestionCount: number;
+  /**
+   * Phase 17. The one-time welcome has been dismissed. App shows it while this
+   * is false and card data exists; the Data page writes false to show it again.
+   */
+  welcomeSeen: boolean;
 }
 
 export const fetchSettings = (signal?: AbortSignal) =>

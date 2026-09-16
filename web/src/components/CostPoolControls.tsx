@@ -4,6 +4,7 @@ import {
   undoImportBatch, updateCostPoolTotal,
   type CostMethod, type CostPool,
 } from '../api.ts';
+import { HelpButton } from './helpTopics.tsx';
 
 const money = (value: number | null | undefined) =>
   value == null ? '—' : `$${Number(value).toFixed(2)}`;
@@ -134,9 +135,11 @@ export function CostPoolFields({ state }: { state: CostPoolState }) {
   const { costMethod, pickMethod, fixedAmount, setFixedAmount, pooled, poolTotalStr, setPoolTotalStr, commitTotal } = state;
   return (
     <>
-      <label>
-        <span>Cost</span>
-        <select value={costMethod} onChange={(e) => pickMethod(e.target.value as CostMethod | 'draft')}>
+      {/* Not a wrapping <label>: a <button> is a labelable element, so a ? inside
+          one becomes the label's control and steals its clicks from the select. */}
+      <div className="entry-field">
+        <span><label htmlFor="cost-method">Cost</label> <HelpButton topic="costPools" /></span>
+        <select id="cost-method" value={costMethod} onChange={(e) => pickMethod(e.target.value as CostMethod | 'draft')}>
           <option value="unknown">Unknown</option>
           <option value="free">Free ($0)</option>
           <option value="market">Market price</option>
@@ -144,7 +147,7 @@ export function CostPoolFields({ state }: { state: CostPoolState }) {
           <option value="draft">Draft</option>
           <option value="box">Box split</option>
         </select>
-      </label>
+      </div>
       {costMethod === 'fixed' && (
         <label style={{ width: 96 }}>
           <span>$ each</span>

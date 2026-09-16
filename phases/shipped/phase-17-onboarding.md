@@ -1,5 +1,15 @@
 # Phase 17 — Onboarding
 
+> **Shipped 2026-09-15.** Built as specced, with these build-time notes:
+>
+> - **`welcomeSeen` is read on load, not only after a sync.** `App` shows the welcome while the flag is false *and* card data exists, which covers the first-sync moment, the Data-page reset, and a tab closed mid-welcome, with one rule. So an existing library would have been greeted as new on its next load — migration **v21** (data-only, `PRAGMA user_version = 21`) marks `welcome_seen = '1'` on any database that already holds `oracle_cards`. A fresh install runs `schema.sql`, never the migration, and gets the welcome.
+> - **The shared shell is `HelpPanel.tsx`; the six topics live in `helpTopics.tsx`** as data (`HELP_TOPICS`), with `HelpButton` as the `?` beside a control and `HelpIndex` as the topbar list. `SyntaxHelp.tsx` keeps only its content and exports it as `SYNTAX_HELP` so the index lists seven panels, not six.
+> - **The shell listens for Escape in the capture phase and stops propagation.** The import dialogs are overlays of their own; a help panel over one must close alone, and the existing dialogs all listen in the bubble phase on `window`.
+> - **`HelpButton` portals its panel to `<body>`, and the `?` must never sit inside a `<label>`.** A `<button>` is a labelable element: inside `<label><span>Cost</span><select/></label>` it became the label's implicit control, so clicking "Cost" opened help and the help backdrop's click bubbled back through the label and reopened it. Found by the browser check, not the unit tests. `CostPoolFields` now uses an explicit `<label htmlFor>`, and `CostPoolControls.test.tsx` pins it.
+> - **The topbar `?` is two buttons.** The phone's first row holds exactly the brand, five tabs and the bell (styles.css says so), so at ≤620px the `?` rides at the end of the tab strip and scrolls the way an optional sixth tab does; at desktop width it sits beside the bell. The `?` *keyboard* shortcut, which used to open the syntax panel, now opens the index (the syntax panel is its first entry).
+> - **The "Decklist import dialects" panel covers both dialogs** with one topic: decklist lines and section headers for `DeckImportDialog`, CSV header spellings for `CollectionImportDialog`.
+> - Verification 1–6 are covered by `server/src/routes/settings.test.ts`, `server/src/db/migrations.test.ts` (v21), `web/src/components/HelpPanel.test.tsx`, `CostPoolControls.test.tsx` and the Phase 17 block in `web/src/App.test.tsx`; the visual pass ran in Chrome at 1400px and 390px against a copy of the live database.
+
 The app already does a lot of onboarding — distributed, not centralized.
 
 ## What already exists

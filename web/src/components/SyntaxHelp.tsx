@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { HelpPanel, type HelpSection, type HelpTopic } from './HelpPanel.tsx';
 
 /**
  * In-app reference for the search syntax.
@@ -6,15 +6,11 @@ import { useEffect } from 'react';
  * The app accepts Scryfall-style queries but had no way to discover that, which
  * made most of the search layer invisible. Only the operators actually
  * implemented are listed — documenting more than works would be worse than
- * documenting nothing.
+ * documenting nothing. The overlay, card and dismissal live in HelpPanel
+ * (Phase 17); this file is the content.
  */
 
-interface Entry {
-  syntax: string;
-  meaning: string;
-}
-
-const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
+const SECTIONS: HelpSection[] = [
   {
     title: 'Text',
     entries: [
@@ -114,38 +110,22 @@ const SECTIONS: Array<{ title: string; entries: Entry[] }> = [
   },
 ];
 
-export function SyntaxHelp({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+/** The topic as the help index lists it (helpTopics.tsx). */
+export const SYNTAX_HELP: HelpTopic = {
+  title: 'Search syntax',
+  intro: 'Everything runs against the local card database, so searches never touch the network.',
+  sections: SECTIONS,
+  columns: 2,
+};
 
+export function SyntaxHelp({ onClose, onBack }: { onClose: () => void; onBack?: () => void }) {
   return (
-    <div className="sync-overlay" onClick={onClose}>
-      <div className="syntax-card" onClick={(e) => e.stopPropagation()}>
-        <div className="syntax-head">
-          <h2>Search syntax</h2>
-          <button className="btn secondary" onClick={onClose}>Close</button>
-        </div>
-        <p className="note">
-          Everything runs against the local card database, so searches never touch the network.
-        </p>
-
-        <div className="syntax-body">
-          {SECTIONS.map((section) => (
-            <section key={section.title}>
-              <h3>{section.title}</h3>
-              {section.entries.map((entry) => (
-                <div className="syntax-row" key={entry.syntax}>
-                  <code>{entry.syntax}</code>
-                  <span>{entry.meaning}</span>
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-      </div>
-    </div>
+    <HelpPanel
+      title={SYNTAX_HELP.title}
+      intro={SYNTAX_HELP.intro}
+      sections={SYNTAX_HELP.sections}
+      onClose={onClose}
+      onBack={onBack}
+    />
   );
 }

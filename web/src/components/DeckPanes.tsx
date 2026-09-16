@@ -29,6 +29,7 @@ import { ownedBadge } from '../ownedBadge.ts';
 import {
   FilterPanel, countActiveFilters, type FilterSection, type Filters,
 } from './FilterPanel.tsx';
+import { HelpButton } from './helpTopics.tsx';
 
 const BOARD_LABEL: Record<Board, string> = {
   command: 'Command zone',
@@ -865,12 +866,18 @@ export function DeckPanes({
               // Limited has no legality list to filter by, and adding a card
               // here is also an acquisition — say so before it happens rather
               // than leaving a collection row to be discovered later.
-              ? `Every card is legal in ${deck.validation.formatName}. Adding one here also adds `
-                + 'it to your collection, allocated to this deck — basic lands excepted.'
+              ? (
+                <>
+                  Every card is legal in {deck.validation.formatName}. Adding one here also adds
+                  it to your collection, allocated to this deck — basic lands excepted.
+                  {' '}<HelpButton topic="limitedBasics" />
+                </>
+              )
               : (
                 <>
                   Showing cards legal in {deck.validation.formatName}
                   {identity !== null && ` and within ${identity || 'colourless'} colour identity`}.
+                  {identity !== null && <> <HelpButton topic="colorIdentity" /></>}
                 </>
               )}
           </p>

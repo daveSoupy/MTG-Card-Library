@@ -4,7 +4,7 @@ This file is auto-loaded by Claude Code at the start of every session. Keep it l
 
 ## Where the project stands
 
-Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete schema at `PRAGMA user_version = 20`, designed up front against the full Data Model below — so most tables later phases need (`collection_disposals`, `printing_price_history`, `scan_sessions`, `alerts`, …) already exist. New phases extend the schema through migrations; they do not redesign it. Before assuming a table or column is missing, grep `schema.sql`.
+Phases 0–11, 17 and 22–27 are built and shipped. `schema.sql` is the complete schema at `PRAGMA user_version = 21`, designed up front against the full Data Model below — so most tables later phases need (`collection_disposals`, `printing_price_history`, `scan_sessions`, `alerts`, …) already exist. New phases extend the schema through migrations; they do not redesign it. Before assuming a table or column is missing, grep `schema.sql`.
 
 ## How to Build This
 
@@ -45,7 +45,7 @@ Phases 0–11 and 22–27 are built and shipped. `schema.sql` is the complete sc
 - `phases/phase-14-shopping-cart-export.md`
 - `phases/phase-15-theming.md`
 - `phases/phase-16-ocr-assisted-entry.md` (optional stretch goal)
-- `phases/phase-17-onboarding.md`
+- `phases/shipped/phase-17-onboarding.md` (shipped — the first-run welcome gated on the `welcomeSeen` setting, `HelpPanel.tsx` as the one shell for every reference panel, seven `?` topics in `helpTopics.tsx` and a topbar help index. A `?` never goes inside a `<label>`: a button is labelable and steals the label's clicks)
 - Phase 18, Shareable Decklists — planned but not yet spec'd. Note the constraint before specing it: the server is never exposed publicly, so "shareable" means an exported artifact (a Moxfield-importable text blob, a file), not a public URL into this app.
 - `phases/phase-21-known-players.md` (capstone — after every other phase. A lighter alternative to full multi-user: friends' collections and want lists as read-only imported snapshots, no accounts, no `user_id` on any existing table)
 - `phases/apps/` — the phases that make the server something people install: a desktop app, and a QR code so every phone in the house reaches it in a browser. `phases/apps/README.md` has the one-paragraph design and the reading order, `phases/apps/BUILD-BRIEF.md` the session prompts; the constraint they all share is that nothing outside the home network is ever in the default path.
