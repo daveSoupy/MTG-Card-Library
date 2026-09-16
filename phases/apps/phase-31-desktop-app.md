@@ -4,6 +4,8 @@ The server, packaged as an ordinary application: double-click to start, ⌘Q to 
 
 Nothing in `server/src` or `web/src` changes shape. The whole phase is a shell around a process that already exists, and most of the work is in the build pipeline rather than in code.
 
+**Targets: macOS (Apple silicon) first, Windows x64 second.** One workspace, one `main.ts`, two electron-builder targets. macOS is where development happens and where every verification item can be run on the spot, so it is the platform the phase is judged on; the Windows build is produced in the same session and its runtime checks (tray, firewall prompt, close semantics) are walked through on a Windows machine when one is available — after the session, not blocking the next one.
+
 ## Why a shell, not a rewrite
 
 The server already has the three properties a desktop app needs:

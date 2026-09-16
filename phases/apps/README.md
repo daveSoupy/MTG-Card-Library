@@ -8,7 +8,7 @@ The desktop app runs the server at home. Every other device — a phone, a table
 
 ## Starting to build
 
-`BUILD-BRIEF.md` is the plan: the desktop app for Windows and macOS, pairing and the QR code, the home-screen install, then signing and updates — with a copy-pasteable prompt for each session. Start there rather than at a phase doc. The targets are Windows and macOS for the desktop app, and any phone with a browser for everything else. The UI is the React client everywhere.
+`BUILD-BRIEF.md` is the plan: the desktop app for macOS (primary) and Windows, pairing and the QR code, the home-screen install, then signing and updates — with a copy-pasteable prompt for each session. Start there rather than at a phase doc. The targets are macOS first and Windows second for the desktop app, and any phone with a browser for everything else. The UI is the React client everywhere.
 
 ## Reading order
 

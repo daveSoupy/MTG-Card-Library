@@ -1,17 +1,17 @@
-# Build brief — Windows and macOS desktop app, every phone through a browser
+# Build brief — macOS and Windows desktop app, every phone through a browser
 
-How to get a Windows and macOS desktop app running the existing server, reachable from any phone in the house, in four Claude Code sessions, without redoing any UI and without the self-hosted version stopping being the thing you develop. Each session is one phase, per CLAUDE.md's rules; this file is the scope and the prompts. `@`-mention it alongside the phase file.
+How to get a macOS and Windows desktop app running the existing server, reachable from any phone in the house, in four Claude Code sessions, without redoing any UI and without the self-hosted version stopping being the thing you develop. Each session is one phase, per CLAUDE.md's rules; this file is the scope and the prompts. `@`-mention it alongside the phase file.
 
-**Targets are Windows and macOS for the desktop app, and any phone with a browser for the rest.** The desktop shell ships for both from the same `desktop/` workspace — Electron makes the second one a build target, not a second app — and macOS is also the development loop since that is where development happens. There is no phone app: the phone opens the web client from the desktop, pins it to the home screen, and gets every update the moment the desktop has it. The companion app that used to be the third leg of this plan is parked; the README says why, and its prompts are in the appendix so nothing is lost if it comes back.
+**Targets are macOS first, then Windows, for the desktop app, and any phone with a browser for the rest.** macOS is primary because it is where development happens and where every check can be run on the spot; Windows ships from the same `desktop/` workspace — Electron makes it a second build target, not a second app — and its checks wait for a Windows machine. The desktop shell is one codebase for both. There is no phone app: the phone opens the web client from the desktop, pins it to the home screen, and gets every update the moment the desktop has it. The companion app that used to be the third leg of this plan is parked; the README says why, and its prompts are in the appendix so nothing is lost if it comes back.
 
 ## What "done" means
 
 Four checkpoints, in order. Stop and look at each before the next session.
 
-1. **An installer on a Windows machine, and a `.app` on a Mac, each with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** (Phase 31, first session.)
+1. **A `.app` on a Mac, with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** Verified on this machine, then on a second user account or a second Mac to be sure nothing leaned on the dev environment. (Phase 31.) **1b.** The same for the Windows installer — whenever a Windows machine or VM is to hand; it does not block sessions 2 and 3.
 2. **A phone's camera scans a QR on that machine and lands in the app.** (Phase 32.)
 3. **The phone pins it to the home screen with its own icon, and from then on opens it like an app whenever it is on the home wifi.** If the PC's address changes, scanning the QR again fixes it, and the app says so. (Phase 33.)
-4. **A friend downloads the Mac build and it opens with no warning; the Windows build installs with no SmartScreen dead end; and both update themselves.** (Phase 34.)
+4. **A friend downloads the Mac build and it opens with no warning, and it updates itself; the Windows build installs with at most a SmartScreen click-through.** (Phase 34.) Needs 1b done first.
 
 The fourth is the one that decides whether a layperson can use this. Everything before it works for *you*; it is what makes it work for someone you hand a link to.
 
@@ -30,16 +30,17 @@ The one discipline this needs going forward: `web/` must keep working when serve
 
 These are not design decisions; they are the places a first run fails for reasons that have nothing to do with the idea.
 
-**Windows**
+**macOS** (primary)
+- **Gatekeeper is a dead end, not a warning.** An unsigned `.app` downloaded from the internet says *"is damaged and can't be opened"*; the workaround (`xattr -d com.apple.quarantine`) is a terminal command, which is the thing the app exists to avoid. Your own build runs on your own Mac without any of this. Giving it to other Mac users needs Apple's developer program for signing and notarisation — session 4.
+- **Apple silicon only — decided, not deferred.** No Intel build now or later; an Intel Mac runs the self-hosted version. A universal build would double the bundled Node for a platform Apple stopped selling in 2023.
+- Close leaves the app running (Dock icon, menu-bar item); ⌘Q quits. The rule Mac users already expect, and the same one Windows gets.
+- **Testing "no Node installed" on the machine that has Node.** A second macOS user account is the cheap way: nothing from your login's Homebrew or `nvm` is on its `PATH`, so a build that secretly leans on the dev environment fails there first.
+
+**Windows** (second target, same workspace)
+- **Building from a Mac.** electron-builder produces the Windows NSIS installer on macOS with no Windows machine involved; the build is part of session 1 even though its checks are not. The tray behaviour, the firewall prompt and the close semantics only show on real Windows — verify on a machine or a VM when one is to hand (checkpoint 1b), and before session 4.
 - **The firewall prompt.** The first time the server binds `0.0.0.0`, Windows Defender Firewall asks whether to allow the bundled `node.exe` on private networks. *Cancel* means LAN sharing silently does not work. The shell explains this in a sentence right before flipping the toggle, and *Show logs* is where "the phone can't find it" gets diagnosed.
 - **Close hides to the tray; Quit is explicit.** Windows convention is close-means-quit, so the first-launch notice matters most here: a user who "closes" it must not believe it is off.
 - **SmartScreen** interposes "Windows protected your PC" for an unsigned installer. Until session 4, friends click *More info → Run anyway*.
-- **Building from a Mac.** electron-builder produces the Windows NSIS installer on macOS. The tray behaviour, the firewall prompt and the close semantics only show on real Windows — verify on a machine or a VM before calling checkpoint 1 met.
-
-**macOS**
-- **Gatekeeper is a dead end, not a warning.** An unsigned `.app` downloaded from the internet says *"is damaged and can't be opened"*; the workaround (`xattr -d com.apple.quarantine`) is a terminal command, which is the thing the app exists to avoid. Your own build runs on your own Mac without any of this. Giving it to other Mac users needs Apple's developer program for signing and notarisation — session 4.
-- **Apple silicon only — decided, not deferred.** No Intel build now or later; an Intel Mac runs the self-hosted version. A universal build would double the bundled Node for a platform Apple stopped selling in 2023.
-- Close leaves the app running (Dock icon, menu-bar item); ⌘Q quits. Same rule as Windows, and the one Mac users already expect.
 
 **Phones**
 - **The QR must carry an IP address, not the `.local` name.** iPhones resolve `mtg-library-XXXX.local` natively; Android browsers often do not. The URL in the QR is the desktop's current LAN IP; the `.local` name is shown beside it as text for anyone who can use it.
@@ -49,7 +50,7 @@ These are not design decisions; they are the places a first run fails for reason
 
 ## The cut, per phase
 
-**Phase 31 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
+**Phase 31 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a macOS arm64 `.app`/`.dmg` and a Windows x64 installer, both unsigned. macOS verified in-session; Windows built in-session, verified when a machine is to hand.
 **Phase 34 — build:** all of it: signing and notarisation, `electron-updater` against GitHub Releases, the release workflow. **Never:** Linux packaging (systemd and Docker cover it), Intel Macs.
 
 **Phase 32 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. The "Phone: discovery order" section is the parked app's contract and is not built.
@@ -59,29 +60,30 @@ These are not design decisions; they are the places a first run fails for reason
 ## Before session 1
 
 - Node 22.6+ and the repo building clean (`npm run build && npm test`).
-- Access to a Windows machine or VM for checkpoint 1's Windows half. Development and the macOS half happen on the Mac.
+- A second macOS user account (System Settings → Users & Groups) for checkpoint 1. A Windows machine or VM for checkpoint 1b, whenever convenient — not before session 1.
 - A phone — any — on the same wifi, for checkpoints 2 and 3.
 - For session 4: the Apple Developer Program membership is in hand — it needs a *Developer ID Application* certificate in the login keychain, an app-specific password for notarisation, and the Team ID. A Windows code-signing certificate is a separate purchase, still undecided; the workflow builds Windows unsigned until one exists.
 
 ---
 
-## Session 1 prompt — Phase 31, desktop app (Windows and macOS)
+## Session 1 prompt — Phase 31, desktop app (macOS first, Windows second)
 
 ```
 @CLAUDE.md @phases/apps/phase-31-desktop-app.md @phases/apps/BUILD-BRIEF.md
 
 Build Phase 31 at the "viability cut" scope in BUILD-BRIEF.md: a desktop app
-that runs the existing server and shows the existing web client. Shipped
-targets are Windows x64 and macOS arm64, from one workspace; development
-happens on the Mac. Nothing in server/src or web/src changes shape.
+that runs the existing server and shows the existing web client. macOS
+arm64 is the primary target and is verified here; Windows x64 is a second
+build target from the same workspace whose checks I will run later on a
+Windows machine. Nothing in server/src or web/src changes shape.
 
 Concretely:
 - A new `desktop/` npm workspace: Electron + electron-builder, TypeScript,
   `main.ts` only — no renderer code. Register it in the root package.json
   workspaces and add root scripts `desktop:dev` and `desktop:package`.
 - The server runs as a child process on a bundled official Node binary (the
-  release matching root `engines.node`, for the target platform — win-x64
-  for the Windows build, darwin-arm64 for the mac build), fetched into
+  release matching root `engines.node`, for the target platform —
+  darwin-arm64 for the mac build, win-x64 for the Windows build), fetched into
   `desktop/vendor/` by a script at package time and never committed. Do not
   use ELECTRON_RUN_AS_NODE and do not rebuild better-sqlite3. Run
   `server/scripts/check-sqlite.mjs` against the packaged app's node +
@@ -128,12 +130,14 @@ here while config.ts stays 0.0.0.0; close hides / Quit stops on every
 platform; the asar layout and why; a "signing" heading left as a TODO for
 session 4. Rules only — not a copy of the phase doc.
 
-Done means: `npm run desktop:package` produces a Windows installer and a
-mac .app that each, on a machine with no Node installed, install, open,
-offer the first sync, complete it, and search — and Phase 31's
-verification items 1–6 pass on both. Verify the mac build yourself on this machine; I will run the
-Windows checks — give me the exact list to walk through and what each
-should show.
+Done means: `npm run desktop:package` produces a mac .app/.dmg and a
+Windows installer. The mac build, on a machine with no Node on its PATH
+(a second macOS user account is fine), installs, opens, offers the first
+sync, completes it, and searches — and Phase 31's verification items 1–6
+pass on macOS, verified by you on this machine. For Windows, the build
+must succeed and the packaged layout must be right; the runtime checks are
+mine to do later — give me the exact list to walk through on a Windows
+machine and what each should show, and do not block on them.
 ```
 
 ## Session 2 prompt — Phase 32, pairing and discovery
