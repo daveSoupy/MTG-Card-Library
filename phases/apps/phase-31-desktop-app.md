@@ -1,6 +1,6 @@
-# Phase 28 — Desktop App
+# Phase 31 — Desktop App
 
-The server, packaged as an ordinary application: double-click to start, ⌘Q to stop. (Signing, notarisation and self-update are [Phase 28b](phase-28b-signing-and-updates.md), the session after this one.) For the person who does not have an always-on Linux box and should never have to open a terminal. The systemd install (`deploy/`) and the Docker image stay exactly as they are — this is a third way to run the *same* `server/dist`, differing from the other two only in how three environment variables get set.
+The server, packaged as an ordinary application: double-click to start, ⌘Q to stop. (Signing, notarisation and self-update are [Phase 34](phase-34-signing-and-updates.md), the session after this one.) For the person who does not have an always-on Linux box and should never have to open a terminal. The systemd install (`deploy/`) and the Docker image stay exactly as they are — this is a third way to run the *same* `server/dist`, differing from the other two only in how three environment variables get set.
 
 Nothing in `server/src` or `web/src` changes shape. The whole phase is a shell around a process that already exists, and most of the work is in the build pipeline rather than in code.
 
@@ -25,8 +25,8 @@ The server runs as a **separate child process**, not inside Electron's main proc
 | Variable | Value | Why |
 | --- | --- | --- |
 | `MTG_DATA_DIR` | `<app.getPath('userData')>/library` | Per-platform application-support directory (`~/Library/Application Support/MTG Library/library` on macOS). The server's own default is `~/.local/share/mtg-library`, a Linux convention. An `MTG_DATA_DIR` already in the app's environment wins, so a developer can point the app at an existing library. |
-| `MTG_HOST` | `127.0.0.1`, or `0.0.0.0` while *Allow other devices on this network* is on | The server's default of `0.0.0.0` is right behind Tailscale and wrong on a laptop on café wifi: an unauthenticated app on every interface. Off by default; Phase 29 builds pairing on top of the on state. |
-| `MTG_PORT` | `8080` if free, else the next free port, **persisted** in the shell's own config | A stable port keeps phone bookmarks and Phase 29 pairing valid across launches. The port is the shell's to remember, not the server's. |
+| `MTG_HOST` | `127.0.0.1`, or `0.0.0.0` while *Allow other devices on this network* is on | The server's default of `0.0.0.0` is right behind Tailscale and wrong on a laptop on café wifi: an unauthenticated app on every interface. Off by default; Phase 32 builds pairing on top of the on state. |
+| `MTG_PORT` | `8080` if free, else the next free port, **persisted** in the shell's own config | A stable port keeps phone bookmarks and Phase 32 pairing valid across launches. The port is the shell's to remember, not the server's. |
 | `MTG_LOG_LEVEL` | `info` | Server stdout/stderr go to `<userData>/logs/server.log`, rotated. *Help → Show logs* opens the folder. |
 
 ### Lifecycle
@@ -36,11 +36,11 @@ The server runs as a **separate child process**, not inside Electron's main proc
 - **Launch at login, on by default.** `app.setLoginItemSettings`; a checkbox in the tray menu turns it off. Without this the design leans on the user remembering to open an app, which is the thing it exists to remove.
 - **Say so once.** First launch shows a single notice: *MTG Library runs in the background — find it in the menu bar / system tray. Quit from there to stop it.* Otherwise a Windows user "closes" it and believes it is off.
 - **Quit.** SIGTERM to the child, a *Finishing up…* indicator if it takes more than a second (a bulk sync mid-write can take up to the server's 10s ceiling), then exit. Never `SIGKILL` first; the database is in WAL mode and an unclean exit is survivable but pointless.
-- **Sleep is the real outage, and the app is honest about it.** A desktop PC that sleeps after thirty idle minutes is down most of the day; a laptop with the lid closed is down regardless. A setting — *Keep this computer awake while sharing is on*, off by default, one sentence on the power trade — holds an Electron `powerSaveBlocker` (`prevent-app-suspension`) while sharing is on. Right for a desktop tower, wrong to force on a laptop, so it is a choice. Phase 20's snapshot-and-queue design is what makes sleep survivable rather than fatal: the phone syncs the next time both are awake.
+- **Sleep is the real outage, and the app is honest about it.** A desktop PC that sleeps after thirty idle minutes is down most of the day; a laptop with the lid closed is down regardless. A setting — *Keep this computer awake while sharing is on*, off by default, one sentence on the power trade — holds an Electron `powerSaveBlocker` (`prevent-app-suspension`) while sharing is on. Right for a desktop tower, wrong to force on a laptop, so it is a choice. Phase 36's snapshot-and-queue design is what makes sleep survivable rather than fatal: the phone syncs the next time both are awake.
 
 ### Menu / tray
 
-*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 29; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* (Phase 28b wires it; present but inert until then) · *Quit*.
+*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 32; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* (Phase 34 wires it; present but inert until then) · *Quit*.
 
 `Show data folder` matters more than it looks: it is the backup story for someone who will never read `README.md#backups`. The folder holds `library.sqlite`, the image cache, and the scheduled backups.
 
@@ -50,7 +50,7 @@ This is where the phase's actual risk lives.
 
 - **Native module ABI.** Avoided by the bundled-Node decision above. If that is ever reversed (to save the 50 MB), `better-sqlite3` must be rebuilt for Electron's ABI with `@electron/rebuild`, and `server/scripts/check-sqlite.mjs` must run **against the packaged app's copy** after every rebuild — FTS5 and the trigram tokenizer are what a rebuild silently loses. Keep the gate in the release workflow regardless; it is cheap.
 - **Archive layout.** Electron packs the app into an `.asar`; native `.node` binaries and `new Worker(path)` (`sync/syncManager.ts`) cannot load from inside one. `server/**`, `schema.sql`, and `node_modules/better-sqlite3/**` go in `asarUnpack` — or asar is disabled outright; either is fine as long as the walk-up from `server/dist` still lands on `schema.sql` and `web/dist`.
-- **Updates, signing and notarisation are Phase 28b.** This phase produces unsigned installers that work on the machine that built them and on a Windows machine past a SmartScreen click; a downloaded Mac build needs `xattr -d com.apple.quarantine` until 28b. The app is not finished for anyone else until 28b is — the split is about sessions, not about whether it ships.
+- **Updates, signing and notarisation are Phase 34.** This phase produces unsigned installers that work on the machine that built them and on a Windows machine past a SmartScreen click; a downloaded Mac build needs `xattr -d com.apple.quarantine` until Phase 34. The app is not finished for anyone else until Phase 34 is — the split is about sessions, not about whether it ships.
 - **Size.** ~150–250 MB. Say so on the download page.
 - **macOS is Apple silicon only.** No Intel or universal build; an Intel Mac runs the self-hosted install. Decided, so a future session does not add the second Node binary out of thoroughness.
 
@@ -70,10 +70,10 @@ This is where the phase's actual risk lives.
 5. With *Allow other devices on this network* off, `curl http://<LAN IP>:8080/api/v1/health` from another machine is refused; on, it answers.
 6. Launching with port 8080 occupied picks another port, persists it, loads the window correctly, and reuses that port on the next launch.
 
-Migration-over-old-data, Gatekeeper on a second Mac, and the update path are Phase 28b's verification.
+Migration-over-old-data, Gatekeeper on a second Mac, and the update path are Phase 34's verification.
 
 ## Out of scope
 
 - Moving or choosing the data directory from the UI. `MTG_DATA_DIR` in the environment covers the developer case.
-- Any remote access. Phase 29 covers the home network; nothing here or there reaches outside it.
+- Any remote access. Phase 32 covers the home network; nothing here or there reaches outside it.
 - Running the server on Electron's own Node to save the bundled binary's ~50 MB. Possible later, at the cost of the ABI rebuild and its gate.

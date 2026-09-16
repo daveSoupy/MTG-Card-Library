@@ -106,7 +106,7 @@ export interface Conflict {
  * What to do when copies leaving would drop availability below what decks claim.
  *
  * `'prompt'` is the web UI's path: stop and ask, then clamp the deck on `force`.
- * `'alert'` is the non-interactive path for Phase 13's sales and Phase 20's
+ * `'alert'` is the non-interactive path for Phase 13's sales and Phase 36's
  * offline replay — never blocks, never edits a deck, and leaves one alert per
  * affected card behind instead.
  */
@@ -649,7 +649,7 @@ export class TradeStore {
    * fewer copies than asked — throws `TradeShortfallError` inside the
    * transaction, so no lot, disposal or trade row is left half-applied.
    *
-   * Trade completion calls this; so do Phase 13's sales and Phase 20's offline
+   * Trade completion calls this; so do Phase 13's sales and Phase 36's offline
    * replay, which have no one to prompt.
    */
   disposeFromLot(requests: DisposalRequest[], context: DisposalContext): DisposeResult {

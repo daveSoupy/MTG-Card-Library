@@ -48,4 +48,4 @@ Scope: a per-context undo/redo stack — per open deck, per collection session �
 ## Out of scope
 
 - Reworking desktop layouts — this phase is additive for touch/narrow widths, with two exceptions: Undo/Redo and the resizable dividers.
-- A packaged mobile app or PWA install flow — see Phases 19 and 20.
+- A packaged mobile app or PWA install flow — see Phases 33 and 36 (`phases/apps/`).

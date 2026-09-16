@@ -11,7 +11,7 @@ Build only if explicitly requested. Assumes Phase 4's set-scoped entry, Phase 5'
 Everything after "we have some text" is shared. Only capture and recognition differ.
 
 - **Web path (this phase).** `<input type="file" accept="image/*" capture="environment">` opens the phone's camera from the browser. The image is posted to the server, which runs OCR (Tesseract) and returns ranked candidates.
-- **Native iOS path (Phase 20).** Apple's Vision framework does recognition on-device and posts the recognised text to the same endpoint. This is why the endpoint accepts *either* an image or already-recognised text.
+- **Native iOS path (Phase 36).** Apple's Vision framework does recognition on-device and posts the recognised text to the same endpoint. This is why the endpoint accepts *either* an image or already-recognised text.
 
 Server-side Tesseract is the weaker recogniser, which makes the correction memory below more important.
 

@@ -1,18 +1,18 @@
-# Phase 20a — Sync Contract (server side)
+# Phase 35 — Sync Contract (server side)
 
-> **Parked with Phase 20.** Nothing here is needed while phones use a browser. It is pure server work and is the first session to run if the companion app is un-parked.
+> **Parked with Phase 36.** Nothing here is needed while phones use a browser. It is pure server work and is the first session to run if the companion app is un-parked.
 
-The server half of the companion app, built and tested before any phone exists: the snapshot the phone carries away, the idempotency table that makes a retried upload safe, and the one composite route a queued trade replays into. Everything here is `server/src` plus a migration; nothing here needs Android Studio, a device, or `mobile/`. It is split out of [Phase 20](phase-20-native-companion-app.md) because it is the one piece of that phase with a schema change, because every part of it is provable with `app.inject`, and because its two contracts are additive-only from the day they ship — they cannot be reworked once a phone has been built against them, so they deserve their own session and their own tests.
+The server half of the companion app, built and tested before any phone exists: the snapshot the phone carries away, the idempotency table that makes a retried upload safe, and the one composite route a queued trade replays into. Everything here is `server/src` plus a migration; nothing here needs Android Studio, a device, or `mobile/`. It is split out of [Phase 36](phase-36-native-companion-app.md) because it is the one piece of that phase with a schema change, because every part of it is provable with `app.inject`, and because its two contracts are additive-only from the day they ship — they cannot be reworked once a phone has been built against them, so they deserve their own session and their own tests.
 
-Phase 20 stays the umbrella: the two-modes design, what shop mode may and may not do, the version-skew rule. This doc is the server's side of that agreement, made concrete against the code as it stands.
+Phase 36 stays the umbrella: the two-modes design, what shop mode may and may not do, the version-skew rule. This doc is the server's side of that agreement, made concrete against the code as it stands.
 
 ## Prerequisites
 
-- **Phase 29** — `instance_id` in `app_settings` and `GET /api/v1/instance`. The snapshot carries `instanceId` so a phone can refuse a snapshot from a library it is not paired with; that id is Phase 29's to create, not this phase's.
+- **Phase 32** — `instance_id` in `app_settings` and `GET /api/v1/instance`. The snapshot carries `instanceId` so a phone can refuse a snapshot from a library it is not paired with; that id is Phase 32's to create, not this phase's.
 - **Not Phase 13.** The sale action is deferred with it; this phase leaves the door open (see *The replayable routes*) and builds nothing for it.
 - **Not Phase 16.** OCR is a phone-side concern; nothing here touches it.
 
-Sequencing within `phases/apps/`: after Phase 29, before Phase 20b (shop mode). It can be built before or after the Android home-mode session; neither depends on the other.
+Sequencing within `phases/apps/`: after Phase 32, before Phase 36b (shop mode). It can be built before or after the Android home-mode session; neither depends on the other.
 
 ## Where it lives
 
@@ -24,7 +24,7 @@ Sequencing within `phases/apps/`: after Phase 29, before Phase 20b (shop mode). 
 | `idempotency.ts` | `withIdempotencyKey(db, key, route, fn)` — the read-or-run helper the replayable routes wrap themselves in. |
 | `routes/companion.ts` (in `routes/`) | `GET /api/v1/snapshot`, `POST /api/v1/trades/record`. Registered in `index.ts` like every other route file. |
 
-**On the word "snapshot".** The codebase already has two: deck snapshots (`decks/snapshots.ts`, the undo/history rows) and the collection value snapshot (`CollectionStore.takeSnapshot()`, `collection_value_history`). This is a third, unrelated thing. The URL stays `GET /api/v1/snapshot` because Phases 20 and 30 both name it and the phone will address it by that path forever; the *code* is under `companion/` and never uses the bare word for a type or function — `CompanionSnapshot`, `buildSnapshot`. A session that reaches for `takeSnapshot()` here has the wrong one.
+**On the word "snapshot".** The codebase already has two: deck snapshots (`decks/snapshots.ts`, the undo/history rows) and the collection value snapshot (`CollectionStore.takeSnapshot()`, `collection_value_history`). This is a third, unrelated thing. The URL stays `GET /api/v1/snapshot` because Phases 36 and 37 both name it and the phone will address it by that path forever; the *code* is under `companion/` and never uses the bare word for a type or function — `CompanionSnapshot`, `buildSnapshot`. A session that reaches for `takeSnapshot()` here has the wrong one.
 
 ## The snapshot
 
@@ -34,7 +34,7 @@ Sequencing within `phases/apps/`: after Phase 29, before Phase 20b (shop mode). 
 {
   "formatVersion": 1,
   "generatedAt":   "2026-09-15T21:04:00Z",
-  "instanceId":    "<Phase 29 instance_id>",
+  "instanceId":    "<Phase 32 instance_id>",
   "serverVersion": "<server/package.json version>",
 
   "locations": [ { "id", "name", "kind", "isArchived" } ],
@@ -61,7 +61,7 @@ Sequencing within `phases/apps/`: after Phase 29, before Phase 20b (shop mode). 
 
 Decisions folded into that shape:
 
-- **The allocation figures ride along, computed by the server.** Phase 20 says the phone applies no allocation, legality or basic-land logic, and it does not: `owned / reserved / tradeListed / available / tracked` are `allocation.ts`'s numbers as of `generatedAt`, delivered as data. This is what lets shop mode answer "can I trade this away without breaking a deck?" without a rule living on the phone. The Phase 20 overlay adjusts `owned` for queued actions and touches nothing else — `available` in shop mode is a stale server number with a pending badge, never a phone-side subtraction.
+- **The allocation figures ride along, computed by the server.** Phase 36 says the phone applies no allocation, legality or basic-land logic, and it does not: `owned / reserved / tradeListed / available / tracked` are `allocation.ts`'s numbers as of `generatedAt`, delivered as data. This is what lets shop mode answer "can I trade this away without breaking a deck?" without a rule living on the phone. The Phase 36 overlay adjusts `owned` for queued actions and touches nothing else — `available` in shop mode is a stale server number with a pending badge, never a phone-side subtraction.
 - **`catalog` is an array of tuples, not objects.** It is the one part of the document whose size is set by Scryfall rather than by the collection; tuples keep it to a few MB uncompressed and well under one gzipped. It is what makes *add to want list* work for a card you do not own. No oracle text, no prices, no image URIs — those are home-mode reads.
 - **Lots are listed, not aggregated.** The phone shows "where copies live"; a lot is the unit that has a location. It never edits one.
 - **Archived locations are included, flagged.** A lot in an archived box is still a card you own; `allocation.ts` already excludes it from `owned`, and the phone should show it the same way the web app does.
@@ -87,7 +87,7 @@ In both `schema.sql` and `migrations.ts`, next unused `user_version` at build ti
 
 ### The helper, and why it is not a `preHandler`
 
-Phase 20 describes "a Fastify `preHandler` on exactly the replayed routes." A `preHandler` can only do the *read* side — return the stored response when the key is seen. The write side would then be an `onResponse` hook storing the result after the handler commits, and the gap between those two is the whole problem: a trade committed, then the process killed before the key row is written, replays as a second trade. The point of the table is that this cannot happen.
+Phase 36 describes "a Fastify `preHandler` on exactly the replayed routes." A `preHandler` can only do the *read* side — return the stored response when the key is seen. The write side would then be an `onResponse` hook storing the result after the handler commits, and the gap between those two is the whole problem: a trade committed, then the process killed before the key row is written, replays as a second trade. The point of the table is that this cannot happen.
 
 So the unit is a function, not a hook, and it wraps the store call in the same transaction as the key row:
 
@@ -101,9 +101,9 @@ export function withIdempotencyKey<T>(
 
 Inside one `db.transaction`: look the key up — if present, return the stored status and body with `replayed: true` and run nothing; otherwise call `run()`, insert the key with what it returned, and return it. `better-sqlite3` nests transactions as savepoints, so the store's own transaction inside `run()` is fine. Because the lookup and the insert are in one transaction there is no race between two uploads of the same key, and a crash anywhere leaves either both the trade and the key or neither.
 
-`run()` returns a status and a body rather than throwing, so a **4xx is stored too**: a queued action the server has answered is final, whichever way it answered, and a retry gets the same answer rather than a second attempt against a changed collection. Phase 20's phone-side rule ("a 4xx other than a replayed-key hit marks the item failed and moves on") depends on this. Ajv validation failures happen before the handler and are not stored — a retry re-validates and fails the same way, which is equivalent.
+`run()` returns a status and a body rather than throwing, so a **4xx is stored too**: a queued action the server has answered is final, whichever way it answered, and a retry gets the same answer rather than a second attempt against a changed collection. Phase 36's phone-side rule ("a 4xx other than a replayed-key hit marks the item failed and moves on") depends on this. Ajv validation failures happen before the handler and are not stored — a retry re-validates and fails the same way, which is equivalent.
 
-Pruning: **on insert**, `DELETE FROM idempotency_keys WHERE created_at < <30 days ago>` — one statement against a tiny table, inside the same transaction. Phase 20 assigned this to the backup schedule's hourly timer; that couples `companion/` to `porting/schedule.ts` for no gain, and a table that is only ever written through one function can prune itself there. Note the deviation in the umbrella doc when this ships.
+Pruning: **on insert**, `DELETE FROM idempotency_keys WHERE created_at < <30 days ago>` — one statement against a tiny table, inside the same transaction. Phase 36 assigned this to the backup schedule's hourly timer; that couples `companion/` to `porting/schedule.ts` for no gain, and a table that is only ever written through one function can prune itself there. Note the deviation in the umbrella doc when this ships.
 
 ### The header
 
@@ -138,7 +138,7 @@ Idempotency-Key: <uuid>
 
 One transaction: `TradeStore.create` → `addItem` for each → `complete(id, { conflictMode: 'alert' })`. The existing web flow (draft, item posts, complete) is untouched; this is the same three store calls the UI makes over several requests, made atomically because a replay must be one request. `conflictMode: 'alert'` is the only mode a replay may use — nothing on the phone can answer a confirmation prompt — and it behaves as `TradeStore` already documents: the trade completes, decks are left as they are, and each outgoing card a reserving deck was using gets an `allocation_conflict` alert. That path deliberately does not reconcile claims (CLAUDE.md, *Allocation tracking*), and this route changes nothing about that.
 
-**The shortfall case is a refusal, not a partial apply.** Phase 20 says a trade queued against a card since traded away "raises an alert and is recorded as far as it validly can be." The store does not do that and should not start: under `'alert'`, an outgoing item the collection does not hold throws `TradeShortfallError` before anything is written (`trades/store.ts`, `complete()`), because a trade whose `value_out_usd`, disposal log and collection disagree is worse than no trade. The route catches it and returns **409** `{ error, shortfalls }` with nothing applied — the draft is rolled back with the transaction, so verification item 11 holds — and the helper stores the 409 so the phone marks the item failed with the store's own message. `errorHandler.ts` gains `TradeShortfallError → 409` alongside `TradeNotDraftError`; it is not mapped today and would surface as a 500.
+**The shortfall case is a refusal, not a partial apply.** Phase 36 says a trade queued against a card since traded away "raises an alert and is recorded as far as it validly can be." The store does not do that and should not start: under `'alert'`, an outgoing item the collection does not hold throws `TradeShortfallError` before anything is written (`trades/store.ts`, `complete()`), because a trade whose `value_out_usd`, disposal log and collection disagree is worse than no trade. The route catches it and returns **409** `{ error, shortfalls }` with nothing applied — the draft is rolled back with the transaction, so verification item 11 holds — and the helper stores the 409 so the phone marks the item failed with the store's own message. `errorHandler.ts` gains `TradeShortfallError → 409` alongside `TradeNotDraftError`; it is not mapped today and would surface as a 500.
 
 **The desktop hears about it too.** A failure listed only on the phone is a failure nobody at the desk sees. The route raises an alert:
 
@@ -150,12 +150,12 @@ Not reused: `trade_list_clamped` and `allocation_conflict` each mean one specifi
 
 ## Version skew
 
-Both apps update independently (Phase 28's shell, Phase 20's phone), so either can be ahead. The contract this phase commits to, additive-only from the day it ships:
+Both apps update independently (Phase 31's shell, Phase 36's phone), so either can be ahead. The contract this phase commits to, additive-only from the day it ships:
 
 - `formatVersion` on the snapshot — see above.
 - The request and response shapes of the replayable routes, and the `Idempotency-Key` behaviour. Request bodies may gain optional fields only; responses may gain fields only.
 
-`serverVersion` is `server/package.json`'s version, read the same way Phase 29's instance endpoint reads it (share the one function; do not read the file twice). The phone compares it against its floor and shows *Update the desktop app* rather than failing oddly. The floor is the phone's to hold; the server does not know or care what phones exist.
+`serverVersion` is `server/package.json`'s version, read the same way Phase 32's instance endpoint reads it (share the one function; do not read the file twice). The phone compares it against its floor and shows *Update the desktop app* rather than failing oddly. The floor is the phone's to hold; the server does not know or care what phones exist.
 
 ## What this phase does not change
 
@@ -183,12 +183,12 @@ Item [3] (a queued sale that no longer has enough lot quantity) waits for Phase 
 
 ## Out of scope
 
-- Anything in `mobile/` or `web/src` beyond the alert label. The phone-side queue, replay loop, snapshot store and shop-mode surface are Phase 20b.
+- Anything in `mobile/` or `web/src` beyond the alert label. The phone-side queue, replay loop, snapshot store and shop-mode surface are Phase 36b.
 - The sale route (Phase 13) and its wrapping.
 - Caching or diffing the snapshot. A few hundred milliseconds per sync does not justify invalidation logic; if a collection ever makes it slow, the fix is a `generatedAt`-keyed `If-None-Match`, still built here, still additive.
 - Pushing anything to the phone. The server is polled; it never initiates.
-- Authentication on these routes. Phase 29's trust model applies: the home network is the perimeter, and a token only the phone sends while the browser walks in freely would be theatre.
+- Authentication on these routes. Phase 32's trust model applies: the home network is the perimeter, and a token only the phone sends while the browser walks in freely would be theatre.
 
 ## After this ships
 
-Update `phase-20-native-companion-app.md` in three places: the *Server changes* section becomes a pointer here; the "recorded as far as it validly can be" sentence becomes "refused with a 409 and a `replay_failed` alert, nothing applied"; and the "pruned by the backup schedule's existing timer" line becomes "pruned on insert." Add the new kind to Phase 30's consumer notes — the mailbox injects into these same routes and inherits the behaviour unchanged.
+Update `phase-36-native-companion-app.md` in three places: the *Server changes* section becomes a pointer here; the "recorded as far as it validly can be" sentence becomes "refused with a 409 and a `replay_failed` alert, nothing applied"; and the "pruned by the backup schedule's existing timer" line becomes "pruned on insert." Add the new kind to Phase 37's consumer notes — the mailbox injects into these same routes and inherits the behaviour unchanged.

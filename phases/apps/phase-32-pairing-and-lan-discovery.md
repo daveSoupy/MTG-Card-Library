@@ -1,12 +1,12 @@
-# Phase 29 — Pairing and LAN Discovery
+# Phase 32 — Pairing and LAN Discovery
 
 A phone finds the server on the home network by scanning one QR code, once, and keeps finding it after the router hands out a new address, after the server moves to a new machine's port, and after months of nobody thinking about it. No accounts, no dynamic DNS, no VPN, nothing outside the house.
 
-This is the link Phase 20's companion app syncs over, and it also serves the plain web client: a scanned QR opens the app in the phone's browser, ready for *Add to Home Screen* (Phase 19). Works for any server — the Phase 28 desktop app, the systemd install, or Docker with host networking.
+This is the link Phase 36's companion app syncs over, and it also serves the plain web client: a scanned QR opens the app in the phone's browser, ready for *Add to Home Screen* (Phase 33). Works for any server — the Phase 31 desktop app, the systemd install, or Docker with host networking.
 
 ## Why the home network is enough
 
-Every way of reaching the server from *outside* the house puts something the user does not control into the path — the ISP's NAT type, a router's UPnP setting, a vendor's control plane, a certificate lifetime — and each of those is a thing that changes without warning and breaks the workflow months later. The home network has one dependency: the phone comes home. Phase 20 makes that sufficient by carrying a snapshot and a write queue for the hours it is away; this phase makes the daily reconnection automatic.
+Every way of reaching the server from *outside* the house puts something the user does not control into the path — the ISP's NAT type, a router's UPnP setting, a vendor's control plane, a certificate lifetime — and each of those is a thing that changes without warning and breaks the workflow months later. The home network has one dependency: the phone comes home. Phase 36 makes that sufficient by carrying a snapshot and a write queue for the hours it is away; this phase makes the daily reconnection automatic.
 
 Live access from away stays what it is today: `deploy/README.md`'s "put it behind Tailscale yourself." Nothing in the app depends on it.
 
@@ -29,17 +29,17 @@ GET /api/v1/instance
 → { instanceId, name, version, port, addresses: ["192.168.1.20", ...], mdnsName: "mtg-library-XXXX.local" }
 ```
 
-`name` is the OS hostname; `addresses` are the non-loopback IPv4/IPv6 addresses the server is bound on (empty when `MTG_HOST` is `127.0.0.1`, which the UI reads as "sharing is off"); `version` is the server's package version, which the phone app uses for the skew contract in Phase 20.
+`name` is the OS hostname; `addresses` are the non-loopback IPv4/IPv6 addresses the server is bound on (empty when `MTG_HOST` is `127.0.0.1`, which the UI reads as "sharing is off"); `version` is the server's package version, which the phone app uses for the skew contract in Phase 36.
 
 ## Server: advertisement
 
 A DNS-SD service `_mtglibrary._tcp` on the local link, TXT record `id=<instanceId>`, `v=<version>`, port as bound, hostname `mtg-library-<first 4 of instanceId>.local` so two libraries on one network never collide. Pure-JS implementation (`bonjour-service` or `@homebridge/ciao`); no native dependency, nothing to rebuild.
 
-Enabled by `MTG_ADVERTISE=1` (`config.ts`), which the Phase 28 shell sets whenever *Allow other devices on this network* is on, and which `deploy/mtg-library.service` can set for a systemd install. Off by default, and always off when bound to loopback: advertising an address nobody can reach is noise. Docker needs `network_mode: host` for multicast to leave the container; `docker-compose.yml` gets a commented line, not a default.
+Enabled by `MTG_ADVERTISE=1` (`config.ts`), which the Phase 31 shell sets whenever *Allow other devices on this network* is on, and which `deploy/mtg-library.service` can set for a systemd install. Off by default, and always off when bound to loopback: advertising an address nobody can reach is noise. Docker needs `network_mode: host` for multicast to leave the container; `docker-compose.yml` gets a commented line, not a default.
 
 ## The QR code
 
-Rendered client-side (a small QR library in `web/`) on a *Pair a phone* panel in `DataPage.tsx`, and reachable from the Phase 28 tray menu. Its content is a URL, so the phone's ordinary camera opens it with no app installed:
+Rendered client-side (a small QR library in `web/`) on a *Pair a phone* panel in `DataPage.tsx`, and reachable from the Phase 31 tray menu. Its content is a URL, so the phone's ordinary camera opens it with no app installed:
 
 ```
 http://192.168.1.20:8080/#pair=<base64url JSON>
@@ -51,7 +51,7 @@ The panel shows the QR only while sharing is on; otherwise it explains the toggl
 
 ## Phone: discovery order
 
-Owned by the companion app (Phase 20), specified here so both halves agree:
+Owned by the companion app (Phase 36), specified here so both halves agree:
 
 1. **Last address that worked**, tried first because it is usually still right and needs no multicast.
 2. **DNS-SD browse** for `_mtglibrary._tcp` filtered to `id=<paired instanceId>`. The only step that survives an address change. iOS resolves this natively; Android through `NsdManager`; both behind one small plugin.
@@ -60,7 +60,7 @@ Owned by the companion app (Phase 20), specified here so both halves agree:
 
 Any hit is verified by `GET /api/v1/instance` and comparing `instanceId` — a different library on the same address (a reinstalled server, a roommate's) is *not paired*, and the phone says so rather than syncing into the wrong database. A successful hit rewrites step 1.
 
-The whole sequence runs on app foreground and before each background sync, budgeted at a few seconds; "not found" means the phone is not at home, and Phase 20 switches to shop mode.
+The whole sequence runs on app foreground and before each background sync, budgeted at a few seconds; "not found" means the phone is not at home, and Phase 36 switches to shop mode.
 
 ## Trust model — read before adding a token
 

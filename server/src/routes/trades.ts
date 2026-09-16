@@ -164,7 +164,7 @@ export function registerTradeRoutes(app: FastifyInstance, trades: TradeStore): v
   );
 
   // The web UI always takes the 'prompt' path: it can show the conflict and ask.
-  // The non-interactive 'alert' mode is for Phase 13 and Phase 20, which call
+  // The non-interactive 'alert' mode is for Phase 13 and Phase 36, which call
   // the store directly.
   app.post<{ Params: { id: number }; Body: { force?: boolean } }>(
     '/api/v1/trades/:id/complete',

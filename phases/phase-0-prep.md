@@ -17,10 +17,10 @@ The four web tests are pure logic. Phases 9, 10, and 17 verify DOM behavior. Add
 
 ## 3. Trade conflicts: alert path as the default
 
-`TradeStore.complete()` returns `needsConfirmation` when an outgoing card is deck-allocated, and on `force: true` clamps the deck's allocation. Phase 13 (sell) and Phase 20 (offline replay) need a non-interactive path that never blocks and never edits a deck:
+`TradeStore.complete()` returns `needsConfirmation` when an outgoing card is deck-allocated, and on `force: true` clamps the deck's allocation. Phase 13 (sell) and Phase 36 (offline replay) need a non-interactive path that never blocks and never edits a deck:
 
 - Add a `conflictMode: 'prompt' | 'alert'` option. `'alert'` completes the trade, leaves deck allocations untouched, and raises one `allocation_conflict` alert per affected card (`dedupe_key = 'allocation_conflict:<oracle_id>'`), resolved automatically when availability catches up. Existing `'prompt'` behavior stays for the web UI.
-- Extract the shared sequence — decrement lot, write `collection_disposals`, reconcile trade lists (`trade_list_clamped`), raise allocation alerts — into one store method (`disposeFromLot`) that Phase 13's sell and Phase 20's replay call directly.
+- Extract the shared sequence — decrement lot, write `collection_disposals`, reconcile trade lists (`trade_list_clamped`), raise allocation alerts — into one store method (`disposeFromLot`) that Phase 13's sell and Phase 36's replay call directly.
 
 ## 4. Route hardening
 

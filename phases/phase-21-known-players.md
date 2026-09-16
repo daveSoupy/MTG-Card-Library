@@ -43,7 +43,7 @@ ALTER TABLE want_lists ADD COLUMN known_player_id INTEGER REFERENCES known_playe
 
 - **Phase 5's CSV import** gains a destination selector: "my collection" (default) or a known player. **Friends will hand you Moxfield or Archidekt exports.** Check whether Phase 5's importer already tolerates those column layouts; if it only accepts this app's own export shape, add column mapping for those two formats here. An unsupported format must produce a clear error, never a silent partial import.
 - **Phase 16/20's OCR scanner** gets a third target alongside "Collection" and "Collection + Deck": a known player. Same capture pipeline, different target table, no allocation or cost-pool logic.
-- **Phase 20's Share Extension** routes a shared CSV, photo, or screenshot to a chosen known player. The extension is Phase 20's deliverable; this phase supplies the destination.
+- **Phase 36's Share Extension** routes a shared CSV, photo, or screenshot to a chosen known player. The extension is Phase 36's deliverable; this phase supplies the destination.
 
 ## New: `owned_by:<name>` in search
 
