@@ -19,25 +19,65 @@
  *     observed, not passed through a handler: the fetch listener returns
  *     before anything else happens. No write is ever queued.
  *
- *  3. VERSIONED CACHE, OLD ONES DELETED ON ACTIVATE. Bumping CACHE below
- *     drops every earlier cache. Within a version, assets no longer referenced
- *     by the cached index.html are pruned after each successful page load, so
- *     hashed bundles from old builds do not pile up.
+ *  3. VERSIONED CACHE, FILLED ON INSTALL, OLD ONES DELETED ON ACTIVATE.
+ *     Installing fetches the page and the bundles it names so the shell
+ *     exists from the first load; bumping CACHE below drops every earlier
+ *     cache once the new one is filled. Within a version, assets no longer
+ *     referenced by the cached index.html are pruned after each successful
+ *     page load, so hashed bundles from old builds do not pile up.
  *
  *  4. THIS FILE IS SERVED UNCACHED. The server sends Cache-Control: no-cache
  *     for /sw.js (routes/webClient.ts), so an edited worker is picked up on
  *     the next load rather than after the browser's 24-hour ceiling.
  */
 
-const CACHE = 'mtg-library-shell-v2';
+const CACHE = 'mtg-library-shell-v3';
 
 /** The page itself, under one key whatever route it was loaded at. */
 const PAGE = '/index.html';
 
-self.addEventListener('install', () => {
-  // Take over on the next load rather than waiting for every tab to close;
-  // network-first means there is nothing stale to protect.
-  self.skipWaiting();
+/** The /assets/* paths a page names, source maps excluded. */
+function assetsIn(html) {
+  const paths = new Set();
+  for (const match of html.matchAll(/\/assets\/[^"'\s)]+/g)) {
+    if (!match[0].endsWith('.map')) paths.add(match[0]);
+  }
+  return [...paths];
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    // Fill the cache now, from the network, rather than waiting for the next
+    // load to do it as a side effect. Without this the first load (and the
+    // first load after every worker update, since activate drops the old
+    // cache) leaves nothing behind, and a home-screen launch with the server
+    // unreachable is a white screen — iOS standalone apps have no error
+    // page. Still the static bundle only, and still only what the server
+    // just sent; a failure here leaves the cache as it was and the worker
+    // still installs, because a cache is never a reason the app cannot run.
+    try {
+      const page = await fetch(PAGE, { cache: 'no-cache' });
+      if (!page.ok || !(page.headers.get('content-type') || '').includes('text/html')) return;
+      const html = await page.clone().text();
+      const cache = await caches.open(CACHE);
+      await cache.put(PAGE, page);
+      const extras = ['/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png'];
+      await Promise.all([...assetsIn(html), ...extras].map(async (path) => {
+        try {
+          const response = await fetch(path, { cache: 'no-cache' });
+          if (response.ok && response.status === 200) await cache.put(path, response);
+        } catch {
+          // One missing icon is not a reason to have no shell.
+        }
+      }));
+    } catch {
+      // Offline at install time: nothing to fill from. Rule 1 applies from
+      // the next successful load.
+    }
+    // Take over on the next load rather than waiting for every tab to close;
+    // network-first means there is nothing stale to protect.
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (event) => {
@@ -119,8 +159,7 @@ async function pruneAssets(cache, pageResponse) {
   } catch {
     return;
   }
-  const referenced = new Set();
-  for (const match of html.matchAll(/\/assets\/[^"'\s)]+/g)) referenced.add(match[0]);
+  const referenced = new Set(assetsIn(html));
   const keys = await cache.keys();
   await Promise.all(keys.map((cachedRequest) => {
     const path = new URL(cachedRequest.url).pathname;
