@@ -31,14 +31,14 @@ These are not design decisions; they are the places a first run fails for reason
 
 **Windows**
 - **The firewall prompt.** The first time the server binds `0.0.0.0`, Windows Defender Firewall asks whether to allow the bundled `node.exe` on private networks. *Cancel* means LAN sharing silently does not work. The shell explains this in a sentence right before flipping the toggle, and *Show logs* is where "the phone can't find it" gets diagnosed.
-- **Close means quit** on Windows; the phase doc's rule — close to the tray only while sharing is on — is what makes a running server without a window predictable.
+- **Close hides to the tray; Quit is explicit.** Windows convention is close-means-quit, so the first-launch notice matters most here: a user who "closes" it must not believe it is off.
 - **SmartScreen** interposes "Windows protected your PC" for an unsigned installer. Friends click *More info → Run anyway*. A code-signing certificate removes it; not before the idea is judged.
 - **Building from a Mac.** electron-builder produces the Windows NSIS installer on macOS. The tray behaviour, the firewall prompt and the close semantics only show on real Windows — verify on a machine or a VM before calling checkpoint 1 met.
 
 **macOS**
 - **Gatekeeper is a dead end, not a warning.** An unsigned `.app` downloaded from the internet says *"is damaged and can't be opened"*; the workaround (`xattr -d com.apple.quarantine`) is a terminal command, which is the thing the app exists to avoid. Your own build runs on your own Mac without any of this. Giving it to other Mac users needs Apple's developer program for signing and notarisation — deferred with Windows signing, but it is the harder of the two to skip.
 - **Apple silicon only — decided, not deferred.** No Intel build now or later; an Intel Mac runs the self-hosted version. A universal build would double the bundled Node for a platform Apple stopped selling in 2023.
-- Close leaves the app running (Dock icon, tray item); ⌘Q quits. Already in the phase doc.
+- Close leaves the app running (Dock icon, menu-bar item); ⌘Q quits. Same rule as Windows, and the one Mac users already expect.
 
 **Android**
 - **Discovery is `NsdManager`**, and the plugin must hold a `WifiManager.MulticastLock` while browsing or the wifi driver drops the multicast packets. `.local` name resolution is unreliable on Android, so the browse step and the recorded-address fallback in Phase 29's order carry the weight.
@@ -48,7 +48,7 @@ These are not design decisions; they are the places a first run fails for reason
 
 ## The cut, per phase
 
-**Phase 28 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Show data folder*, *Show logs*, *Quit*; Windows and macOS close/quit semantics; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
+**Phase 28 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login* (default on), *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
 **Defer:** auto-update, signing, Linux packaging, log rotation.
 
 **Phase 29 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. It is small, and the Android session needs every piece.
@@ -93,13 +93,16 @@ Concretely:
   file under userData.
 - Poll GET /api/v1/health before loading the window; a plain splash until it
   answers.
-- Tray item: Open MTG Library · Allow other devices on this network
-  (checkbox, restarts the child) · Show data folder · Show logs · Quit.
-  Platform close semantics per the doc: on Windows, closing the window quits
-  unless sharing is on, in which case it hides to the tray; on macOS closing
-  the window leaves the app running. Quit sends SIGTERM and waits for exit,
-  showing "Finishing up…" if it takes more than a second. Single-instance
-  lock.
+- This is a background app with a window, per the doc. Tray item: Open MTG
+  Library · Allow other devices on this network (checkbox, restarts the
+  child) · Keep this computer awake while sharing (checkbox, default off,
+  powerSaveBlocker while sharing is on) · Launch at login (checkbox, default
+  on, app.setLoginItemSettings) · Show data folder · Show logs · Quit.
+  Closing the window hides it on every platform; the tray/Dock icon reopens
+  it; only Quit (or ⌘Q) stops the server — SIGTERM, wait for exit,
+  "Finishing up…" if it takes more than a second. First launch shows a
+  one-line notice that it runs in the background and where to find it.
+  Single-instance lock.
 - Before the sharing toggle first turns on, on Windows, a one-paragraph
   dialog: the firewall will ask about node.exe; allow it on private networks
   or phones will not find the app.
@@ -208,4 +211,4 @@ and report; tell me which of those need me on the physical phone.
 
 If the checkpoints hold, the next sessions are the rest of Phase 20 in this order — the snapshot and shop-mode surface; the queue, `idempotency_keys` and `POST /api/v1/trades/record`; the pending overlay; background sync (`WorkManager`) and the wifi-join trigger — then signing (Windows certificate, Apple notarisation) and auto-update for Phase 28 — still Apple silicon only — then Phase 30 only if the never-home-together gap actually shows up. OCR (ML Kit on Android) waits on Phase 16. iOS, if ever, is `npx cap add ios`, the Bonjour twin of the discovery plugin, and an Apple developer account.
 
-If they don't hold, the most likely reasons, in the order I would check: the packaged app cannot find `schema.sql` (directory shape); the Windows firewall prompt was dismissed (sharing looks on, nothing answers on the LAN address); multicast dropped on the phone (no `MulticastLock`, or a router with client isolation — try the recorded addresses, which the doc's fallbacks exist for); cleartext blocked (WebView blank, `ERR_CLEARTEXT_NOT_PERMITTED` in logcat); or `allowNavigation` missing a host pattern. None of those is a sign the idea is wrong.
+If they don't hold, the most likely reasons, in the order I would check: the packaged app cannot find `schema.sql` (directory shape); the Windows firewall prompt was dismissed (sharing looks on, nothing answers on the LAN address); the machine was asleep (the phone's *Last synced* age is the tell — see the keep-awake setting); multicast dropped on the phone (no `MulticastLock`, or a router with client isolation — try the recorded addresses, which the doc's fallbacks exist for); cleartext blocked (WebView blank, `ERR_CLEARTEXT_NOT_PERMITTED` in logcat); or `allowNavigation` missing a host pattern. None of those is a sign the idea is wrong.

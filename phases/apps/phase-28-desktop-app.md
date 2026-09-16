@@ -32,13 +32,15 @@ The server runs as a **separate child process**, not inside Electron's main proc
 ### Lifecycle
 
 - **Launch.** Single-instance lock (a second launch focuses the first). Spawn the server, then poll `GET /api/v1/health` until it answers; show a splash with the server's own boot messages until then. The first cold start includes `warmCache()` and any pending migrations, so this is seconds, not milliseconds, and the window must not load a connection-refused page in the meantime.
-- **Close the window.** On macOS the app stays running — Dock icon, menu-bar item, server up. Clicking the Dock icon reopens the window. On Windows and Linux, closing the window quits **unless** *Allow other devices on this network* is on, in which case it closes to the tray: the only reason to keep a server running with no window is that another device might be using it. That one rule makes the behaviour predictable for someone who does not think in terms of servers.
+- **This is a background app with a window.** The point of it is to be up whenever the machine is up, so the phone can sync without anyone opening anything. It follows the Dropbox/Discord pattern on every platform: **closing the window hides it** (Dock or tray icon reopens it, server keeps running); **Quit is only ever explicit** — ⌘Q, or *Quit* in the tray menu — and is what stops the server. One rule, same on macOS, Windows and Linux; no cleverness about when close means quit.
+- **Launch at login, on by default.** `app.setLoginItemSettings`; a checkbox in the tray menu turns it off. Without this the design leans on the user remembering to open an app, which is the thing it exists to remove.
+- **Say so once.** First launch shows a single notice: *MTG Library runs in the background — find it in the menu bar / system tray. Quit from there to stop it.* Otherwise a Windows user "closes" it and believes it is off.
 - **Quit.** SIGTERM to the child, a *Finishing up…* indicator if it takes more than a second (a bulk sync mid-write can take up to the server's 10s ceiling), then exit. Never `SIGKILL` first; the database is in WAL mode and an unclean exit is survivable but pointless.
-- **Sleep.** The app does nothing about it. A closed lid is a stopped server, and Phase 20's shop mode is the answer to that, not a power assertion.
+- **Sleep is the real outage, and the app is honest about it.** A desktop PC that sleeps after thirty idle minutes is down most of the day; a laptop with the lid closed is down regardless. A setting — *Keep this computer awake while sharing is on*, off by default, one sentence on the power trade — holds an Electron `powerSaveBlocker` (`prevent-app-suspension`) while sharing is on. Right for a desktop tower, wrong to force on a laptop, so it is a choice. Phase 20's snapshot-and-queue design is what makes sleep survivable rather than fatal: the phone syncs the next time both are awake.
 
 ### Menu / tray
 
-*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Pair a phone…* (Phase 29; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* · *Quit*.
+*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 29; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* · *Quit*.
 
 `Show data folder` matters more than it looks: it is the backup story for someone who will never read `README.md#backups`. The folder holds `library.sqlite`, the image cache, and the scheduled backups.
 
@@ -64,7 +66,8 @@ This is where the phase's actual risk lives.
 1. A fresh install on a machine with no Node, no repo, and no prior data directory launches, offers the first sync, completes it, and searches — without a terminal.
 2. `check-sqlite.mjs` run against the packaged app's `better-sqlite3` reports FTS5, trigram, and a clean schema load. Automated in the release workflow.
 3. Quitting during a bulk sync exits cleanly within the server's ceiling; relaunching finds the database intact and the sync resumable (re-runnable).
-4. Closing the window on macOS leaves the server answering `/api/v1/health`; ⌘Q stops it. On Windows/Linux, closing the window quits with the sharing toggle off and hides to the tray with it on.
+4. Closing the window on every platform leaves the server answering `/api/v1/health` and the tray/Dock icon reopens it; Quit from the tray (or ⌘Q) stops it. A fresh install is registered as a login item; unchecking *Launch at login* removes it.
+4a. With *Keep this computer awake while sharing* on and sharing on, the system's idle-sleep timer does not fire; with either off, it does.
 5. With *Allow other devices on this network* off, `curl http://<LAN IP>:8080/api/v1/health` from another machine is refused; on, it answers.
 6. Launching with port 8080 occupied picks another port, persists it, loads the window correctly, and reuses that port on the next launch.
 7. Installing a newer build over an older data directory runs the migration and opens; `migrations.test.ts` already proves the DDL, this proves the packaging did not break the path to it.
