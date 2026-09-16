@@ -44,7 +44,7 @@ These are not design decisions; they are the places a first run fails for reason
 **Phones**
 - **The QR must carry an IP address, not the `.local` name.** iPhones resolve `mtg-library-XXXX.local` natively; Android browsers often do not. The URL in the QR is the desktop's current LAN IP; the `.local` name is shown beside it as text for anyone who can use it.
 - **Plain `http://` on the LAN, and what that costs.** iOS *Add to Home Screen* works over HTTP and launches standalone. Android Chrome's automatic install banner needs HTTPS, so on Android the user adds it from the browser menu and gets a home-screen shortcut that behaves the same. Camera *capture* through `<input capture>` works over HTTP on both; `getUserMedia` (live viewfinder) does not, and nothing in the web client uses it.
-- **When the PC's IP changes,** the pinned icon opens to a connection error. Home routers rarely reassign, but the web client's unreachable message must say *scan the QR code on your computer again* rather than mention the tailnet — session 3 makes it say that when the page was reached over a LAN address.
+- **When the phone can't reach the PC** — VPN off, not on the home wifi, PC asleep, or its IP changed — the pinned icon must open to *our* reconnect screen, not the browser's error page, and recover on its own when the path is back. That is session 3's service worker (a network-first cache of the static bundle, never of `/api/*`) and reconnect banner; the message names the fix for the way the page was installed (turn on Tailscale / get on the home wifi and rescan the QR).
 - **Sleep is the outage.** A PC that sleeps is a phone that cannot connect. Phase 28's *Keep this computer awake while sharing* is the setting; the phone's error message is the tell.
 
 ## The cut, per phase
@@ -169,16 +169,16 @@ app and are not in scope. The "Phone: discovery order" section is that
 app's contract — leave it in the doc, build none of it.
 ```
 
-## Session 3 prompt — Phase 19, home-screen install
+## Session 3 prompt — Phase 19, home-screen install and reconnect
 
 ```
 @CLAUDE.md @phases/apps/phase-19-pwa-install-flow.md @phases/apps/phase-29-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 19 in full, over plain HTTP — the doc's HTTPS section is an
-open decision and the answer is "skip it": the phone reaches the desktop
-app over a LAN address with no certificate, and the degraded Android
-install (from the browser menu, no automatic banner) is accepted.
+Build Phase 19 in full, over plain HTTP — the doc's HTTPS section records
+the decision. Two halves: the home-screen install, and what the app does
+when it cannot reach the server.
 
+Install:
 - web/public/ with manifest.webmanifest (name "MTG Library", display
   standalone, start_url "/", theme and background colours matching the
   default theme in styles.css) and icons: 192, 512, maskable 512, and an
@@ -186,22 +186,33 @@ install (from the browser menu, no automatic banner) is accepted.
   Wizards marks. Commit the source (SVG) alongside the PNGs.
 - index.html: manifest link, apple-touch-icon, apple-mobile-web-app-capable
   and status-bar-style, theme-color.
-- A no-op service worker at web/public/sw.js — no fetch handler, no Cache
-  API, a comment saying it is permanently a no-op and why. Registered from
-  main.tsx.
 - The pairing panel in DataPage.tsx (Phase 29) gains one line under the QR:
   "On your phone, open this and choose Add to Home Screen."
-- CONNECTIVITY_MESSAGE in web/src/api.ts mentions the tailnet. When the page
-  was loaded from a private LAN address (10/8, 172.16/12, 192.168/16, or a
-  .local host — decide in one small pure function with a test), the
-  unreachable message says instead that the computer running MTG Library
-  may be asleep or on a different address, and to scan the QR code on it
-  again. Keep the tailnet wording for every other origin.
 
-Verification per the doc, items 1, 2 and 4; item 3 is skipped with the HTTPS
-decision. Then on a real phone: scan the QR, add to home screen, open from
-the icon (standalone, no browser chrome on iOS), then put the desktop to
-sleep and open the icon again — the new message shows.
+Service worker (web/public/sw.js, registered from main.tsx), exactly as the
+doc's rules say: network-first for same-origin GET of the static bundle,
+cache read only when the network fails, successful responses replace the
+cached copy, /api/* returned from the fetch listener before anything else
+happens, versioned cache name with old ones deleted on activate, and
+fastifyStatic serving sw.js with Cache-Control: no-cache. Put the four rules
+in a comment at the top of the file — the next person to open it must not
+mistake it for the start of an offline mode.
+
+Reconnecting:
+- web/src/reachability.ts: one pure function from a hostname to
+  'tailnet' | 'lan' | 'local' | 'unknown' per the doc's table, with the
+  message for each; unit-tested with the doc's nine examples.
+- One app-level banner in App.tsx, raised by any ApiError with
+  isConnectivity, replacing CONNECTIVITY_MESSAGE's per-page use. While up:
+  poll GET /api/v1/health every 3s, and immediately on window 'online' and
+  on visibilitychange to visible. On a healthy answer, clear the banner and
+  refetch the current view. No reload.
+- A write that failed on connectivity stays failed and says so. Nothing is
+  queued.
+
+Verification per the doc, all seven; 4 and 5 on a real phone — tell me the
+steps. For 4, "server unreachable" means the desktop app quit, or the phone
+off the home wifi, or Tailscale off — try at least two of the three.
 ```
 
 ## Session 4 prompt — Phase 28, signing and updates

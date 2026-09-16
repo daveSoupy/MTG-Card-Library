@@ -16,7 +16,7 @@ The desktop app runs the server at home. Every other device — a phone, a table
 | --- | --- | --- |
 | [28 — Desktop App](phase-28-desktop-app.md) | Electron shell, tray lifecycle, auto-update, signed builds. LAN sharing off by default. Built in two sessions: the app, then signing and updates. | nothing |
 | [29 — Pairing and LAN Discovery](phase-29-pairing-and-lan-discovery.md) | Instance id, mDNS advertisement, one QR code. The QR opens the web app in the phone's browser. | nothing (28 gives it a menu item) |
-| [19 — PWA Install Flow](phase-19-pwa-install-flow.md) | Manifest and icons so the web app pins to a home screen with its own icon and no browser chrome. What the QR lands on. | nothing |
+| [19 — PWA Install Flow](phase-19-pwa-install-flow.md) | Manifest and icons so the web app pins to a home screen; a network-first shell cache and a reconnect banner so "can't reach your library" is the app's own screen, names the fix (VPN on / home wifi), and recovers by itself. What the QR lands on. | nothing |
 
 28 and 29 are unsequenced with respect to each other and to the rest of the project. 19 can be built any time, but it is what makes the QR's landing feel like an app, so it belongs right after 29.
 
@@ -35,7 +35,7 @@ If the app is ever un-parked: 20a first (it is pure server work), then the Andro
 ## What these phases must not do
 
 - Add a client-side rule. The phone is the web client byte-for-byte, served from the server.
-- Add a second writer, or an offline cache. CLAUDE.md's no-offline rule holds in full while the companion app is parked; the carve-out it describes is Phase 20's and comes back only with it.
+- Add a second writer, or cache any data. CLAUDE.md's no-offline rule holds in full while the companion app is parked; the carve-out it describes is Phase 20's and comes back only with it. Phase 19's service worker caches the static bundle so the app can show its own reconnect screen — the shell, never `/api/*`; that is the whole of what the browser holds.
 - Reach outside the home network by default. Considered in depth and rejected: embedded Tailscale, embedded WireGuard with UPnP, tunnels, relays. Each moves a failure the user cannot repair into the default path.
 - Change the server's defaults. `config.ts` stays as it is; the desktop shell overrides by environment because it knows its context, and systemd and Docker are untouched.
 - Put a certificate on the LAN. The phone reaches the desktop over plain `http://` on the home network; Phase 19 accepts the degraded Android install for it, because a certificate a layperson's phone trusts is not something the desktop app can hand out without a step they will not do.
