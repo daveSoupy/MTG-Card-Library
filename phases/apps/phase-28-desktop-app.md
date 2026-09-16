@@ -1,6 +1,6 @@
 # Phase 28 — Desktop App
 
-The server, packaged as an ordinary application: double-click to start, ⌘Q to stop, updates itself. For the person who does not have an always-on Linux box and should never have to open a terminal. The systemd install (`deploy/`) and the Docker image stay exactly as they are — this is a third way to run the *same* `server/dist`, differing from the other two only in how three environment variables get set.
+The server, packaged as an ordinary application: double-click to start, ⌘Q to stop. (Signing, notarisation and self-update are [Phase 28b](phase-28b-signing-and-updates.md), the session after this one.) For the person who does not have an always-on Linux box and should never have to open a terminal. The systemd install (`deploy/`) and the Docker image stay exactly as they are — this is a third way to run the *same* `server/dist`, differing from the other two only in how three environment variables get set.
 
 Nothing in `server/src` or `web/src` changes shape. The whole phase is a shell around a process that already exists, and most of the work is in the build pipeline rather than in code.
 
@@ -40,7 +40,7 @@ The server runs as a **separate child process**, not inside Electron's main proc
 
 ### Menu / tray
 
-*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 29; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* · *Quit*.
+*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 29; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* (Phase 28b wires it; present but inert until then) · *Quit*.
 
 `Show data folder` matters more than it looks: it is the backup story for someone who will never read `README.md#backups`. The folder holds `library.sqlite`, the image cache, and the scheduled backups.
 
@@ -50,8 +50,7 @@ This is where the phase's actual risk lives.
 
 - **Native module ABI.** Avoided by the bundled-Node decision above. If that is ever reversed (to save the 50 MB), `better-sqlite3` must be rebuilt for Electron's ABI with `@electron/rebuild`, and `server/scripts/check-sqlite.mjs` must run **against the packaged app's copy** after every rebuild — FTS5 and the trigram tokenizer are what a rebuild silently loses. Keep the gate in the release workflow regardless; it is cheap.
 - **Archive layout.** Electron packs the app into an `.asar`; native `.node` binaries and `new Worker(path)` (`sync/syncManager.ts`) cannot load from inside one. `server/**`, `schema.sql`, and `node_modules/better-sqlite3/**` go in `asarUnpack` — or asar is disabled outright; either is fine as long as the walk-up from `server/dist` still lands on `schema.sql` and `web/dist`.
-- **Updates.** `electron-updater` against GitHub Releases, checked on launch and daily, applied on next quit. The user sees a *Restart to update* item, never a prompt mid-session. No migration step is needed in the shell; the server does that.
-- **Signing and notarisation are part of the deliverable.** An unsigned macOS download is *"damaged and can't be opened"* — a dead end, not a warning — and Windows SmartScreen interposes a scary screen. Apple Developer Program for the Mac build; a code-signing certificate for Windows if it ships. Without these the app is not "dead simple" for anyone, and the phase is not done.
+- **Updates, signing and notarisation are Phase 28b.** This phase produces unsigned installers that work on the machine that built them and on a Windows machine past a SmartScreen click; a downloaded Mac build needs `xattr -d com.apple.quarantine` until 28b. The app is not finished for anyone else until 28b is — the split is about sessions, not about whether it ships.
 - **Size.** ~150–250 MB. Say so on the download page.
 - **macOS is Apple silicon only.** No Intel or universal build; an Intel Mac runs the self-hosted install. Decided, so a future session does not add the second Node binary out of thoroughness.
 
@@ -70,8 +69,8 @@ This is where the phase's actual risk lives.
 4a. With *Keep this computer awake while sharing* on and sharing on, the system's idle-sleep timer does not fire; with either off, it does.
 5. With *Allow other devices on this network* off, `curl http://<LAN IP>:8080/api/v1/health` from another machine is refused; on, it answers.
 6. Launching with port 8080 occupied picks another port, persists it, loads the window correctly, and reuses that port on the next launch.
-7. Installing a newer build over an older data directory runs the migration and opens; `migrations.test.ts` already proves the DDL, this proves the packaging did not break the path to it.
-8. The macOS build opens on a second Mac straight from the `.dmg` with no Gatekeeper override.
+
+Migration-over-old-data, Gatekeeper on a second Mac, and the update path are Phase 28b's verification.
 
 ## Out of scope
 

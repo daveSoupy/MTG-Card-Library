@@ -11,7 +11,7 @@ Four checkpoints, in order. Stop and look at each before the next session.
 1. **An installer on a Windows machine, and a `.app` on a Mac, each with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** (Phase 28, first session.)
 2. **A phone's camera scans a QR on that machine and lands in the app.** (Phase 29.)
 3. **The phone pins it to the home screen with its own icon, and from then on opens it like an app whenever it is on the home wifi.** If the PC's address changes, scanning the QR again fixes it, and the app says so. (Phase 19.)
-4. **A friend downloads the Mac build and it opens with no warning; the Windows build installs with no SmartScreen dead end; and both update themselves.** (Phase 28, second session.)
+4. **A friend downloads the Mac build and it opens with no warning; the Windows build installs with no SmartScreen dead end; and both update themselves.** (Phase 28b.)
 
 The fourth is the one that decides whether a layperson can use this. Everything before it works for *you*; it is what makes it work for someone you hand a link to.
 
@@ -49,8 +49,8 @@ These are not design decisions; they are the places a first run fails for reason
 
 ## The cut, per phase
 
-**Phase 28, session 1 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
-**Session 4:** signing and notarisation, `electron-updater` against GitHub Releases, the release workflow. **Never:** Linux packaging (systemd and Docker cover it), Intel Macs.
+**Phase 28 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a Windows x64 installer and a macOS arm64 `.app`/`.dmg`, both unsigned.
+**Phase 28b — build:** all of it: signing and notarisation, `electron-updater` against GitHub Releases, the release workflow. **Never:** Linux packaging (systemd and Docker cover it), Intel Macs.
 
 **Phase 29 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. The "Phone: discovery order" section is the parked app's contract and is not built.
 
@@ -111,8 +111,8 @@ Concretely:
   server's walk-up to schema.sql and web/dist works, with server/**,
   schema.sql and node_modules/better-sqlite3/** outside the asar (or asar
   disabled — your call, say which and why in a comment).
-- Skip auto-update, signing/notarisation and Linux for now; leave clear
-  TODO markers. Note in the README that the unsigned mac build needs
+- Auto-update, signing and notarisation are Phase 28b; leave clear TODO
+  markers. Linux is never. Note in the README that the unsigned mac build needs
   `xattr -d com.apple.quarantine` if downloaded rather than built locally.
 
 Update docs/CODEBASE-MAP.md with the new workspace and rerun
@@ -131,8 +131,7 @@ session 4. Rules only — not a copy of the phase doc.
 Done means: `npm run desktop:package` produces a Windows installer and a
 mac .app that each, on a machine with no Node installed, install, open,
 offer the first sync, complete it, and search — and Phase 28's
-verification items 1–6 pass on both (7 and 8 are deferred with the features
-they test). Verify the mac build yourself on this machine; I will run the
+verification items 1–6 pass on both. Verify the mac build yourself on this machine; I will run the
 Windows checks — give me the exact list to walk through and what each
 should show.
 ```
@@ -215,13 +214,14 @@ steps. For 4, "server unreachable" means the desktop app quit, or the phone
 off the home wifi, or Tailscale off — try at least two of the three.
 ```
 
-## Session 4 prompt — Phase 28, signing and updates
+## Session 4 prompt — Phase 28b, signing and updates
 
 ```
-@CLAUDE.md @phases/apps/phase-28-desktop-app.md @phases/apps/BUILD-BRIEF.md
+@CLAUDE.md @phases/apps/phase-28b-signing-and-updates.md @phases/apps/BUILD-BRIEF.md
 
-Finish Phase 28: signing, notarisation and auto-update. Verification items 7
-and 8 are the target. Nothing in server/src or web/src changes.
+Build Phase 28b: signing, notarisation and auto-update for the Phase 28
+desktop app. Nothing in server/src, web/src or the shell's lifecycle
+changes; this is the build pipeline and the release workflow.
 
 - macOS: hardened runtime, entitlements for the bundled Node binary (it
   JITs — allow-jit and allow-unsigned-executable-memory at minimum; confirm
@@ -245,10 +245,10 @@ and 8 are the target. Nothing in server/src or web/src changes.
 - README "Desktop app" section: the download links, that it updates itself,
   the size, and the either/or with a home server.
 
-Done means: a tagged release produces both installers; a second Mac opens
-the .dmg from a browser download with no warning; an older installed build
-updates itself to it on next quit with the data directory intact. Tell me
-which steps need my Apple and GitHub credentials and exactly where each goes.
+Fill in the "signing" heading session 1 left in desktop/CLAUDE.md.
+
+Done means the doc's six verification items pass. Tell me which steps need
+my Apple and GitHub credentials and exactly where each goes.
 ```
 
 ---

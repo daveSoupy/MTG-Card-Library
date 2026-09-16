@@ -14,11 +14,12 @@ The desktop app runs the server at home. Every other device — a phone, a table
 
 | Phase | What | Depends on |
 | --- | --- | --- |
-| [28 — Desktop App](phase-28-desktop-app.md) | Electron shell, tray lifecycle, auto-update, signed builds. LAN sharing off by default. Built in two sessions: the app, then signing and updates. | nothing |
+| [28 — Desktop App](phase-28-desktop-app.md) | Electron shell around `server/dist`, tray lifecycle, bundled Node. LAN sharing off by default. Unsigned. | nothing |
+| [28b — Signing and Updates](phase-28b-signing-and-updates.md) | Developer ID + notarisation, Windows signing if a cert exists, `electron-updater` against GitHub Releases, the release workflow. What makes 28 downloadable by someone else. | 28 |
 | [29 — Pairing and LAN Discovery](phase-29-pairing-and-lan-discovery.md) | Instance id, mDNS advertisement, one QR code. The QR opens the web app in the phone's browser. | nothing (28 gives it a menu item) |
 | [19 — PWA Install Flow](phase-19-pwa-install-flow.md) | Manifest and icons so the web app pins to a home screen; a network-first shell cache and a reconnect banner so "can't reach your library" is the app's own screen, names the fix (VPN on / home wifi), and recovers by itself. What the QR lands on. | nothing |
 
-28 and 29 are unsequenced with respect to each other and to the rest of the project. 19 can be built any time, but it is what makes the QR's landing feel like an app, so it belongs right after 29.
+28 and 29 are unsequenced with respect to each other and to the rest of the project; 28b follows 28. 19 can be built any time, but it is what makes the QR's landing feel like an app, so it belongs right after 29. One phase per session, as everywhere else in the project.
 
 ### Parked — the companion phone app
 
