@@ -2,7 +2,7 @@
 
 A phone finds the server on the home network by scanning one QR code, once, and keeps finding it after the router hands out a new address, after the server moves to a new machine's port, and after months of nobody thinking about it. No accounts, no dynamic DNS, no VPN, nothing outside the house.
 
-This is the link Phase 36's companion app syncs over, and it also serves the plain web client: a scanned QR opens the app in the phone's browser, ready for *Add to Home Screen* (Phase 33). Works for any server — the Phase 31 desktop app, the systemd install, or Docker with host networking.
+This is the link Phase 36's companion app (parked) would sync over, and it serves the plain web client today: a scanned QR opens the app in the phone's browser, ready for *Add to Home Screen* (Phase 33). Works for any server — the Phase 31 desktop app, the systemd install, or Docker with host networking.
 
 ## Why the home network is enough
 
@@ -29,7 +29,7 @@ GET /api/v1/instance
 → { instanceId, name, version, port, addresses: ["192.168.1.20", ...], mdnsName: "mtg-library-XXXX.local" }
 ```
 
-`name` is the OS hostname; `addresses` are the non-loopback IPv4/IPv6 addresses the server is bound on (empty when `MTG_HOST` is `127.0.0.1`, which the UI reads as "sharing is off"); `version` is the server's package version, which the phone app uses for the skew contract in Phase 36.
+`name` is the OS hostname; `addresses` are the non-loopback IPv4/IPv6 addresses the server is bound on (empty when `MTG_HOST` is `127.0.0.1`, which the UI reads as "sharing is off"); `version` is the server's package version, which the phone app uses for the skew contract in Phase 36. Nothing reads that version today: add `resolveServerVersion()` beside the other resolvers in `config.ts`, reading `server/package.json` through the same walk-up `db/index.ts` uses for `schema.sql`. Phase 35 shares that one function rather than reading the file again.
 
 ## Server: advertisement
 
@@ -46,6 +46,8 @@ http://192.168.1.20:8080/#pair=<base64url JSON>
 ```
 
 where the JSON is `{ "v": 1, "id": "<instanceId>", "mdns": "mtg-library-XXXX.local", "port": 8080, "addresses": [...] }`. The web client ignores the fragment (it is not a route in `router.ts`) and just loads — so a phone without the companion app lands in the web app, and *Add to Home Screen* follows. The companion app registers the same URL pattern and reads the fragment as its pairing record.
+
+The URL's host is the first IPv4 entry in `addresses` — an address, never the `.local` name, because Android browsers often cannot resolve one and the QR has to work from a camera app with nothing installed. Beneath the QR the panel prints every address and the `.local` name as text, for the phone that can use one the camera did not.
 
 The panel shows the QR only while sharing is on; otherwise it explains the toggle. It never shows a public address, because there isn't one.
 
@@ -69,6 +71,8 @@ Turning sharing on makes the app reachable by every device on the home wifi, wit
 If a real gate is ever wanted (a shared house, a guest network that is not isolated), it is the token header CLAUDE.md anticipates, applied to every route including the web client's, and it is its own phase. This one deliberately does not start down that road.
 
 ## Verification
+
+Items 1–3 and 7 are this phase's. Items 4–6 exercise the companion app and are not run while it is parked; they stay here because they are the discovery contract's acceptance tests.
 
 1. `GET /api/v1/instance` returns a stable `instanceId` across restarts and a fresh one on a new data directory.
 2. With `MTG_ADVERTISE=1` and a LAN bind, `dns-sd -B _mtglibrary._tcp` (macOS) or `avahi-browse` (Linux) lists the service with the right TXT `id`; with loopback bind or the flag off, nothing is advertised.

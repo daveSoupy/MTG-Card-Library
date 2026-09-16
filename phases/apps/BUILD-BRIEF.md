@@ -37,7 +37,7 @@ These are not design decisions; they are the places a first run fails for reason
 - **Testing "no Node installed" on the machine that has Node.** A second macOS user account is the cheap way: nothing from your login's Homebrew or `nvm` is on its `PATH`, so a build that secretly leans on the dev environment fails there first.
 
 **Windows** (second target, same workspace)
-- **Building from a Mac.** electron-builder produces the Windows NSIS installer on macOS with no Windows machine involved; the build is part of session 1 even though its checks are not. The tray behaviour, the firewall prompt and the close semantics only show on real Windows — verify on a machine or a VM when one is to hand (checkpoint 1b), and before session 4.
+- **Building from a Mac.** electron-builder produces the Windows NSIS installer on macOS with no Windows machine and no Wine — it fetches its own tools on first run; the build is part of session 1 even though its checks are not. The tray behaviour, the firewall prompt and the close semantics only show on real Windows — verify on a machine or a VM when one is to hand (checkpoint 1b), and before session 4.
 - **The firewall prompt.** The first time the server binds `0.0.0.0`, Windows Defender Firewall asks whether to allow the bundled `node.exe` on private networks. *Cancel* means LAN sharing silently does not work. The shell explains this in a sentence right before flipping the toggle, and *Show logs* is where "the phone can't find it" gets diagnosed.
 - **Close hides to the tray; Quit is explicit.** Windows convention is close-means-quit, so the first-launch notice matters most here: a user who "closes" it must not believe it is off.
 - **SmartScreen** interposes "Windows protected your PC" for an unsigned installer. Until session 4, friends click *More info → Run anyway*.
@@ -55,14 +55,14 @@ These are not design decisions; they are the places a first run fails for reason
 
 **Phase 32 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. The "Phone: discovery order" section is the parked app's contract and is not built.
 
-**Phase 33 — build:** all of it, over plain HTTP. Manifest, icons, `index.html` tags, the no-op service worker, plus the LAN-aware unreachable message the doc does not mention because it predates Phase 32.
+**Phase 33 — build:** all of it, over plain HTTP. Manifest, icons, `index.html` tags, the network-first shell cache (never `/api/*`), and the reconnect banner whose message is chosen by the origin the page was reached on — the doc's table covers Tailscale, home wifi, the desktop app's own window and unknown.
 
 ## Before session 1
 
 - Node 22.6+ and the repo building clean (`npm run build && npm test`).
 - A second macOS user account (System Settings → Users & Groups) for checkpoint 1. A Windows machine or VM for checkpoint 1b, whenever convenient — not before session 1.
 - A phone — any — on the same wifi, for checkpoints 2 and 3.
-- For session 4: the Apple Developer Program membership is in hand — it needs a *Developer ID Application* certificate in the login keychain, an app-specific password for notarisation, and the Team ID. A Windows code-signing certificate is a separate purchase, still undecided; the workflow builds Windows unsigned until one exists.
+- For session 4: the Apple Developer Program membership is in hand — it needs a *Developer ID Application* certificate in the login keychain, the same certificate exported as a `.p12` for CI (it becomes the `CSC_LINK` secret, base64), an app-specific password for notarisation, and the Team ID. A Windows code-signing certificate is a separate purchase, still undecided; the workflow builds Windows unsigned until one exists.
 
 ---
 
@@ -71,7 +71,7 @@ These are not design decisions; they are the places a first run fails for reason
 ```
 @CLAUDE.md @phases/apps/phase-31-desktop-app.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 31 at the "viability cut" scope in BUILD-BRIEF.md: a desktop app
+Build Phase 31 at the scope in BUILD-BRIEF.md's "The cut, per phase": a desktop app
 that runs the existing server and shows the existing web client. macOS
 arm64 is the primary target and is verified here; Windows x64 is a second
 build target from the same workspace whose checks I will run later on a
@@ -112,7 +112,11 @@ Concretely:
 - The packaged app keeps the repo's directory shape under resources/ so the
   server's walk-up to schema.sql and web/dist works, with server/**,
   schema.sql and node_modules/better-sqlite3/** outside the asar (or asar
-  disabled — your call, say which and why in a comment).
+  disabled — your call, say which and why in a comment). Resources come from
+  a staging step that mirrors the Dockerfile's runtime stage (production-only
+  root node_modules with the @mtg-library workspace symlinks removed,
+  schema.sql, server/dist, web/dist) — see the phase doc's "Which
+  node_modules" — never from desktop/'s own dependency tree.
 - Auto-update, signing and notarisation are Phase 34; leave clear TODO
   markers. Linux is never. Note in the README that the unsigned mac build needs
   `xattr -d com.apple.quarantine` if downloaded rather than built locally.
@@ -229,11 +233,13 @@ changes; this is the build pipeline and the release workflow.
 
 - macOS: hardened runtime, entitlements for the bundled Node binary (it
   JITs — allow-jit and allow-unsigned-executable-memory at minimum; confirm
-  the packaged app runs under the hardened runtime before notarising),
+  the packaged app runs under the hardened runtime before notarising), the
+  bundled node listed under mac.sign.binaries so notarisation sees it signed,
   notarisation through electron-builder's notarize option with APPLE_ID,
-  APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID from the environment,
-  stapled. Verify with spctl --assess and by downloading the .dmg on a
-  second Mac.
+  APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID from the environment, the
+  certificate itself as CSC_LINK (base64 .p12) + CSC_KEY_PASSWORD on CI,
+  stapled. Keep the dmg + zip targets — the updater needs the zip. Verify
+  with spctl --assess and by downloading the .dmg on a second Mac.
 - Windows: sign with the certificate in the environment if present; if
   absent, build unsigned and say so in the workflow output rather than
   failing. Note in the README what SmartScreen shows for each.
@@ -244,8 +250,9 @@ changes; this is the build pipeline and the release workflow.
 - .github/workflows/desktop.yml: on a v* tag, build the mac arm64 .dmg on
   macos-latest and the Windows x64 installer on windows-latest, run
   server/scripts/check-sqlite.mjs against each packaged app's Node +
-  better-sqlite3 as a gate, and upload the artifacts plus electron-updater's
-  latest*.yml to the release. Leave docker.yml alone.
+  better-sqlite3 as a gate, and upload the artifacts (dmg, mac zip, Windows
+  installer) plus electron-updater's latest*.yml to the release, publishing
+  through the workflow's GITHUB_TOKEN. Leave docker.yml alone.
 - README "Desktop app" section: the download links, that it updates itself,
   the size, and the either/or with a home server.
 
@@ -339,7 +346,7 @@ to parked/phase-36-native-companion-app.md and parked/phase-37-cloud-mailbox.md.
 ```
 @CLAUDE.md @phases/apps/parked/phase-36-native-companion-app.md @phases/apps/phase-32-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 36 at the "viability cut" in BUILD-BRIEF.md: Android, home mode
+Build Phase 36 at the scope in this prompt: Android, home mode
 only. No shop mode, no snapshot, no queue, no idempotency table, no OCR, no
 background sync, no iOS. Those are later sessions; leave the doc's structure
 for them and do not stub them.

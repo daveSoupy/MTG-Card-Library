@@ -12,11 +12,13 @@ What turns the Phase 31 build from "works on my Mac" into something a friend can
 
 ## macOS
 
-- **Identity.** A *Developer ID Application* certificate in the login keychain — the kind for distribution outside the App Store. *Mac App Distribution* / *Apple Distribution* certificates are App Store-only and produce a build that notarisation rejects with an unhelpful error; this is the most common first-run failure.
+- **Identity.** A *Developer ID Application* certificate in the login keychain — the kind for distribution outside the App Store. *Mac App Distribution* / *Apple Distribution* certificates are App Store-only and produce a build that notarisation rejects with an unhelpful error; this is the most common first-run failure. The keychain covers a local build only: a `macos-latest` runner has no keychain, so the certificate travels to CI as `CSC_LINK` (the `.p12` exported from Keychain Access, base64-encoded) and `CSC_KEY_PASSWORD`, and electron-builder imports it into a temporary keychain for the job.
+- **electron-builder's option layout.** Since v27 every macOS signing option — `hardenedRuntime`, `entitlements`, `entitlementsInherit`, `binaries`, `identity` — lives under `mac.sign`; `notarize` stays on `mac`. Older examples use the flat keys and `electron-builder migrate-schema` rewrites them.
 - **Hardened runtime and entitlements.** Required for notarisation. The bundled Node binary is re-signed with *our* identity and *our* entitlements, so it needs what Node needs: `com.apple.security.cs.allow-jit` and `com.apple.security.cs.allow-unsigned-executable-memory` at minimum (V8 JITs). Confirm the packaged app runs under the hardened runtime *before* submitting for notarisation — a JIT crash on launch is a five-second local test and a twenty-minute notarisation round-trip.
-- **Notarisation.** electron-builder's `notarize` option, driven by `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` from the environment — never from a file in the repo. The app-specific password is made at appleid.apple.com; the real Apple ID password never enters a build environment. Staple the ticket so the app opens offline on first launch.
+- **Every Mach-O in the bundle must be signed, and the signer does not walk `Resources/` on its own.** electron-builder signs the Electron frameworks, helpers and unpacked `.node` files; a bare `node` executable shipped as an extra resource is exactly the "binary is not signed with a valid Developer ID certificate" notarisation rejection. List it under `mac.sign.binaries` (or sign it in an `afterSign` hook) so it carries our identity and the entitlements above.
+- **Notarisation.** electron-builder's `notarize: true`, driven by `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` from the environment — never from a file in the repo. The app-specific password is made at appleid.apple.com; the real Apple ID password never enters a build environment. electron-builder staples the ticket itself when `notarize` is on, so the app opens offline on first launch; `stapler validate` is how to check it did.
 - **Verify** with `spctl --assess --type execute -v` on the `.app`, `stapler validate` on the `.dmg`, and — the only test that counts — downloading the `.dmg` in a browser on a second Mac and opening it.
-- **Apple silicon only**, as Phase 31 decided. One `.dmg`.
+- **Apple silicon only**, as Phase 31 decided. One `.dmg` for people, and one `.zip` for the updater — see *Auto-update*.
 
 ## Windows
 
@@ -26,6 +28,9 @@ What turns the Phase 31 build from "works on my Mac" into something a friend can
 ## Auto-update
 
 - **`electron-updater` against GitHub Releases.** Check on launch and once a day. Download in the background. A *Restart to update* item appears in the tray when one is ready; the update applies on the next quit. **Never a prompt mid-session** — a dialog over the deck builder is the wrong thing at any moment.
+- **Why this could not be Phase 31.** electron-updater refuses to update an unsigned app on macOS, so the updater only works once signing does.
+- **The macOS updater downloads a `.zip`, not the `.dmg`.** `latest-mac.yml` cannot be generated without one. Keep electron-builder's default `dmg` + `zip` targets and upload both; the `.dmg` is what a person downloads, the `.zip` is what the installed app fetches.
+- **Publish config.** `publish: { provider: 'github', owner: 'daveSoupy', repo: 'MTG-Card-Library' }`. The repository is public, so installed apps need no token to check for releases; the only token involved is the workflow's own `GITHUB_TOKEN` (passed as `GH_TOKEN`), which lets electron-builder create the release and upload to it.
 - **The shell does no migration.** A new build over an old data directory is the server's `migrations.ts` running on next open, exactly as it does for systemd and Docker. Verification item 1 below proves the packaging did not break the path to it.
 - **`Check for updates` in the tray** (Phase 31 listed it; this phase wires it) runs the check now and reports *up to date* or *downloading*.
 - The updater needs the release to carry electron-builder's `latest-mac.yml` and `latest.yml` beside the installers; the workflow uploads them.
@@ -36,8 +41,8 @@ What turns the Phase 31 build from "works on my Mac" into something a friend can
 
 - `macos-latest` builds and notarises the arm64 `.dmg`; `windows-latest` builds the x64 NSIS installer. Both run `npm ci && npm run build` at the root first so the packaged `server/dist` and `web/dist` are the tag's.
 - **`server/scripts/check-sqlite.mjs` runs against each packaged app's Node and `better-sqlite3`** as a gate, and fails the job if FTS5 or the trigram tokenizer is missing. The bundled-Node decision means this has nothing to catch; it stays because it is cheap and because the day someone reverses that decision is the day it matters.
-- Uploads: both installers, both `latest*.yml`, and a `SHA256SUMS`.
-- Secrets: the four Apple values above, the optional Windows pair. The workflow documents each in a comment at the top.
+- Uploads: the `.dmg`, the macOS `.zip`, the Windows installer, both `latest*.yml`, and a `SHA256SUMS`.
+- Secrets: five for macOS — `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` — and the optional Windows pair `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`. `GITHUB_TOKEN` is provided by Actions. The workflow documents each in a comment at the top.
 
 ## README
 
