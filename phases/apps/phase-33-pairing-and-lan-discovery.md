@@ -1,8 +1,8 @@
-# Phase 32 — Pairing and LAN Discovery
+# Phase 33 — Pairing and LAN Discovery
 
 A phone finds the server on the home network by scanning one QR code, once, and keeps finding it after the router hands out a new address, after the server moves to a new machine's port, and after months of nobody thinking about it. No accounts, no dynamic DNS, no VPN, nothing outside the house.
 
-This is the link Phase 36's companion app (parked) would sync over, and it serves the plain web client today: a scanned QR opens the app in the phone's browser, ready for *Add to Home Screen* (Phase 33). Works for any server — the Phase 31 desktop app, the systemd install, or Docker with host networking.
+This is the link Phase 36's companion app (parked) would sync over, and it serves the plain web client today: a scanned QR opens the app in the phone's browser, ready for *Add to Home Screen* (Phase 31). Works for any server — the Phase 32 desktop app, the systemd install, or Docker with host networking.
 
 ## Why the home network is enough
 
@@ -35,11 +35,11 @@ GET /api/v1/instance
 
 A DNS-SD service `_mtglibrary._tcp` on the local link, TXT record `id=<instanceId>`, `v=<version>`, port as bound, hostname `mtg-library-<first 4 of instanceId>.local` so two libraries on one network never collide. Pure-JS implementation (`bonjour-service` or `@homebridge/ciao`); no native dependency, nothing to rebuild.
 
-Enabled by `MTG_ADVERTISE=1` (`config.ts`), which the Phase 31 shell sets whenever *Allow other devices on this network* is on, and which `deploy/mtg-library.service` can set for a systemd install. Off by default, and always off when bound to loopback: advertising an address nobody can reach is noise. Docker needs `network_mode: host` for multicast to leave the container; `docker-compose.yml` gets a commented line, not a default.
+Enabled by `MTG_ADVERTISE=1` (`config.ts`), which the Phase 32 shell sets whenever *Allow other devices on this network* is on, and which `deploy/mtg-library.service` can set for a systemd install. Off by default, and always off when bound to loopback: advertising an address nobody can reach is noise. Docker needs `network_mode: host` for multicast to leave the container; `docker-compose.yml` gets a commented line, not a default.
 
 ## The QR code
 
-Rendered client-side (a small QR library in `web/`) on a *Pair a phone* panel in `DataPage.tsx`, and reachable from the Phase 31 tray menu. Its content is a URL, so the phone's ordinary camera opens it with no app installed:
+Rendered client-side (a small QR library in `web/`) on a *Pair a phone* panel in `DataPage.tsx`, and reachable from the Phase 32 tray menu. Its content is a URL, so the phone's ordinary camera opens it with no app installed:
 
 ```
 http://192.168.1.20:8080/#pair=<base64url JSON>
@@ -50,6 +50,8 @@ where the JSON is `{ "v": 1, "id": "<instanceId>", "mdns": "mtg-library-XXXX.loc
 The URL's host is the first IPv4 entry in `addresses` — an address, never the `.local` name, because Android browsers often cannot resolve one and the QR has to work from a camera app with nothing installed. Beneath the QR the panel prints every address and the `.local` name as text, for the phone that can use one the camera did not.
 
 The panel shows the QR only while sharing is on; otherwise it explains the toggle. It never shows a public address, because there isn't one.
+
+Two lines this phase owes Phase 31, which shipped before there was a QR: the panel ends with *On your phone, open this and choose Add to Home Screen*, and the home-wifi reconnect message in `web/src/reachability.ts` gains its final clause, *scan the QR code on it again* (update its unit test).
 
 ## Phone: discovery order
 

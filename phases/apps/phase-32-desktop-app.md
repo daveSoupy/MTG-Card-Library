@@ -1,4 +1,4 @@
-# Phase 31 — Desktop App
+# Phase 32 — Desktop App
 
 The server, packaged as an ordinary application: double-click to start, ⌘Q to stop. (Signing, notarisation and self-update are [Phase 34](phase-34-signing-and-updates.md), the session after this one.) For the person who does not have an always-on Linux box and should never have to open a terminal. The systemd install (`deploy/`) and the Docker image stay exactly as they are — this is a third way to run the *same* `server/dist`, differing from the other two only in how three environment variables get set.
 
@@ -27,8 +27,8 @@ The server runs as a **separate child process**, not inside Electron's main proc
 | Variable | Value | Why |
 | --- | --- | --- |
 | `MTG_DATA_DIR` | `<app.getPath('userData')>/library` | Per-platform application-support directory (`~/Library/Application Support/MTG Library/library` on macOS). The server's own default is `~/.local/share/mtg-library`, a Linux convention. An `MTG_DATA_DIR` already in the app's environment wins, so a developer can point the app at an existing library. |
-| `MTG_HOST` | `127.0.0.1`, or `0.0.0.0` while *Allow other devices on this network* is on | The server's default of `0.0.0.0` is right behind Tailscale and wrong on a laptop on café wifi: an unauthenticated app on every interface. Off by default; Phase 32 builds pairing on top of the on state. |
-| `MTG_PORT` | `8080` if free, else the next free port, **persisted** in the shell's own config | A stable port keeps phone bookmarks and Phase 32 pairing valid across launches. The port is the shell's to remember, not the server's. |
+| `MTG_HOST` | `127.0.0.1`, or `0.0.0.0` while *Allow other devices on this network* is on | The server's default of `0.0.0.0` is right behind Tailscale and wrong on a laptop on café wifi: an unauthenticated app on every interface. Off by default; Phase 33 builds pairing on top of the on state. |
+| `MTG_PORT` | `8080` if free, else the next free port, **persisted** in the shell's own config | A stable port keeps phone bookmarks and Phase 33 pairing valid across launches. The port is the shell's to remember, not the server's. |
 | `MTG_LOG_LEVEL` | `info` | Server stdout/stderr go to `<userData>/logs/server.log`, rotated. *Help → Show logs* opens the folder. |
 
 ### Lifecycle
@@ -42,7 +42,7 @@ The server runs as a **separate child process**, not inside Electron's main proc
 
 ### Menu / tray
 
-*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 32; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* (Phase 34 wires it; present but inert until then) · *Quit*.
+*Open MTG Library* · *Allow other devices on this network* (checkbox; restarts the child with the new `MTG_HOST`) · *Keep this computer awake while sharing* (checkbox) · *Launch at login* (checkbox, on by default) · *Pair a phone…* (Phase 33; hidden until then) · *Show data folder* · *Show logs* · *Check for updates* (Phase 34 wires it; present but inert until then) · *Quit*.
 
 `Show data folder` matters more than it looks: it is the backup story for someone who will never read `README.md#backups`. The folder holds `library.sqlite`, the image cache, and the scheduled backups.
 
@@ -80,5 +80,5 @@ Migration-over-old-data, Gatekeeper on a second Mac, and the update path are Pha
 ## Out of scope
 
 - Moving or choosing the data directory from the UI. `MTG_DATA_DIR` in the environment covers the developer case.
-- Any remote access. Phase 32 covers the home network; nothing here or there reaches outside it.
+- Any remote access. Phase 33 covers the home network; nothing here or there reaches outside it.
 - Running the server on Electron's own Node to save the bundled binary's ~50 MB. Possible later, at the cost of the ABI rebuild and its gate.

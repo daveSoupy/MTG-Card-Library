@@ -8,10 +8,10 @@ How to get a macOS and Windows desktop app running the existing server, reachabl
 
 Four checkpoints, in order. Stop and look at each before the next session.
 
-1. **A `.app` on a Mac, with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** Verified on this machine, then on a second user account or a second Mac to be sure nothing leaned on the dev environment. (Phase 31.) **1b.** The same for the Windows installer — whenever a Windows machine or VM is to hand; it does not block sessions 2 and 3.
-2. **A phone's camera scans a QR on that machine and lands in the app.** (Phase 32.)
-3. **The phone pins it to the home screen with its own icon, and from then on opens it like an app whenever it is on the home wifi.** If the PC's address changes, scanning the QR again fixes it, and the app says so. (Phase 33.)
-4. **A friend downloads the Mac build and it opens with no warning, and it updates itself; the Windows build installs with at most a SmartScreen click-through.** (Phase 34.) Needs 1b done first.
+1. **The phone pins the app to the home screen with its own icon, and when it can't reach the server it shows the app's own reconnect screen and recovers by itself.** Verified today, on the self-hosted install over Tailscale: VPN off, tap the icon, see our message; VPN on, watch it reconnect. (Phase 31.)
+2. **A `.app` on a Mac, with no repo, no Node and no terminal, installs, opens, syncs the card database, and works.** Verified on this machine, then on a second user account or a second Mac to be sure nothing leaned on the dev environment. (Phase 32.) **2b.** The same for the Windows installer — whenever a Windows machine or VM is to hand; it does not block session 3.
+3. **A phone's camera scans a QR on that machine and lands in the app, ready to pin.** If the PC's address changes, scanning the QR again fixes it, and the reconnect screen now says so. (Phase 33.)
+4. **A friend downloads the Mac build and it opens with no warning, and it updates itself; the Windows build installs with at most a SmartScreen click-through.** (Phase 34.) Needs 2b done first.
 
 The fourth is the one that decides whether a layperson can use this. Everything before it works for *you*; it is what makes it work for someone you hand a link to.
 
@@ -46,32 +46,81 @@ These are not design decisions; they are the places a first run fails for reason
 - **The QR must carry an IP address, not the `.local` name.** iPhones resolve `mtg-library-XXXX.local` natively; Android browsers often do not. The URL in the QR is the desktop's current LAN IP; the `.local` name is shown beside it as text for anyone who can use it.
 - **Plain `http://` on the LAN, and what that costs.** iOS *Add to Home Screen* works over HTTP and launches standalone. Android Chrome's automatic install banner needs HTTPS, so on Android the user adds it from the browser menu and gets a home-screen shortcut that behaves the same. Camera *capture* through `<input capture>` works over HTTP on both; `getUserMedia` (live viewfinder) does not, and nothing in the web client uses it.
 - **When the phone can't reach the PC** — VPN off, not on the home wifi, PC asleep, or its IP changed — the pinned icon must open to *our* reconnect screen, not the browser's error page, and recover on its own when the path is back. That is session 3's service worker (a network-first cache of the static bundle, never of `/api/*`) and reconnect banner; the message names the fix for the way the page was installed (turn on Tailscale / get on the home wifi and rescan the QR).
-- **Sleep is the outage.** A PC that sleeps is a phone that cannot connect. Phase 31's *Keep this computer awake while sharing* is the setting; the phone's error message is the tell.
+- **Sleep is the outage.** A PC that sleeps is a phone that cannot connect. Phase 32's *Keep this computer awake while sharing* is the setting; the phone's error message is the tell.
 
 ## The cut, per phase
 
-**Phase 31 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a macOS arm64 `.app`/`.dmg` and a Windows x64 installer, both unsigned. macOS verified in-session; Windows built in-session, verified when a machine is to hand.
+**Phase 31 — build:** all of it, over plain HTTP. Manifest, icons, `index.html` tags, the network-first shell cache (never `/api/*`), and the reconnect banner whose message is chosen by the origin the page was reached on — the doc's table covers Tailscale, home wifi, the desktop app's own window and unknown.
+
+**Phase 32 — build:** `desktop/` Electron workspace; server spawned on a bundled official Node binary for the target platform (no ABI rebuild); health-poll splash; window; tray with *Open*, *Allow other devices on this network*, *Keep this computer awake while sharing*, *Launch at login*, *Show data folder*, *Show logs*, *Quit*; close hides, Quit stops, on both platforms; the first-launch background notice; the firewall explanation; persisted port; single instance; `npm run desktop:dev` (runs on the Mac) and `npm run desktop:package` producing a macOS arm64 `.app`/`.dmg` and a Windows x64 installer, both unsigned. macOS verified in-session; Windows built in-session, verified when a machine is to hand.
+
+**Phase 33 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. The "Phone: discovery order" section is the parked app's contract and is not built.
+
 **Phase 34 — build:** all of it: signing and notarisation, `electron-updater` against GitHub Releases, the release workflow. **Never:** Linux packaging (systemd and Docker cover it), Intel Macs.
-
-**Phase 32 — build:** all of it. `instance_id`, `GET /api/v1/instance`, `MTG_ADVERTISE` + mDNS, the QR panel in `DataPage.tsx`, the tray item. The "Phone: discovery order" section is the parked app's contract and is not built.
-
-**Phase 33 — build:** all of it, over plain HTTP. Manifest, icons, `index.html` tags, the network-first shell cache (never `/api/*`), and the reconnect banner whose message is chosen by the origin the page was reached on — the doc's table covers Tailscale, home wifi, the desktop app's own window and unknown.
 
 ## Before session 1
 
 - Node 22.6+ and the repo building clean (`npm run build && npm test`).
-- A second macOS user account (System Settings → Users & Groups) for checkpoint 1. A Windows machine or VM for checkpoint 1b, whenever convenient — not before session 1.
-- A phone — any — on the same wifi, for checkpoints 2 and 3.
+- A phone — any — on the tailnet for checkpoint 1, and on the same wifi as the desktop for checkpoint 3.
+- A second macOS user account (System Settings → Users & Groups) for checkpoint 2. A Windows machine or VM for checkpoint 2b, whenever convenient — not before session 2.
 - For session 4: the Apple Developer Program membership is in hand — it needs a *Developer ID Application* certificate in the login keychain, the same certificate exported as a `.p12` for CI (it becomes the `CSC_LINK` secret, base64), an app-specific password for notarisation, and the Team ID. A Windows code-signing certificate is a separate purchase, still undecided; the workflow builds Windows unsigned until one exists.
 
 ---
 
-## Session 1 prompt — Phase 31, desktop app (macOS first, Windows second)
+## Session 1 prompt — Phase 31, home-screen install and reconnect
 
 ```
-@CLAUDE.md @phases/apps/phase-31-desktop-app.md @phases/apps/BUILD-BRIEF.md
+@CLAUDE.md @phases/apps/phase-31-pwa-install-flow.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 31 at the scope in BUILD-BRIEF.md's "The cut, per phase": a desktop app
+Build Phase 31 in full, over plain HTTP — the doc's HTTPS section records
+the decision. Two halves: the home-screen install, and what the app does
+when it cannot reach the server.
+
+Install:
+- web/public/ with manifest.webmanifest (name "MTG Library", display
+  standalone, start_url "/", theme and background colours matching the
+  default theme in styles.css) and icons: 192, 512, maskable 512, and an
+  apple-touch-icon. Original artwork — a simple mark, no card art, no
+  Wizards marks. Commit the source (SVG) alongside the PNGs.
+- index.html: manifest link, apple-touch-icon, apple-mobile-web-app-capable
+  and status-bar-style, theme-color.
+
+Service worker (web/public/sw.js, registered from main.tsx), exactly as the
+doc's rules say: network-first for same-origin GET of the static bundle,
+cache read only when the network fails, successful responses replace the
+cached copy, /api/* returned from the fetch listener before anything else
+happens, versioned cache name with old ones deleted on activate, and
+fastifyStatic serving sw.js with Cache-Control: no-cache. Put the four rules
+in a comment at the top of the file — the next person to open it must not
+mistake it for the start of an offline mode.
+
+Reconnecting:
+- web/src/reachability.ts: one pure function from a hostname to
+  'tailnet' | 'lan' | 'local' | 'unknown' per the doc's table, with the
+  message for each; unit-tested with the doc's nine examples. The 'lan'
+  message ends at "its address may have changed" — the QR clause is Phase
+  33's to add, when there is a QR.
+- One app-level banner in App.tsx, raised by any ApiError with
+  isConnectivity, replacing CONNECTIVITY_MESSAGE's per-page use. While up:
+  poll GET /api/v1/health every 3s, and immediately on window 'online' and
+  on visibilitychange to visible. On a healthy answer, clear the banner and
+  refetch the current view. No reload.
+- A write that failed on connectivity stays failed and says so. Nothing is
+  queued.
+
+Verification per the doc, all seven; 4 and 5 on a real phone over Tailscale
+— tell me the steps. For 4, "server unreachable" means the server stopped,
+the phone off the home wifi, or Tailscale off — try at least two of the
+three. There is no desktop app yet; the 'local' row is covered by the unit
+test alone.
+```
+
+## Session 2 prompt — Phase 32, desktop app (macOS first, Windows second)
+
+```
+@CLAUDE.md @phases/apps/phase-32-desktop-app.md @phases/apps/BUILD-BRIEF.md
+
+Build Phase 32 at the scope in BUILD-BRIEF.md's "The cut, per phase": a desktop app
 that runs the existing server and shows the existing web client. macOS
 arm64 is the primary target and is verified here; Windows x64 is a second
 build target from the same workspace whose checks I will run later on a
@@ -137,19 +186,19 @@ session 4. Rules only — not a copy of the phase doc.
 Done means: `npm run desktop:package` produces a mac .app/.dmg and a
 Windows installer. The mac build, on a machine with no Node on its PATH
 (a second macOS user account is fine), installs, opens, offers the first
-sync, completes it, and searches — and Phase 31's verification items 1–6
+sync, completes it, and searches — and Phase 32's verification items 1–6
 pass on macOS, verified by you on this machine. For Windows, the build
 must succeed and the packaged layout must be right; the runtime checks are
 mine to do later — give me the exact list to walk through on a Windows
 machine and what each should show, and do not block on them.
 ```
 
-## Session 2 prompt — Phase 32, pairing and discovery
+## Session 3 prompt — Phase 33, pairing and discovery
 
 ```
-@CLAUDE.md @phases/apps/phase-32-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
+@CLAUDE.md @phases/apps/phase-33-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 32 in full — it is small, and the QR code it produces is how
+Build Phase 33 in full — it is small, and the QR code it produces is how
 every phone reaches the app.
 
 - instance_id written to app_settings on first open via setSetting in
@@ -158,13 +207,16 @@ every phone reaches the app.
   advertisement of _mtglibrary._tcp with a pure-JS library, only when the
   flag is on and the bind is not loopback. Confirm the library works on
   Windows as well as macOS (Windows 10+ resolves mDNS natively; the
-  advertisement side is the library's). The Phase 31 shell sets the flag
+  advertisement side is the library's). The Phase 32 shell sets the flag
   whenever its sharing toggle is on; add the tray item "Pair a phone…" that
   opens the web app's pairing panel.
 - The pairing panel in DataPage.tsx: a client-rendered QR of the URL-with-
   fragment described in the doc, shown only while sharing is on, otherwise a
   sentence pointing at the toggle. The web client must ignore the #pair=
   fragment cleanly.
+- Two lines owed to Phase 31: under the QR, "On your phone, open this and
+  choose Add to Home Screen"; and reachability.ts's home-wifi message gains
+  its final clause, "scan the QR code on it again" — update its unit test.
 - Tests for the instance endpoint and for the advertise gate; the mDNS
   browse check is manual — `dns-sd -B _mtglibrary._tcp` on the Mac, and on
   Windows a browser app on the phone (any "Bonjour browser" / "Service
@@ -176,58 +228,12 @@ app and are not in scope. The "Phone: discovery order" section is that
 app's contract — leave it in the doc, build none of it.
 ```
 
-## Session 3 prompt — Phase 33, home-screen install and reconnect
-
-```
-@CLAUDE.md @phases/apps/phase-33-pwa-install-flow.md @phases/apps/phase-32-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
-
-Build Phase 33 in full, over plain HTTP — the doc's HTTPS section records
-the decision. Two halves: the home-screen install, and what the app does
-when it cannot reach the server.
-
-Install:
-- web/public/ with manifest.webmanifest (name "MTG Library", display
-  standalone, start_url "/", theme and background colours matching the
-  default theme in styles.css) and icons: 192, 512, maskable 512, and an
-  apple-touch-icon. Original artwork — a simple mark, no card art, no
-  Wizards marks. Commit the source (SVG) alongside the PNGs.
-- index.html: manifest link, apple-touch-icon, apple-mobile-web-app-capable
-  and status-bar-style, theme-color.
-- The pairing panel in DataPage.tsx (Phase 32) gains one line under the QR:
-  "On your phone, open this and choose Add to Home Screen."
-
-Service worker (web/public/sw.js, registered from main.tsx), exactly as the
-doc's rules say: network-first for same-origin GET of the static bundle,
-cache read only when the network fails, successful responses replace the
-cached copy, /api/* returned from the fetch listener before anything else
-happens, versioned cache name with old ones deleted on activate, and
-fastifyStatic serving sw.js with Cache-Control: no-cache. Put the four rules
-in a comment at the top of the file — the next person to open it must not
-mistake it for the start of an offline mode.
-
-Reconnecting:
-- web/src/reachability.ts: one pure function from a hostname to
-  'tailnet' | 'lan' | 'local' | 'unknown' per the doc's table, with the
-  message for each; unit-tested with the doc's nine examples.
-- One app-level banner in App.tsx, raised by any ApiError with
-  isConnectivity, replacing CONNECTIVITY_MESSAGE's per-page use. While up:
-  poll GET /api/v1/health every 3s, and immediately on window 'online' and
-  on visibilitychange to visible. On a healthy answer, clear the banner and
-  refetch the current view. No reload.
-- A write that failed on connectivity stays failed and says so. Nothing is
-  queued.
-
-Verification per the doc, all seven; 4 and 5 on a real phone — tell me the
-steps. For 4, "server unreachable" means the desktop app quit, or the phone
-off the home wifi, or Tailscale off — try at least two of the three.
-```
-
 ## Session 4 prompt — Phase 34, signing and updates
 
 ```
 @CLAUDE.md @phases/apps/phase-34-signing-and-updates.md @phases/apps/BUILD-BRIEF.md
 
-Build Phase 34: signing, notarisation and auto-update for the Phase 31
+Build Phase 34: signing, notarisation and auto-update for the Phase 32
 desktop app. Nothing in server/src, web/src or the shell's lifecycle
 changes; this is the build pipeline and the release workflow.
 
@@ -281,14 +287,14 @@ Kept verbatim from the earlier plan. The docs live in `parked/`. Do not run with
 ### Android plumbing
 
 **Android**
-- **Discovery is `NsdManager`**, and the plugin must hold a `WifiManager.MulticastLock` while browsing or the wifi driver drops the multicast packets. `.local` name resolution is unreliable on Android, so the browse step and the recorded-address fallback in Phase 32's order carry the weight.
+- **Discovery is `NsdManager`**, and the plugin must hold a `WifiManager.MulticastLock` while browsing or the wifi driver drops the multicast packets. `.local` name resolution is unreliable on Android, so the browse step and the recorded-address fallback in Phase 33's order carry the weight.
 - **Cleartext HTTP is blocked by default** in Android apps. A network security config allowing `http://` to private ranges and `.local` is required or the WebView shows nothing. (iOS has the same gate, App Transport Security, if it is ever added.)
 - **Use a real phone, not the emulator.** Emulator networking makes mDNS miserable. USB debugging on, same wifi as the PC.
 - **Distribution is an APK** on the GitHub release page, sideloaded. No developer account, no expiry. Play Store is optional and later.
 
 ### Parked session — Phase 35, sync contract (server only)
 
-Pure server work; needs Phase 32 and nothing else. The first thing to run if the app is un-parked.
+Pure server work; needs Phase 33 and nothing else. The first thing to run if the app is un-parked.
 
 ```
 @CLAUDE.md @phases/apps/parked/phase-35-sync-contract.md @phases/apps/parked/phase-36-native-companion-app.md
@@ -328,7 +334,7 @@ doc is context for what the phone will do with this; where the two differ,
 - POST /api/v1/want-lists/:id/items: Idempotency-Key optional; when present,
   wrap in the helper; when absent, behave exactly as now (existing tests
   unchanged).
-- serverVersion read through the same function Phase 32's instance endpoint
+- serverVersion read through the same function Phase 33's instance endpoint
   uses.
 
 Tests for every verification item in the doc (1–11), via app.inject where a
@@ -344,7 +350,7 @@ to parked/phase-36-native-companion-app.md and parked/phase-37-cloud-mailbox.md.
 ### Parked session — Phase 36, Android companion (home mode only)
 
 ```
-@CLAUDE.md @phases/apps/parked/phase-36-native-companion-app.md @phases/apps/phase-32-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
+@CLAUDE.md @phases/apps/parked/phase-36-native-companion-app.md @phases/apps/phase-33-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
 
 Build Phase 36 at the scope in this prompt: Android, home mode
 only. No shop mode, no snapshot, no queue, no idempotency table, no OCR, no
@@ -355,7 +361,7 @@ for them and do not stub them.
   TypeScript. A bundled pairing screen written as plain HTML/TS — it must
   not import anything from web/, and it must stay small enough that it is
   obviously not a second UI.
-- Pairing: scan the Phase 32 QR (a Capacitor barcode plugin), parse the
+- Pairing: scan the Phase 33 QR (a Capacitor barcode plugin), parse the
   #pair= record, store it. Discovery in the doc's order — last address that
   worked, NSD browse for _mtglibrary._tcp filtered by TXT id (a small Kotlin
   plugin over NsdManager, holding a WifiManager.MulticastLock for the
@@ -383,7 +389,7 @@ now.
 
 Done means: pair once by QR, close the app, change the server machine's IP
 (toggle its wifi or renew the DHCP lease), reopen the app, and it lands in
-the web app without touching anything. Walk through Phase 32's verification
+the web app without touching anything. Walk through Phase 33's verification
 items 4–6 and Phase 36's item 9 (home mode is the web client byte-for-byte)
 and report; tell me which of those need me on the physical phone.
 ```

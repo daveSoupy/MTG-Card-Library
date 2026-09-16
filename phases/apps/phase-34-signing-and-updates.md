@@ -1,8 +1,8 @@
 # Phase 34 — Signing, Notarisation and Auto-Update
 
-What turns the Phase 31 build from "works on my Mac" into something a friend can download and open. Split out of Phase 31 because it is its own session: credential-dependent, fiddly in ways that have nothing to do with the shell's code, and the one part of the desktop app that decides whether a layperson can use it at all. Nothing in `server/src`, `web/src` or the shell's lifecycle changes; this phase is the build pipeline and the release workflow.
+What turns the Phase 32 build from "works on my Mac" into something a friend can download and open. Split out of Phase 32 because it is its own session: credential-dependent, fiddly in ways that have nothing to do with the shell's code, and the one part of the desktop app that decides whether a layperson can use it at all. Nothing in `server/src`, `web/src` or the shell's lifecycle changes; this phase is the build pipeline and the release workflow.
 
-**Prerequisite:** Phase 31 built and its verification items 1–6 passing on both platforms.
+**Prerequisite:** Phase 32 built and its verification items 1–6 passing on both platforms.
 
 ## Why this is not optional
 
@@ -18,7 +18,7 @@ What turns the Phase 31 build from "works on my Mac" into something a friend can
 - **Every Mach-O in the bundle must be signed, and the signer does not walk `Resources/` on its own.** electron-builder signs the Electron frameworks, helpers and unpacked `.node` files; a bare `node` executable shipped as an extra resource is exactly the "binary is not signed with a valid Developer ID certificate" notarisation rejection. List it under `mac.sign.binaries` (or sign it in an `afterSign` hook) so it carries our identity and the entitlements above.
 - **Notarisation.** electron-builder's `notarize: true`, driven by `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` from the environment — never from a file in the repo. The app-specific password is made at appleid.apple.com; the real Apple ID password never enters a build environment. electron-builder staples the ticket itself when `notarize` is on, so the app opens offline on first launch; `stapler validate` is how to check it did.
 - **Verify** with `spctl --assess --type execute -v` on the `.app`, `stapler validate` on the `.dmg`, and — the only test that counts — downloading the `.dmg` in a browser on a second Mac and opening it.
-- **Apple silicon only**, as Phase 31 decided. One `.dmg` for people, and one `.zip` for the updater — see *Auto-update*.
+- **Apple silicon only**, as Phase 32 decided. One `.dmg` for people, and one `.zip` for the updater — see *Auto-update*.
 
 ## Windows
 
@@ -28,11 +28,11 @@ What turns the Phase 31 build from "works on my Mac" into something a friend can
 ## Auto-update
 
 - **`electron-updater` against GitHub Releases.** Check on launch and once a day. Download in the background. A *Restart to update* item appears in the tray when one is ready; the update applies on the next quit. **Never a prompt mid-session** — a dialog over the deck builder is the wrong thing at any moment.
-- **Why this could not be Phase 31.** electron-updater refuses to update an unsigned app on macOS, so the updater only works once signing does.
+- **Why this could not be Phase 32.** electron-updater refuses to update an unsigned app on macOS, so the updater only works once signing does.
 - **The macOS updater downloads a `.zip`, not the `.dmg`.** `latest-mac.yml` cannot be generated without one. Keep electron-builder's default `dmg` + `zip` targets and upload both; the `.dmg` is what a person downloads, the `.zip` is what the installed app fetches.
 - **Publish config.** `publish: { provider: 'github', owner: 'daveSoupy', repo: 'MTG-Card-Library' }`. The repository is public, so installed apps need no token to check for releases; the only token involved is the workflow's own `GITHUB_TOKEN` (passed as `GH_TOKEN`), which lets electron-builder create the release and upload to it.
 - **The shell does no migration.** A new build over an old data directory is the server's `migrations.ts` running on next open, exactly as it does for systemd and Docker. Verification item 1 below proves the packaging did not break the path to it.
-- **`Check for updates` in the tray** (Phase 31 listed it; this phase wires it) runs the check now and reports *up to date* or *downloading*.
+- **`Check for updates` in the tray** (Phase 32 listed it; this phase wires it) runs the check now and reports *up to date* or *downloading*.
 - The updater needs the release to carry electron-builder's `latest-mac.yml` and `latest.yml` beside the installers; the workflow uploads them.
 
 ## The release workflow
@@ -59,6 +59,6 @@ A *Desktop app* section: the download links (the Releases page), that it updates
 
 ## Out of scope
 
-- Intel Macs, Linux packaging. Decided in Phase 31.
+- Intel Macs, Linux packaging. Decided in Phase 32.
 - The Mac App Store or Microsoft Store. Direct download is the path; a store listing is a different set of rules and a different sandbox.
 - Delta updates. Full-installer updates at ~200 MB are fine for a daily check that downloads in the background.

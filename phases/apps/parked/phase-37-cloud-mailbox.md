@@ -4,7 +4,7 @@
 
 A second transport for the companion app, for the household where the desktop and the phone are never home at the same time. A folder in the user's own cloud storage — iCloud Drive, Dropbox, Google Drive, OneDrive, Syncthing, whatever they already have — carries snapshots one way and the write queue the other. Each side talks to the folder on its own schedule.
 
-**Optional, and never the only path.** Phase 36's LAN sync must work with this off, and a user who never sets it up loses nothing. Build it only once Phases 31, 32 and 36 are shipped and someone actually hits the gap it closes.
+**Optional, and never the only path.** Phase 36's LAN sync must work with this off, and a user who never sets it up loses nothing. Build it only once Phases 32, 33 and 36 are shipped and someone actually hits the gap it closes.
 
 ## What it is, and is not
 
@@ -32,11 +32,11 @@ Three rules keep a file-sync service from ever producing a *"(conflicted copy)"*
 
 Anything not matching the naming pattern (a sync client's conflict sibling, a `.DS_Store`) is ignored and logged once, never processed.
 
-`mailbox.json` binds the folder to one library. `instance_id` lives in `app_settings` (Phase 32), so it survives a backup restore onto a new machine and the folder keeps working; a *different* library pointed at the same folder refuses it with a clear message rather than draining someone else's queue. A phone checks the same id against its pairing record before touching anything.
+`mailbox.json` binds the folder to one library. `instance_id` lives in `app_settings` (Phase 33), so it survives a backup restore onto a new machine and the folder keeps working; a *different* library pointed at the same folder refuses it with a clear message rather than draining someone else's queue. A phone checks the same id against its pairing record before touching anything.
 
 ## Desktop side: the server, not the shell
 
-`server/src/mailbox/`, enabled by `MTG_MAILBOX_DIR` (`config.ts`). The Phase 31 shell exposes it as *Sync through a cloud folder…* with a folder picker; a systemd install sets the variable. Nothing here is Electron-specific.
+`server/src/mailbox/`, enabled by `MTG_MAILBOX_DIR` (`config.ts`). The Phase 32 shell exposes it as *Sync through a cloud folder…* with a folder picker; a systemd install sets the variable. Nothing here is Electron-specific.
 
 - **`publisher.ts`** writes a snapshot when the data has changed. "Changed" is a write counter bumped by a Fastify `onResponse` hook for any successful non-GET under `/api/v1` — one central place, no per-store instrumentation. Debounced: at most one snapshot per ten minutes, plus one at boot. The document is the same `GET /api/v1/snapshot` body Phase 36 defines; this phase adds no second format.
 - **`consumer.ts`** polls `queue/` every thirty seconds and at boot (`fs.watch` is not reliable across sync clients, which write files in stages). Queue files are applied in `(createdAt, seq)` order by **injecting the request into the server's own routes** (`app.inject`) with the file's `Idempotency-Key` — the consumer is a client of its own server, so Phase 36's idempotency `preHandler`, `conflictMode: 'alert'` and alert rows all apply unchanged, and routes still hold no rules. The response status and body are written to `results/<uuid>.json`; then, and only then, the queue file is deleted. A crash between the two leaves a queue file that replays to a stored response next time, which is what the idempotency table is for.
@@ -46,7 +46,7 @@ Anything not matching the naming pattern (a sync client's conflict sibling, a `.
 
 The companion app gains a folder in its sync sequence, tried **after** LAN discovery fails (LAN is faster and delivers the snapshot fresh from the source):
 
-1. Phase 32 discovery. Found → LAN sync as today, and skip the rest.
+1. Phase 33 discovery. Found → LAN sync as today, and skip the rest.
 2. Mailbox reachable → upload any queue items not yet uploaded, read and show any results, download the newest snapshot if newer than the one held.
 
 Same triggers as Phase 36's LAN sync — foreground, wifi join, background task, *Sync now*. The phone does not watch the folder; it checks it.

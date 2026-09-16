@@ -1,8 +1,10 @@
-# Phase 33 — PWA Install Flow
+# Phase 31 — PWA Install Flow
 
 Makes the web app installable to a home screen with its own icon and a fullscreen window, and makes it behave like an installed app when the server is out of reach: its own *reconnect* screen rather than the browser's error page, and recovery on its own when the connection comes back. **Not offline support** — the no-offline rule in CLAUDE.md stands: no data is ever cached on the phone. What is cached is the app's static bundle, and only so the app can render its own "can't reach your library" screen; see *The service worker* for the line and why it is where it is.
 
 Nothing PWA-related exists in the repo today — no manifest, no icons, no favicon.
+
+**First in the track.** It depends on nothing: it is `web/` plus one response header, and it works on the systemd install over Tailscale the day it ships. Two small things land later, when the phase that makes them true exists: Phase 33 adds the *Add to Home Screen* line under its QR code, and appends the "scan the QR code again" clause to the home-wifi message below.
 
 ## New static files
 
@@ -38,8 +40,8 @@ What the app does when the server does not answer, whether the page was already 
   | Origin | Read as | Message |
   | --- | --- | --- |
   | `100.64.0.0/10` or `*.ts.net` | Tailscale | *Can't reach your library. Turn on Tailscale and it will reconnect.* |
-  | `10/8`, `172.16/12`, `192.168/16`, `*.local` | home wifi | *Can't reach your library. Be on your home wifi — the computer may be asleep, or its address may have changed; scan the QR code on it again.* |
-  | `localhost` / `127.0.0.1` | the desktop app's own window | *The MTG Library server has stopped.* (Phase 31's shell restarts it; this is the seconds in between.) |
+  | `10/8`, `172.16/12`, `192.168/16`, `*.local` | home wifi | *Can't reach your library. Be on your home wifi — the computer may be asleep, or its address may have changed.* (Phase 33 appends *scan the QR code on it again* once there is a QR to scan.) |
+  | `localhost` / `127.0.0.1` | the desktop app's own window | *The MTG Library server has stopped.* (Phase 32's shell restarts it; this is the seconds in between.) |
   | anything else | unknown | the generic message: *Can't reach the MTG Library server. Is it running? Are you on its network?* |
 
 - **Recovery is automatic.** While the banner is up, poll `GET /api/v1/health` every few seconds, and poll *immediately* on the browser's `online` event and on `visibilitychange` to visible — the moment someone flips the VPN on and switches back to the app. When health answers, clear the banner and refetch what the page was showing. No reload. The `online` event alone is not enough: a phone on cellular is "online" while the tailnet address is unreachable, so polling is the mechanism and the events are only triggers for an early poll.
@@ -47,7 +49,7 @@ What the app does when the server does not answer, whether the page was already 
 
 ## HTTPS — decided: plain HTTP
 
-PWA installability requires HTTPS or exactly `localhost`. The app is served over plain `http://`, on the home network from the Phase 31 desktop app and over Tailscale from a self-hosted install, and stays that way: the desktop app cannot hand a phone a certificate it trusts without a step a layperson will not do.
+PWA installability requires HTTPS or exactly `localhost`. The app is served over plain `http://`, on the home network from the Phase 32 desktop app and over Tailscale from a self-hosted install, and stays that way: the desktop app cannot hand a phone a certificate it trusts without a step a layperson will not do.
 
 What that costs: iOS *Add to Home Screen* is a manual share-sheet action, works over plain HTTP, and launches standalone. Android/Chrome's automatic install banner won't fire; *Add to Home screen* from Chrome's menu gives a shortcut that behaves the same. The service worker registers over plain HTTP on a private address in both browsers. Camera capture through `<input capture>` works over HTTP; a live `getUserMedia` viewfinder would not, and nothing in the web client uses one — keep it that way.
 

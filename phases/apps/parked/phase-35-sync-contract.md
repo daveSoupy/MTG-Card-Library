@@ -8,11 +8,11 @@ Phase 36 stays the umbrella: the two-modes design, what shop mode may and may no
 
 ## Prerequisites
 
-- **Phase 32** — `instance_id` in `app_settings` and `GET /api/v1/instance`. The snapshot carries `instanceId` so a phone can refuse a snapshot from a library it is not paired with; that id is Phase 32's to create, not this phase's.
+- **Phase 33** — `instance_id` in `app_settings` and `GET /api/v1/instance`. The snapshot carries `instanceId` so a phone can refuse a snapshot from a library it is not paired with; that id is Phase 33's to create, not this phase's.
 - **Not Phase 13.** The sale action is deferred with it; this phase leaves the door open (see *The replayable routes*) and builds nothing for it.
 - **Not Phase 16.** OCR is a phone-side concern; nothing here touches it.
 
-Sequencing within `phases/apps/`: after Phase 32, before Phase 36b (shop mode). It can be built before or after the Android home-mode session; neither depends on the other.
+Sequencing within `phases/apps/`: after Phase 33, before Phase 36b (shop mode). It can be built before or after the Android home-mode session; neither depends on the other.
 
 ## Where it lives
 
@@ -34,7 +34,7 @@ Sequencing within `phases/apps/`: after Phase 32, before Phase 36b (shop mode). 
 {
   "formatVersion": 1,
   "generatedAt":   "2026-09-15T21:04:00Z",
-  "instanceId":    "<Phase 32 instance_id>",
+  "instanceId":    "<Phase 33 instance_id>",
   "serverVersion": "<server/package.json version>",
 
   "locations": [ { "id", "name", "kind", "isArchived" } ],
@@ -150,12 +150,12 @@ Not reused: `trade_list_clamped` and `allocation_conflict` each mean one specifi
 
 ## Version skew
 
-Both apps update independently (Phase 31's shell, Phase 36's phone), so either can be ahead. The contract this phase commits to, additive-only from the day it ships:
+Both apps update independently (Phase 32's shell, Phase 36's phone), so either can be ahead. The contract this phase commits to, additive-only from the day it ships:
 
 - `formatVersion` on the snapshot — see above.
 - The request and response shapes of the replayable routes, and the `Idempotency-Key` behaviour. Request bodies may gain optional fields only; responses may gain fields only.
 
-`serverVersion` is `server/package.json`'s version, read the same way Phase 32's instance endpoint reads it (share the one function; do not read the file twice). The phone compares it against its floor and shows *Update the desktop app* rather than failing oddly. The floor is the phone's to hold; the server does not know or care what phones exist.
+`serverVersion` is `server/package.json`'s version, read the same way Phase 33's instance endpoint reads it (share the one function; do not read the file twice). The phone compares it against its floor and shows *Update the desktop app* rather than failing oddly. The floor is the phone's to hold; the server does not know or care what phones exist.
 
 ## What this phase does not change
 
@@ -187,7 +187,7 @@ Item [3] (a queued sale that no longer has enough lot quantity) waits for Phase 
 - The sale route (Phase 13) and its wrapping.
 - Caching or diffing the snapshot. A few hundred milliseconds per sync does not justify invalidation logic; if a collection ever makes it slow, the fix is a `generatedAt`-keyed `If-None-Match`, still built here, still additive.
 - Pushing anything to the phone. The server is polled; it never initiates.
-- Authentication on these routes. Phase 32's trust model applies: the home network is the perimeter, and a token only the phone sends while the browser walks in freely would be theatre.
+- Authentication on these routes. Phase 33's trust model applies: the home network is the perimeter, and a token only the phone sends while the browser walks in freely would be theatre.
 
 ## After this ships
 
