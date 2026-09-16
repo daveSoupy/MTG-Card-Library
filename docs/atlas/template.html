@@ -118,6 +118,7 @@ select { max-width: 340px; }
     <div class="tabs" role="tablist">
       <button id="tab-server" role="tab" aria-selected="true" data-side="server">Server · server/src</button>
       <button id="tab-web" role="tab" aria-selected="false" data-side="web">Web · web/src</button>
+      <button id="tab-desktop" role="tab" aria-selected="false" data-side="desktop">Desktop · desktop/src</button>
       <button id="tab-styles" role="tab" aria-selected="false" data-side="styles">Styles · styles.css</button>
     </div>
     <select id="task" aria-label="Where do I edit…">
@@ -155,6 +156,11 @@ const LAYERS = {
     ['shared',     'Shared components', 'used by more than one page'],
     ['helpers',    'Presentation helpers', 'pure .ts — they choose words for server figures and derive none'],
     ['data',       'API client',   'the only file that calls fetch(); every shared type lives here'],
+  ],
+  desktop: [
+    ['entry',   'Entry',          'main.ts — the Electron main process: window, tray, toggles, Quit. The only file that imports electron'],
+    ['process', 'Server process', 'server.ts spawns server/dist on the bundled Node and knows how to stop it'],
+    ['helpers', 'Helpers',        'config.ts (the remembered port, is-it-free) and logging.ts (the rotated log) — tested with node --test'],
   ],
   styles: [
     ['sections',   'Sections of styles.css', 'in file order — a section is a /* ---------- header ---------- */ block; "results" and "sync" hold the shared classes'],

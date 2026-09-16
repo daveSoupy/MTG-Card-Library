@@ -4,7 +4,7 @@ A file-by-file guide to the repo: what each file does, what it imports, what imp
 
 **Keep this current.** When you add, rename, or move a source file, update its entry here in the same commit.
 
-Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 shipped, `PRAGMA user_version = 19`).
+Generated from the import graph on 2026-09-16 (Phases 0–11, 17, 22–27, 31 and 32 shipped, `PRAGMA user_version = 21`).
 
 **Interactive version:** `docs/atlas/codebase-atlas.html` — the same graph as a clickable layered map (select a file → its imports and importers light up). Its Styles tab and `docs/CSS-INDEX.md` come from the same build. Rebuild with `python3 docs/atlas/build.py` after files move; the live copy is https://claude.ai/artifact/N9RBn22L9gnfhJBtixrKLg.
 
@@ -54,7 +54,12 @@ Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 
 | Serving `web/dist`, the HTML fallback, the `sw.js` `no-cache` header | `server/src/routes/webClient.ts` | Phase 31. `index.ts` calls it only when a build exists. |
 | Any DDL | `schema.sql` **and** `server/src/db/migrations.ts` | `migrations.test.ts` proves they agree. Bump `user_version`. |
 | DB open, `getSetting`/`setSetting`, library status | `server/src/db/index.ts` | |
-| Env vars (`MTG_DATA_DIR`, port, host) | `server/src/config.ts` | |
+| Env vars (`MTG_DATA_DIR`, port, host) | `server/src/config.ts` | The shell overrides these per launch; the server's defaults stay. |
+| **Desktop:** the app's lifecycle — window, tray menu, sharing / keep-awake / login-item toggles, quit | `desktop/src/main.ts` | Phase 32. The only file that imports `electron`. No renderer code. |
+| **Desktop:** the persisted port, the sharing flag, "is this port free" | `desktop/src/config.ts` | The probe binds *and* connects — a bind alone lies on macOS. |
+| **Desktop:** how the server child is spawned, stopped (SIGTERM / stdin close), health-polled | `desktop/src/server.ts` | Bundled Node, never `ELECTRON_RUN_AS_NODE`. |
+| **Desktop:** the log file and its rotation | `desktop/src/logging.ts` | `<userData>/logs/server.log`. |
+| **Desktop:** what ships and where it lands in the bundle | `desktop/electron-builder.yml`, `desktop/scripts/stage.mjs` | Read the yml's header first. `check-packaged.mjs` is the gate. |
 | **Web:** the HTTP client and every shared TS type | `web/src/api.ts` | Every component imports from here. Server type change → mirror here first. |
 | **Web:** top-level views, nav, topbar, global state (settings/density/theme) | `web/src/App.tsx` | Also the help index / topic overlay slot and the welcome gate (Phase 17). |
 | **Web:** a `?` help panel beside a control, or the topbar help index | `web/src/components/helpTopics.tsx` | Add a topic to `HELP_TOPICS`, drop `<HelpButton topic=… />` beside the control. Never inside a `<label>` — a button is labelable. |
@@ -91,6 +96,8 @@ Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 
                                                       decks/allocation.ts
                                                       (the one formula everyone reads)
 ```
+
+The desktop app (`desktop/`, Phase 32) sits beside this, not inside it: an Electron main process that spawns `server/dist/index.js` on a bundled Node and opens a window on `http://127.0.0.1:<port>/`. It contains no UI and no rules — see section 4b.
 
 **Rules that decide where code goes** (from `CLAUDE.md`, restated as file placement):
 
@@ -368,6 +375,45 @@ web/scripts/render-icons.mjs → regenerates public/icons/ from the SVG mark (ql
 
 ---
 
+## 4b. Desktop — `desktop/`
+
+A separate npm workspace. `desktop/CLAUDE.md` (auto-loaded when a session touches it) holds the rules; this is the file list.
+
+```
+src/main.ts      the Electron main process — and the only process the shell has. Window, tray menu, app menu,
+                 the status page (inline HTML: title, line, boot messages), the toggles, first-launch notice,
+                 crash restart, Quit. Imports the three below; nothing imports it.
+src/server.ts    ServerProcess: spawn server/dist/index.js on the bundled Node with the shell's env, forward
+                 stdout/stderr to the log, stop (SIGTERM on POSIX, stdin close on Windows, SIGKILL only after
+                 STOP_GRACE_MS). waitForHealth polls /api/v1/health.
+src/config.ts    desktop-config.json (port, sharing, keepAwake, launchAtLogin, notices, window bounds);
+                 choosePort / isPortFree. Tested.
+src/logging.ts   RotatingLog (size-rotated file), bootMessage (pino line → msg), LineSplitter. Tested.
+assets/          tray icons (trayTemplate.png + @2x for the macOS menu bar, tray.png for Windows).
+build/icon.png   the app icon; electron-builder makes the .icns/.ico. Both from scripts/render-icons.mjs.
+electron-builder.yml   what ships and where: app.asar (the shell), Resources/mtg-library (the staged server
+                 tree), Resources/node (the bundled Node). Its header explains every non-obvious line.
+scripts/fetch-node.mjs      the pinned Node release per target, SHA-256 checked, into vendor/ (gitignored).
+scripts/stage.mjs           the Dockerfile's runtime stage per target into staging/ (gitignored): fresh
+                            npm ci --omit=dev, workspace symlinks and .bin dirs removed, dist trees copied,
+                            better_sqlite3.node swapped per platform with prebuild-install.
+scripts/check-packaged.mjs  the gate: layout, binary formats, and check-sqlite.mjs on the packaged Node.
+scripts/package.mjs         `npm run desktop:package`: fetch → stage → tsc → gate → electron-builder → gate.
+scripts/verify-lifecycle.mjs  drives the doc's verification items 4–6 over electron --inspect, against the
+                            dev app or (--app) a packaged one.
+```
+
+Runtime shape:
+
+```
+MTG Library.app (Electron main)  ──spawn──►  Resources/node/node Resources/mtg-library/server/dist/index.js
+        │  MTG_DATA_DIR=<userData>/library  MTG_HOST=127.0.0.1|0.0.0.0  MTG_PORT=<remembered>
+        │  MTG_SHUTDOWN_ON_STDIN_CLOSE=1    stdout/stderr → <userData>/logs/server.log
+        └─ BrowserWindow ──loads──► http://127.0.0.1:<port>/   (web/dist, served by the server as always)
+```
+
+---
+
 ## 5. How a typical change flows through the files
 
 **A new figure on a deck row** (e.g. "copies in other decks"):
@@ -401,4 +447,5 @@ web/scripts/render-icons.mjs → regenerates public/icons/ from the SVG mark (ql
 - **Web:** `cd web && npm test` — `test:unit` (`node --test` over pure `.ts` helpers) then `test:dom` (`vitest` over `.tsx` components). `npm run dev` for Vite.
 - **Storage:** `server/src/db/migrations.test.ts` is the one to run after any DDL.
 - **Manual checks:** `server/scripts/check-sqlite.mjs` after `npm rebuild`; `server/scripts/sync.mjs` to sync from the CLI.
-- **Deploy:** `deploy/mtg-library.service` (systemd) + `deploy/README.md`. Data dir from `MTG_DATA_DIR`.
+- **Desktop:** `cd desktop && npm test` — `node --test` over `config.test.ts` and `logging.test.ts`. `npm run desktop:dev` at the root runs the shell from the working tree; `npm run desktop:package` builds the .dmg/.zip and the Windows installer, gates included; `node desktop/scripts/verify-lifecycle.mjs` walks the lifecycle checks.
+- **Deploy:** `deploy/mtg-library.service` (systemd) + `deploy/README.md`. Data dir from `MTG_DATA_DIR`. Or the desktop app — the same `server/dist`, a third way to set the same three variables.

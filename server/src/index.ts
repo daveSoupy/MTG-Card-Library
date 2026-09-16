@@ -106,7 +106,11 @@ function warmCache(): void {
   }
 }
 
+let closing = false;
 const close = async () => {
+  // SIGTERM and a closed stdin can both arrive; the second is a no-op.
+  if (closing) return;
+  closing = true;
   // A running sync worker should terminate quickly, but never let a stuck
   // one hang shutdown indefinitely — Tailscale/systemd expect the process to
   // actually exit.
@@ -127,6 +131,15 @@ const close = async () => {
 };
 process.on('SIGINT', close);
 process.on('SIGTERM', close);
+// The desktop shell (Phase 32) owns this process's stdin and closes it to ask
+// for shutdown — Windows has no SIGTERM to send a child — and if the shell
+// itself dies the pipe closes and the server follows instead of lingering on
+// the port. Opt-in: under systemd stdin is /dev/null, which ends immediately.
+if (process.env.MTG_SHUTDOWN_ON_STDIN_CLOSE === '1') {
+  process.stdin.on('end', () => void close());
+  process.stdin.on('error', () => void close());
+  process.stdin.resume();
+}
 
 const port = resolvePort();
 const host = resolveHost();

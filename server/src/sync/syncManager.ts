@@ -56,8 +56,10 @@ export class SyncManager extends EventEmitter {
     if (this.state.running) return this.current;
 
     // tsx and node --experimental-strip-types both load .ts directly; a built
-    // dist/ run resolves the sibling .js instead.
-    const isTypeScript = moduleDir.includes(`${'src'}`);
+    // dist/ run resolves the sibling .js instead. Decided by this module's own
+    // extension, not by whether the path contains "src" — a user-chosen
+    // install directory for the desktop app could (Phase 32).
+    const isTypeScript = import.meta.url.endsWith('.ts');
     const entry = join(moduleDir, isTypeScript ? 'syncWorker.ts' : 'syncWorker.js');
 
     this.state = {

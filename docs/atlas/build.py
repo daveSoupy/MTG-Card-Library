@@ -3,7 +3,7 @@ Builds docs/atlas/codebase-atlas.html — the interactive codebase map.
 
     python3 docs/atlas/build.py
 
-Reads every non-test source file under server/src and web/src, takes each
+Reads every non-test source file under server/src, web/src and desktop/src, takes each
 file's blurb from its leading /** comment (or FALLBACK below for files that
 have none), resolves its relative imports, assigns it a layer, and injects the
 result into template.html. Run it after adding, moving, or renaming a file;
@@ -82,6 +82,11 @@ FALLBACK = {
 
 def layer_for(p):
     if p == 'schema.sql': return ('data', 'schema')
+    if p.startswith('desktop/'):
+        r = p[len('desktop/src/'):]
+        if r == 'main.ts': return ('entry', 'entry')
+        if r == 'server.ts': return ('process', 'process')
+        return ('helpers', 'helpers')
     if p.startswith('server/'):
         r = p[len('server/src/'):]
         d = r.split('/')[0]
@@ -110,14 +115,14 @@ def layer_for(p):
     return ('helpers','helpers')
 
 nodes = {}
-files = sorted(glob.glob('server/src/**/*.ts', recursive=True) + glob.glob('web/src/**/*.ts', recursive=True) + glob.glob('web/src/**/*.tsx', recursive=True))
+files = sorted(glob.glob('server/src/**/*.ts', recursive=True) + glob.glob('web/src/**/*.ts', recursive=True) + glob.glob('web/src/**/*.tsx', recursive=True) + glob.glob('desktop/src/**/*.ts', recursive=True))
 files = [f for f in files if not f.endswith('.test.ts') and not f.endswith('.test.tsx') and not f.endswith('setupTests.ts')]
 files.append('web/src/styles.css'); files.append('schema.sql')
 for f in files:
     lines = sum(1 for _ in open(f))
     blurb = FALLBACK.get(f) or (header_blurb(f) if f.endswith(('.ts','.tsx')) else None) or ''
     layer, group = layer_for(f)
-    side = 'web' if f.startswith('web/') else 'server'
+    side = 'web' if f.startswith('web/') else 'desktop' if f.startswith('desktop/') else 'server'
     nodes[f] = dict(id=f, side=side, layer=layer, group=group, lines=lines, blurb=blurb, imports=[])
     has_test = os.path.exists(re.sub(r'\.(tsx?)$', r'.test.\1', f))
     nodes[f]['test'] = has_test
@@ -163,6 +168,9 @@ TASKS = [
  ("Display density", "web/src/density.ts"),
  ("Undo / redo", "web/src/undo.ts"),
  ("All styling", "web/src/styles.css"),
+ ("Desktop: window, tray menu, toggles, Quit", "desktop/src/main.ts"),
+ ("Desktop: the remembered port, is it free", "desktop/src/config.ts"),
+ ("Desktop: spawning and stopping the server child", "desktop/src/server.ts"),
 ]
 
 # -- styles.css: sections, classes, and which components use them --------------
