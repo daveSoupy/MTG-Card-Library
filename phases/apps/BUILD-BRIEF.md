@@ -265,7 +265,7 @@ The trigger for un-parking the companion app is one sentence: *I wanted to recor
 
 ## Appendix — parked prompts (companion app)
 
-Kept verbatim from the earlier plan. Do not run without reading the README's parked section first.
+Kept verbatim from the earlier plan. The docs live in `parked/`. Do not run without reading the README's parked section first.
 
 ### Android plumbing
 
@@ -280,7 +280,7 @@ Kept verbatim from the earlier plan. Do not run without reading the README's par
 Pure server work; needs Phase 32 and nothing else. The first thing to run if the app is un-parked.
 
 ```
-@CLAUDE.md @phases/apps/phase-35-sync-contract.md @phases/apps/phase-36-native-companion-app.md
+@CLAUDE.md @phases/apps/parked/phase-35-sync-contract.md @phases/apps/parked/phase-36-native-companion-app.md
 
 Build Phase 35 in full: the server side of the companion app's sync
 contract. Server and one migration only — nothing in mobile/, nothing in
@@ -327,13 +327,13 @@ table. Update docs/CODEBASE-MAP.md (new directory and route file, the
 
 Done means all eleven verification items pass as tests, and the three
 follow-up edits listed under "After this ships" in the Phase 35 doc are applied
-to phase-36-native-companion-app.md and phase-37-cloud-mailbox.md.
+to parked/phase-36-native-companion-app.md and parked/phase-37-cloud-mailbox.md.
 ```
 
 ### Parked session — Phase 36, Android companion (home mode only)
 
 ```
-@CLAUDE.md @phases/apps/phase-36-native-companion-app.md @phases/apps/phase-32-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
+@CLAUDE.md @phases/apps/parked/phase-36-native-companion-app.md @phases/apps/phase-32-pairing-and-lan-discovery.md @phases/apps/BUILD-BRIEF.md
 
 Build Phase 36 at the "viability cut" in BUILD-BRIEF.md: Android, home mode
 only. No shop mode, no snapshot, no queue, no idempotency table, no OCR, no

@@ -23,15 +23,15 @@ Numbered in build order — the number is the sequence. One phase per session.
 
 31 and 32 are unsequenced with respect to each other; 33 follows 32 and 34 follows 31. In practice: 31, 32, 33, 34.
 
-### Parked — the companion phone app (35–37)
+### Parked — the companion phone app (35–37, in `parked/`)
 
 Specced, decided against for now, kept because the specs are sound and the trigger for un-parking is concrete: **someone wants to record a trade at a card shop, away from home, and can't.** That is the one thing a browser cannot do — the server is only reachable at home, and the web client holds nothing offline by design. Everything else the app offered (automatic re-discovery after an IP change, background sync, native OCR) is convenience over a QR rescan, and a sideloaded APK or a TestFlight build is a harder install than *Add to Home Screen*.
 
 | Phase | What | Depends on |
 | --- | --- | --- |
-| [35 — Sync Contract](phase-35-sync-contract.md) | Server side only: `GET /api/v1/snapshot`, `idempotency_keys`, `POST /api/v1/trades/record`, the `replay_failed` alert. Testable with `app.inject`, no phone. The first thing to build if the app is wanted. | 32 |
-| [36 — Companion App](phase-36-native-companion-app.md) | The umbrella: Capacitor over `web/`; home mode and shop mode; the snapshot, the idempotent queue, native OCR and background sync. Its Android home-mode session prompt is in the brief's appendix. | 35; 13 for sale recording; 16 for OCR |
-| [37 — Cloud Mailbox](phase-37-cloud-mailbox.md) | A folder in the user's cloud storage as a second transport for the app. Never the only one. | 36 |
+| [35 — Sync Contract](parked/phase-35-sync-contract.md) | Server side only: `GET /api/v1/snapshot`, `idempotency_keys`, `POST /api/v1/trades/record`, the `replay_failed` alert. Testable with `app.inject`, no phone. The first thing to build if the app is wanted. | 32 |
+| [36 — Companion App](parked/phase-36-native-companion-app.md) | The umbrella: Capacitor over `web/`; home mode and shop mode; the snapshot, the idempotent queue, native OCR and background sync. Its Android home-mode session prompt is in the brief's appendix. | 35; 13 for sale recording; 16 for OCR |
+| [37 — Cloud Mailbox](parked/phase-37-cloud-mailbox.md) | A folder in the user's cloud storage as a second transport for the app. Never the only one. | 36 |
 
 If un-parked, build in number order. Phase 32's "Phone: discovery order" section is the contract the app would implement; it stays in that doc for that reason.
 

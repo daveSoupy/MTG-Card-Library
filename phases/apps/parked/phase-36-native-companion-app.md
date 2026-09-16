@@ -1,6 +1,6 @@
 # Phase 36 — Companion App (Home and Shop Modes)
 
-> **Parked.** The phone reaches the desktop app through a browser instead (see `README.md`, *Parked*). This spec stays valid; un-park it when someone wants to record a trade away from home and can't. Build Phase 35 first.
+> **Parked.** The phone reaches the desktop app through a browser instead (see `../README.md`, *Parked*). This spec stays valid; un-park it when someone wants to record a trade away from home and can't. Build Phase 35 first.
 
 The phone app. At home it is the whole web app with a home-screen icon and a camera; away from home it is a shop companion — look up what you own, record a trade, add a want — that syncs the moment the phone is back on the home wifi. It depends on nothing outside the house: no VPN, no account, no tunnel. Phase 32 is how it finds the server; this phase is what it does once it has, and what it does when it can't.
 
