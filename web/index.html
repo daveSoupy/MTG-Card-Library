@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark light" />
     <title>MTG Library</title>
+    <!-- Phase 31: home-screen install. The manifest carries the dark (default)
+         theme; the two theme-color tags let the browser chrome follow the
+         page's own light/dark choice, which the manifest cannot express.
+         The status bar style stays "default": black-translucent draws white
+         text over the page, which the light theme cannot carry, and would
+         need a top safe-area inset the shell does not pad for. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="MTG Library" />
+    <meta name="theme-color" content="#171b24" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
   </head>
   <body>
     <div id="root"></div>

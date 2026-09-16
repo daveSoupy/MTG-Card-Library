@@ -19,6 +19,7 @@ import { TradesPage } from './components/TradesPage.tsx';
 import { GamesPage } from './components/GamesPage.tsx';
 import { AlertsBell } from './components/AlertsBell.tsx';
 import { BackToTop } from './components/BackToTop.tsx';
+import { ReconnectBanner } from './components/ReconnectBanner.tsx';
 import { CustomizeView } from './components/CustomizeView.tsx';
 import { groupByField, type GroupBy } from './deckView.ts';
 import {
@@ -162,6 +163,13 @@ export default function App() {
   // Bumped after a restore or an import, so the collection view refetches.
   const [dataEpoch, setDataEpoch] = useState(0);
   const [alertKey, setAlertKey] = useState(0);
+  // Bumped when the server comes back after the reconnect banner (Phase 31).
+  // Every page is keyed on it, the way CollectionPage is on dataEpoch, so the
+  // recovery refetches whatever was on screen by remounting it — no reload,
+  // and no page needs its own "the server is back" handling. The deck
+  // builder is the exception: a remount would drop its undo stack and the
+  // picker's query, so it takes the epoch as a prop and reloads in place.
+  const [reconnectEpoch, setReconnectEpoch] = useState(0);
   const [formats, setFormats] = useState<FormatRecord[]>([]);
   const [wide, setWide] = useState(() => window.innerWidth > 1100);
   const [theme, setTheme] = useState<Theme>(storedTheme);
@@ -246,7 +254,9 @@ export default function App() {
       .catch((e) => setError(e.message));
   }, []);
 
-  useEffect(loadStatus, [loadStatus]);
+  // Re-run on reconnect: a cold launch against an unreachable server never
+  // got a status, and everything below waits on hasCardData.
+  useEffect(loadStatus, [loadStatus, reconnectEpoch]);
 
   const loadSettings = useCallback(() => {
     fetchSettings().then(setSettings).catch(() => undefined);
@@ -259,7 +269,7 @@ export default function App() {
     fetchLocations().then(setLocations).catch(() => undefined);
     fetchWantLists().then(setWantLists).catch(() => undefined);
     loadSettings();
-  }, [status?.library.hasCardData, loadSettings]);
+  }, [status?.library.hasCardData, loadSettings, reconnectEpoch]);
 
   // Parked features hide their tab. Switching one off while looking at it would
   // otherwise leave the page on screen with no way back to it.
@@ -360,7 +370,7 @@ export default function App() {
     }, 180);
 
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [text, filters, sort, status?.library.hasCardData]);
+  }, [text, filters, sort, status?.library.hasCardData, reconnectEpoch]);
 
   // "/" focuses search, the way every card database does it.
   useEffect(() => {
@@ -389,6 +399,16 @@ export default function App() {
       style={topbarHeight == null ? undefined : { '--topbar-h': `${topbarHeight}px` } as CSSProperties}
     >
       <header className="topbar" ref={topbar}>
+        {/* Inside the header, as its own full-width row: the app grid gives
+            the header one `auto` row and the view the rest, and the observer
+            above folds the banner's height into --topbar-h so floating panes
+            keep starting below it. */}
+        <ReconnectBanner
+          onReconnected={() => {
+            setReconnectEpoch((n) => n + 1);
+            setAlertKey((n) => n + 1);
+          }}
+        />
         <div className="brand">MTG <span>Library</span></div>
 
         <nav className="tabs">
@@ -522,7 +542,7 @@ export default function App() {
 
       {view.name === 'collection' && (
         <CollectionPage
-          key={dataEpoch}
+          key={`${dataEpoch}.${reconnectEpoch}`}
           tab={view.tab ?? 'browse'}
           // A push, like the topbar tabs: a sub-tab is a place the user
           // chose to go, so Back should retrace it (router.ts's rule). Browse
@@ -538,6 +558,7 @@ export default function App() {
 
       {view.name === 'trades' && (
         <TradesPage
+          key={reconnectEpoch}
           openId={view.id ?? null}
           // Opening pushes /trades/:id; the back arrow pushes /trades rather
           // than calling history.back(), for the same reason the deck
@@ -548,10 +569,11 @@ export default function App() {
         />
       )}
 
-      {view.name === 'games' && showGameLog && <GamesPage formats={formats} />}
+      {view.name === 'games' && showGameLog && <GamesPage key={reconnectEpoch} formats={formats} />}
 
       {view.name === 'data' && (
         <DataPage
+          key={reconnectEpoch}
           locations={locations}
           onCollectionChanged={() => { setDataEpoch((n) => n + 1); loadStatus(); }}
           onSettingsChanged={loadSettings}
@@ -562,12 +584,13 @@ export default function App() {
       )}
 
       {view.name === 'decks' && (
-        <DeckList formats={formats} onOpen={(id) => navigate({ name: 'deck', id })} />
+        <DeckList key={reconnectEpoch} formats={formats} onOpen={(id) => navigate({ name: 'deck', id })} />
       )}
 
       {view.name === 'deck' && (
         <DeckBuilder
           deckId={view.id}
+          reloadKey={reconnectEpoch}
           formats={formats}
           categoryLabels={status?.categoryLabels ?? {}}
           // A push to /decks rather than history.back(): a deck opened from

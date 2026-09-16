@@ -94,6 +94,7 @@ export function pickerSearchParams(input: {
 
 export function DeckBuilder({
   deckId,
+  reloadKey = 0,
   formats,
   categoryLabels,
   onBack,
@@ -101,6 +102,12 @@ export function DeckBuilder({
   onDensity,
 }: {
   deckId: number;
+  /**
+   * Changes when the server comes back after an outage (App's
+   * reconnectEpoch). Reloads the deck in place rather than remounting, so
+   * the undo stack and the picker's query survive the reconnect.
+   */
+  reloadKey?: number;
   formats: FormatRecord[];
   /** From /status — 'sweeper' heads a group as "Board wipes". */
   categoryLabels: Record<string, string>;
@@ -232,7 +239,7 @@ export function DeckBuilder({
     loadRuns();
   }, [deckId, loadRuns]);
 
-  useEffect(load, [load]);
+  useEffect(load, [load, reloadKey]);
 
   const coverage = useMemo(() => {
     const map = new Map<string, BuildabilityRow>();

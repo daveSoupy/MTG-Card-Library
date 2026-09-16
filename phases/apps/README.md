@@ -16,7 +16,7 @@ Numbered in build order — the number is the sequence. One phase per session.
 
 | Phase | What | Depends on |
 | --- | --- | --- |
-| [31 — Home-Screen Install and Reconnect](phase-31-pwa-install-flow.md) | Manifest and icons so the web app pins to a home screen; a network-first shell cache and a reconnect banner so "can't reach your library" is the app's own screen, names the fix (VPN on / home wifi), and recovers by itself. Works on the systemd install over Tailscale today; later, what the QR lands on. | nothing |
+| [31 — Home-Screen Install and Reconnect](phase-31-pwa-install-flow.md) **(shipped 2026-09-16)** | Manifest and icons so the web app pins to a home screen; a network-first shell cache and a reconnect banner so "can't reach your library" is the app's own screen, names the fix (VPN on / home wifi), and recovers by itself. Works on the systemd install over Tailscale today; later, what the QR lands on. | nothing |
 | [32 — Desktop App](phase-32-desktop-app.md) | Electron shell around `server/dist`, tray lifecycle, bundled Node. LAN sharing off by default. Unsigned. | nothing (31's `localhost` banner covers the child's restart) |
 | [33 — Pairing and LAN Discovery](phase-33-pairing-and-lan-discovery.md) | Instance id, mDNS advertisement, one QR code. The QR opens the web app in the phone's browser; the panel ends with 31's *Add to Home Screen* line. | 32 for the sharing toggle and tray item |
 | [34 — Signing and Updates](phase-34-signing-and-updates.md) | Developer ID + notarisation, Windows signing if a cert exists, `electron-updater` against GitHub Releases, the release workflow. What makes 32 downloadable by someone else. | 32 |

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="0" fill="#10131a"/>
+  <g transform="translate(256 240) scale(0.78) translate(-256 -256)">
+    
+    <g transform="rotate(-22 256 392)">
+      <rect x="181" y="150" width="150" height="210" rx="14" fill="#7a4f22" stroke="#10131a" stroke-width="8"/>
+      
+    </g>
+    
+    <g transform="rotate(22 256 392)">
+      <rect x="181" y="150" width="150" height="210" rx="14" fill="#7a4f22" stroke="#10131a" stroke-width="8"/>
+      
+    </g>
+    
+    <g transform="rotate(-11 256 392)">
+      <rect x="181" y="150" width="150" height="210" rx="14" fill="#b8702e" stroke="#10131a" stroke-width="8"/>
+      
+    </g>
+    
+    <g transform="rotate(11 256 392)">
+      <rect x="181" y="150" width="150" height="210" rx="14" fill="#b8702e" stroke="#10131a" stroke-width="8"/>
+      
+    </g>
+    
+    <g transform="rotate(0 256 392)">
+      <rect x="181" y="150" width="150" height="210" rx="14" fill="#d98a3f" stroke="#10131a" stroke-width="8"/>
+      
+      <rect x="199" y="168" width="114" height="174" rx="8" fill="none" stroke="#10131a" stroke-width="5" opacity="0.55"/>
+      <circle cx="256" cy="255" r="30" fill="#10131a" opacity="0.9"/>
+      <circle cx="256" cy="255" r="18" fill="#e7ecf5"/>
+    </g>
+  </g>
+</svg>

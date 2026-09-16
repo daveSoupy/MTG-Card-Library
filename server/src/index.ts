@@ -1,5 +1,4 @@
 import Fastify from 'fastify';
-import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +28,7 @@ import { registerWantRoutes } from './routes/wants.ts';
 import { registerTradeListRoutes } from './routes/tradeLists.ts';
 import { registerAlertRoutes } from './routes/alerts.ts';
 import { registerEventRoutes } from './routes/events.ts';
+import { registerWebClient } from './routes/webClient.ts';
 import { errorHandler } from './routes/errorHandler.ts';
 import { ImageDownloadManager } from './images/downloadManager.ts';
 import { AlertStore } from './alerts/store.ts';
@@ -88,20 +88,7 @@ app.get('/api/v1/health', async () => ({ ok: true, dataDir }));
 // The built front end, when there is one. In development Vite serves the UI on
 // its own port and proxies /api here, so a missing dist/ is not an error.
 const webDist = join(repoRoot, 'web', 'dist');
-if (existsSync(webDist)) {
-  // Wildcard on purpose: with it disabled, @fastify/static enumerates the
-  // directory once at registration, so a rebuild's new hashed filenames are
-  // unknown and fall through to the HTML fallback — which the browser then
-  // rejects as a module script.
-  await app.register(fastifyStatic, { root: webDist });
-  // Client-side routing: anything not under /api falls back to index.html.
-  app.setNotFoundHandler((request, reply) => {
-    if (request.url.startsWith('/api/')) {
-      return reply.status(404).send({ error: 'No such endpoint.' });
-    }
-    return reply.sendFile('index.html');
-  });
-}
+if (existsSync(webDist)) await registerWebClient(app, webDist);
 
 /**
  * Touch the hot tables once at boot.

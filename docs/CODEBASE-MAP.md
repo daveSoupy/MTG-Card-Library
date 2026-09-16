@@ -51,6 +51,7 @@ Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 
 | Add a new API endpoint | `server/src/routes/<domain>.ts` + register in `server/src/index.ts` + client fn in `web/src/api.ts` | Routes hold no rules — they call a store. |
 | Request body/param validation shapes | `server/src/routes/schema.ts` | Shared ajv fragments (`ID`, `COUNT`, `MONEY`, `body()`…). |
 | Which errors become which HTTP status | `server/src/routes/errorHandler.ts` | Known error classes → 4xx; everything else 500. |
+| Serving `web/dist`, the HTML fallback, the `sw.js` `no-cache` header | `server/src/routes/webClient.ts` | Phase 31. `index.ts` calls it only when a build exists. |
 | Any DDL | `schema.sql` **and** `server/src/db/migrations.ts` | `migrations.test.ts` proves they agree. Bump `user_version`. |
 | DB open, `getSetting`/`setSetting`, library status | `server/src/db/index.ts` | |
 | Env vars (`MTG_DATA_DIR`, port, host) | `server/src/config.ts` | |
@@ -72,6 +73,8 @@ Generated from the import graph on 2026-09-15 (all of Phases 0–11 and 22–27 
 | **Web:** backups, imports, storage, theme, settings UI | `web/src/components/DataPage.tsx` | |
 | **Web:** all styling | `web/src/styles.css` | One file, 3,000 lines, `/* ---------- section ---------- */` headers. **Look the class up in `docs/CSS-INDEX.md` first** — the early sections ("results", "sync") hold the shared classes and their names don't say so. |
 | **Web:** breakpoints / touch detection | `web/src/viewport.ts` | Mirrors the px values in `styles.css`. |
+| **Web:** the reconnect banner, its polling, the "which way in" message | `web/src/components/ReconnectBanner.tsx`, `web/src/reachability.ts` | Phase 31. Raised from `api.ts`'s `onServerUnreachable`; recovery bumps `reconnectEpoch` in `App.tsx`. |
+| **Web:** home-screen install: manifest, icons, the service worker | `web/public/` (`manifest.webmanifest`, `icons/`, `sw.js`) | Phase 31. Read `sw.js`'s header first — it is not an offline mode. Icons re-render with `node web/scripts/render-icons.mjs`. |
 
 ---
 
@@ -117,7 +120,7 @@ db/index (openLibrary, getSetting, setSetting) → db/migrations → schema.sql
 ```
 
 ### `index.ts` — bootstrap
-Opens the DB, instantiates every store once, registers every `register*Routes`, installs `errorHandler`, serves `web/dist` for non-API paths, starts the backup schedule, listens. **Adding a route file means adding a line here.** Store construction order matters only for `TradeStore`, which takes `CollectionStore` and `AlertStore`.
+Opens the DB, instantiates every store once, registers every `register*Routes`, installs `errorHandler`, hands `web/dist` to `routes/webClient.ts` when a build exists, starts the backup schedule, listens. **Adding a route file means adding a line here.** Store construction order matters only for `TradeStore`, which takes `CollectionStore` and `AlertStore`.
 
 ### `config.ts`
 `resolveDataDir` (`MTG_DATA_DIR`), `resolvePort`, `resolveHost`. Nothing imports it but `index.ts`.
@@ -237,6 +240,7 @@ All under `/api/v1`. Each file exports one `register*Routes(app, …)`; `index.t
 | `alerts.ts` | `GET /alerts`, `POST /alerts/:id/acknowledge`, `POST /alerts/:id/resolve` | `alerts/store` |
 | `events.ts` | `GET/POST /events`, `GET/PATCH/DELETE /events/:id`, `GET/POST /games`, `PATCH/DELETE /games/:id`, `GET /decks/:id/games` | `events/store` |
 | `schema.ts` | Shared ajv fragments: `ID`, `COUNT`, `MONEY`, `NAME`, `TEXT`, `FLAG`, `DATE`, `CATEGORY_LIST`, `enumOrNull`, `idParams`, `body`. | — |
+| `webClient.ts` | Phase 31. `@fastify/static` over `web/dist`, the `index.html` fallback for client routes (API paths stay a JSON 404), and `Cache-Control: no-cache` on `/sw.js` via an `onSend` hook (the plugin's `setHeaders` is overwritten by its own Cache-Control). | `@fastify/static` |
 | `errorHandler.ts` | Global handler: known error classes (`DeckNotFoundError`, `CardNotFoundError`, `UnknownFormatError`, `LocationInUseError`, `ListNameTakenError`, `TradeNotFoundError`, `TradeNotDraftError`, `InvalidBackupError`, `CacheLimitError`, `ScryfallError`, SQLite FK failures) → 4xx; else 500, stack to log only. Errors with extra detail to report (`TradeShortfallError`, `AssemblyError`, `ContentionError`, `SlotOverfilledError`) are caught in their own route file. | Every store's error classes |
 
 ### `server/scripts/` (run by hand)
@@ -250,6 +254,8 @@ All under `/api/v1`. Each file exports one `register*Routes(app, …)`; `index.t
 
 ```
 main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPage, GamesPage, DataPage
+web/public/ → copied verbatim to the build root: manifest.webmanifest, icons/, sw.js (Phase 31; not modules, not in the graph)
+web/scripts/render-icons.mjs → regenerates public/icons/ from the SVG mark (qlmanage; run by hand)
                         │
                      panels/dialogs/rows (components/*.tsx)
                         │
@@ -262,8 +268,8 @@ main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPag
 
 | File | Does | Imports | Imported by |
 |---|---|---|---|
-| `main.tsx` | Mounts `<App/>`. | `App` | — |
-| `App.tsx` | The shell: topbar, nav tabs, route → view switch, global settings load, density/theme init, `SyncGate` wrapper, browse view (search + `FilterPanel` + results + `CardDetailPane`), `AlertsBell`, the help index / topic slot and the `Welcome` gate (Phase 17). Route names: `collection` (with tab), `decks`, `deck/:id`, `browse`, `trades`, `games`, `data`. | `api`, `router`, `deckView`, `density`, `ownedBadge`, `searchScope`, `theme`, and the page components | `main` |
+| `main.tsx` | Mounts `<App/>`; registers `/sw.js` in production builds (Phase 31). | `App` | — |
+| `App.tsx` | The shell: topbar, nav tabs, route → view switch, global settings load, density/theme init, `SyncGate` wrapper, browse view (search + `FilterPanel` + results + `CardDetailPane`), `AlertsBell`, the help index / topic slot and the `Welcome` gate (Phase 17), the `ReconnectBanner` inside the topbar and the `reconnectEpoch` every page is keyed on so a recovery refetches it (Phase 31; `DeckBuilder` takes it as `reloadKey` instead, to keep its undo stack). Route names: `collection` (with tab), `decks`, `deck/:id`, `browse`, `trades`, `games`, `data`. | `api`, `router`, `deckView`, `density`, `ownedBadge`, `searchScope`, `theme`, and the page components | `main` |
 | `api.ts` | **The HTTP client and every shared type** (`CardSummary`, `Deck`, `DeckCard`, `BuildabilityDetail`, `AssemblySheet`, `ContestedCard`, `CollectionCard`, `Trade`, `WantList`, `Alert`, `AppSettings`, …). One exported function per endpoint. `ApiError`, `isConnectivityError`, `imageUrl`, `subscribeToSync` (SSE). | — | Everything |
 | `router.ts` | `Route` union, `parseRoute` / `formatRoute` (pure, round-trip), `readRoute` / `pushRoute` / `replaceRoute` / `onRouteChange` (window). | — | `App`, `CollectionPage` |
 | `styles.css` | All CSS. Sections are `/* ---------- name ---------- */`. `docs/CSS-INDEX.md` (generated) maps every class → section + line → components using it. Breakpoints (760px etc.) are mirrored in `viewport.ts`. | | |
@@ -288,6 +294,8 @@ main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPag
 | `mana.ts` | `manaDisplay` — `{3}{W}{W}` → `5 ●●`. | `ManaCost` |
 | `playtest.ts` | Opening hands, mulligans, goldfish turns (pure, no rules engine). | `PlaytestPanel`, `mana` |
 | `theme.ts` | light / dark / system, `applyTheme`, `storedTheme`. | `App`, `DataPage` |
+| `reachability.ts` | Phase 31. `classifyHost(hostname)` → `tailnet` / `lan` / `local` / `unknown` (CGNAT + `*.ts.net`; RFC 1918 + `*.local`; loopback) and the reconnect message for each. Pure; `node --test`. | `ReconnectBanner` |
+| `vite-env.d.ts` | Vite's client types (`import.meta.env`). | — |
 | `viewport.ts` | `useNarrow(px)`, `useCoarsePointer()`. | `DeckBuilder`, `DeckPanes`, `DeckStatusPill`, `WantListsPage` |
 | `format.ts` | `formatBytes`, `percent`. | `DataPage` |
 
@@ -356,6 +364,7 @@ main.tsx → App.tsx → pages: CollectionPage, DeckList, DeckBuilder, TradesPag
 | `ManaCost.tsx` | `5 ●●` with the full cost as tooltip. |
 | `BackToTop.tsx` | Works inside any scrolling container (capture-phase listener). |
 | `UndoToast.tsx` | "Removed X · Undo", last step only. |
+| `ReconnectBanner.tsx` | Phase 31. Raised by `api.onServerUnreachable`; while up, polls `probeHealth` every 3s and at once on `online` / tab visible; on a healthy answer clears and calls `onReconnected`. Message from `reachability.ts`. Nothing cached, nothing queued. |
 
 ---
 
