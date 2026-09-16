@@ -222,6 +222,10 @@ async function startServer(): Promise<void> {
     MTG_HOST: host,
     MTG_PORT: String(port),
     MTG_LOG_LEVEL: process.env.MTG_LOG_LEVEL ?? 'info',
+    // Phase 33: advertise over mDNS exactly when other devices may connect.
+    // The server also refuses to advertise a loopback bind, so this and
+    // MTG_HOST cannot disagree in a way that matters.
+    MTG_ADVERTISE: host === '0.0.0.0' ? '1' : '0',
     MTG_SHUTDOWN_ON_STDIN_CLOSE: '1',
     NODE_ENV: 'production',
   });
@@ -234,8 +238,9 @@ async function startServer(): Promise<void> {
   } catch {
     return; // the exit handler has already taken over
   }
-  updateTray();
   loadApp();
+  // After loadApp: "Pair a phone…" is enabled only once the status page is gone.
+  updateTray();
 }
 
 /** Stop and start again — the sharing toggle changes MTG_HOST, which only a fresh process can bind. */
@@ -303,6 +308,18 @@ function showWindow(): void {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+/**
+ * Phase 33: the tray's "Pair a phone…". The pairing panel is the web app's
+ * (Data page, `#pair` scrolls to it) — the shell only points the window at
+ * it. While the server is still starting the status page stays; the item
+ * is disabled then, so this is only reached with the app loaded.
+ */
+function openPairing(): void {
+  showWindow();
+  if (showingStatus || !server.running) return;
+  win?.loadURL(`${serverUrl()}data#pair`).catch(() => {});
 }
 
 // ---------- settings that act ----------------------------------------------
@@ -397,8 +414,7 @@ function trayTemplate(): MenuItemConstructorOptions[] {
     },
     { label: 'Launch at login', type: 'checkbox', checked: config.launchAtLogin, click: (item) => setLaunchAtLogin(item.checked) },
     { type: 'separator' },
-    // TODO(Phase 33): opens the web app's pairing panel. Hidden until it exists.
-    { label: 'Pair a phone…', visible: false },
+    { label: 'Pair a phone…', enabled: server.running && port !== null && !showingStatus, click: openPairing },
     { label: 'Show data folder', click: () => void shell.openPath(dataDir) },
     { label: 'Show logs', click: () => void shell.openPath(logsDir) },
     // TODO(Phase 34): electron-updater. Present, inert.
@@ -524,6 +540,7 @@ if (process.env.MTG_DESKTOP_INSPECT === '1') {
       setKeepAwake,
       setLaunchAtLogin,
       showWindow,
+      openPairing,
       closeWindow: () => win?.close(),
       quit: () => app.quit(),
       state: () => ({
@@ -531,6 +548,8 @@ if (process.env.MTG_DESKTOP_INSPECT === '1') {
         running: server.running,
         pid: server.pid,
         sharing: config.sharing,
+        // What the child was told; the server's own gate is the truth.
+        advertise: server.running && config.sharing,
         keepAwake: config.keepAwake,
         visible: win?.isVisible() ?? false,
         url: win?.webContents.getURL() ?? null,

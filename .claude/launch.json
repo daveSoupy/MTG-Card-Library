@@ -6,6 +6,15 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--workspace=web"],
       "port": 5173
+    },
+    {
+      "name": "built-scratch",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "MTG_DATA_DIR=${TMPDIR:-/tmp}/mtg-scratch-built MTG_PORT=8093 MTG_HOST=0.0.0.0 MTG_ADVERTISE=1 node server/dist/index.js"
+      ],
+      "port": 8093
     }
   ]
 }

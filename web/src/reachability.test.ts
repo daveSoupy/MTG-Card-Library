@@ -59,13 +59,14 @@ test('case and whitespace do not matter, and a public name is unknown', () => {
   assert.equal(classifyHost('notlocal'), 'unknown');
 });
 
-test('each way in gets its own message, and the lan one ends before the QR clause', () => {
+test('each way in gets its own message, and the lan one ends with the QR clause', () => {
   assert.equal(reconnectMessage('100.101.102.103'), REACHABILITY_MESSAGE.tailnet);
   assert.equal(reconnectMessage('192.168.1.20'), REACHABILITY_MESSAGE.lan);
   assert.equal(reconnectMessage('localhost'), REACHABILITY_MESSAGE.local);
   assert.equal(reconnectMessage('example.com'), REACHABILITY_MESSAGE.unknown);
   assert.match(REACHABILITY_MESSAGE.tailnet, /Tailscale/);
-  // Phase 33 appends "scan the QR code on it again" once there is a QR.
-  assert.ok(REACHABILITY_MESSAGE.lan.endsWith('its address may have changed.'));
-  assert.doesNotMatch(REACHABILITY_MESSAGE.lan, /QR/);
+  // Phase 33: there is a QR now, so a changed address names its fix.
+  assert.ok(REACHABILITY_MESSAGE.lan.endsWith('scan the QR code on it again.'));
+  assert.doesNotMatch(REACHABILITY_MESSAGE.tailnet, /QR/, 'a Tailscale address does not change');
+  assert.doesNotMatch(REACHABILITY_MESSAGE.local, /QR/);
 });

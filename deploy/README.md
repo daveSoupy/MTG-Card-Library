@@ -76,6 +76,7 @@ sudo -u mtg MTG_DATA_DIR=/var/lib/mtg-library \
 | `MTG_DATA_DIR` | `~/.local/share/mtg-library` | Database and cached card images |
 | `MTG_PORT` | `8080` | Listen port |
 | `MTG_HOST` | `0.0.0.0` | Bind address |
+| `MTG_ADVERTISE` | unset | `1` advertises `_mtglibrary._tcp` over mDNS on the home network (the unit file has the line commented). Ignored on a loopback bind |
 | `MTG_LOG_LEVEL` | `info` | Fastify log level |
 
 ## Backups

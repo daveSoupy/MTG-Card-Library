@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +55,7 @@ export function openLibrary({ dataDir, createImageDir = true }: OpenOptions): Li
   db.pragma('busy_timeout = 10000');
 
   bootstrap(db);
+  instanceId(db);
 
   return {
     db,
@@ -118,6 +120,36 @@ export function setSetting(db: Database.Database, key: string, value: string): v
      VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ','now'))
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   ).run(key, value);
+}
+
+// -- instance identity (Phase 33) ---------------------------------------------
+
+/**
+ * The `app_settings` key holding this library's identity. Written straight
+ * through `setSetting` rather than the settings route, whose allowlists gate
+ * what the *route* accepts — this key is never accepted there and is not
+ * user-editable.
+ */
+export const INSTANCE_ID = 'instance_id';
+
+/**
+ * A UUID that identifies this library to a phone that paired with it, stable
+ * across restarts and address changes. Minted on first open; a fresh data
+ * directory gets a fresh one.
+ *
+ * Get-or-create rather than create-once-at-open, because a restore replaces
+ * `app_settings` wholesale (`porting/backup.ts`): a backup from before this
+ * phase carries no id, and the instance endpoint must not answer with none
+ * until the next restart. A backup from after it carries the id with it —
+ * deliberately, so a library moved to a new machine is still the library the
+ * phone paired with.
+ */
+export function instanceId(db: Database.Database): string {
+  const existing = getSetting(db, INSTANCE_ID);
+  if (existing) return existing;
+  const id = randomUUID();
+  setSetting(db, INSTANCE_ID, id);
+  return id;
 }
 
 export interface LibraryStatus {

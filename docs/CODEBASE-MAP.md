@@ -4,7 +4,7 @@ A file-by-file guide to the repo: what each file does, what it imports, what imp
 
 **Keep this current.** When you add, rename, or move a source file, update its entry here in the same commit.
 
-Generated from the import graph on 2026-09-16 (Phases 0–11, 17, 22–27, 31 and 32 shipped, `PRAGMA user_version = 21`).
+Generated from the import graph on 2026-09-16 (Phases 0–11, 17, 22–27, 31, 32 and 33 shipped, `PRAGMA user_version = 21`).
 
 **Interactive version:** `docs/atlas/codebase-atlas.html` — the same graph as a clickable layered map (select a file → its imports and importers light up). Its Styles tab and `docs/CSS-INDEX.md` come from the same build. Rebuild with `python3 docs/atlas/build.py` after files move; the live copy is https://claude.ai/artifact/N9RBn22L9gnfhJBtixrKLg.
 
@@ -54,8 +54,10 @@ Generated from the import graph on 2026-09-16 (Phases 0–11, 17, 22–27, 31 an
 | Serving `web/dist`, the HTML fallback, the `sw.js` `no-cache` header | `server/src/routes/webClient.ts` | Phase 31. `index.ts` calls it only when a build exists. |
 | Any DDL | `schema.sql` **and** `server/src/db/migrations.ts` | `migrations.test.ts` proves they agree. Bump `user_version`. |
 | DB open, `getSetting`/`setSetting`, library status | `server/src/db/index.ts` | |
-| Env vars (`MTG_DATA_DIR`, port, host) | `server/src/config.ts` | The shell overrides these per launch; the server's defaults stay. |
-| **Desktop:** the app's lifecycle — window, tray menu, sharing / keep-awake / login-item toggles, quit | `desktop/src/main.ts` | Phase 32. The only file that imports `electron`. No renderer code. |
+| Env vars (`MTG_DATA_DIR`, port, host, `MTG_ADVERTISE`), the server's own version | `server/src/config.ts` | The shell overrides these per launch; the server's defaults stay. |
+| The instance id, the address list, the `.local` hostname (`GET /api/v1/instance`) | `server/src/discovery/instance.ts` (+ `routes/instance.ts`) | Phase 33. `instanceId()` in `db/index.ts` is get-or-create. Address rules are pure and tested. |
+| The mDNS / DNS-SD advertisement and its gate | `server/src/discovery/advertise.ts` | Phase 33. `advertiseDecision` is pure; loopback never advertises. `bonjour-service`, pure JS. |
+| **Desktop:** the app's lifecycle — window, tray menu, sharing / keep-awake / login-item toggles, "Pair a phone…", quit | `desktop/src/main.ts` | Phase 32. The only file that imports `electron`. No renderer code. |
 | **Desktop:** the persisted port, the sharing flag, "is this port free" | `desktop/src/config.ts` | The probe binds *and* connects — a bind alone lies on macOS. |
 | **Desktop:** how the server child is spawned, stopped (SIGTERM / stdin close), health-polled | `desktop/src/server.ts` | Bundled Node, never `ELECTRON_RUN_AS_NODE`. |
 | **Desktop:** the log file and its rotation | `desktop/src/logging.ts` | `<userData>/logs/server.log`. |
@@ -79,6 +81,7 @@ Generated from the import graph on 2026-09-16 (Phases 0–11, 17, 22–27, 31 an
 | **Web:** all styling | `web/src/styles.css` | One file, 3,000 lines, `/* ---------- section ---------- */` headers. **Look the class up in `docs/CSS-INDEX.md` first** — the early sections ("results", "sync") hold the shared classes and their names don't say so. |
 | **Web:** breakpoints / touch detection | `web/src/viewport.ts` | Mirrors the px values in `styles.css`. |
 | **Web:** the reconnect banner, its polling, the "which way in" message | `web/src/components/ReconnectBanner.tsx`, `web/src/reachability.ts` | Phase 31. Raised from `api.ts`'s `onServerUnreachable`; recovery bumps `reconnectEpoch` in `App.tsx`. |
+| **Web:** the pairing QR, its URL and the record inside it | `web/src/components/PairPhonePanel.tsx`, `web/src/pairing.ts` | Phase 33. The page's own home-network origin leads the target (Docker bridge cannot know the host's address). `#pair` scrolls to it. |
 | **Web:** home-screen install: manifest, icons, the service worker | `web/public/` (`manifest.webmanifest`, `icons/`, `sw.js`) | Phase 31. Read `sw.js`'s header first — it is not an offline mode. Icons re-render with `node web/scripts/render-icons.mjs`. |
 
 ---
@@ -130,12 +133,19 @@ db/index (openLibrary, getSetting, setSetting) → db/migrations → schema.sql
 Opens the DB, instantiates every store once, registers every `register*Routes`, installs `errorHandler`, hands `web/dist` to `routes/webClient.ts` when a build exists, starts the backup schedule, listens. **Adding a route file means adding a line here.** Store construction order matters only for `TradeStore`, which takes `CollectionStore` and `AlertStore`.
 
 ### `config.ts`
-`resolveDataDir` (`MTG_DATA_DIR`), `resolvePort`, `resolveHost`. Nothing imports it but `index.ts`.
+`resolveDataDir` (`MTG_DATA_DIR`), `resolvePort`, `resolveHost`, `resolveAdvertise` (`MTG_ADVERTISE=1`, Phase 33), `resolveServerVersion` (`server/package.json`, read once by walking up from the module). Imported by `index.ts` and `routes/instance.test.ts`.
+
+### `discovery/` — Phase 33
+| File | Does | Imports | Imported by |
+|---|---|---|---|
+| `instance.ts` | `describeInstance` → the `/api/v1/instance` body: `instanceId`, `name` (OS hostname less `.local`), `version`, `port`, `addresses`, `mdnsName`. `boundAddresses(host, interfaces)` is the rule: nothing on loopback, every non-link-local address of the bound family on a wildcard, RFC 1918 first so a Tailscale address never leads. `mdnsHostname`, `isLoopbackHost`, `SERVICE_TYPE`. Pure over its inputs. | `node:os` | `routes/instance`, `advertise`, `index.ts` |
+| `advertise.ts` | `advertiseDecision(flag, host)` → `advertise` / `off` / `loopback` (pure, tested). `startAdvertisement(info, log)` publishes `_mtglibrary._tcp` with TXT `id=`, `v=` and the `.local` hostname over `bonjour-service`; returns `{ stop() }` for the goodbye packets at shutdown. Socket errors are logged, never thrown. | `bonjour-service`, `instance` | `index.ts` |
+| `instance.test.ts` | Item 1 (stable id across reopens, fresh per data dir, re-minted after a restore drops the row), the address rules over a fixture interface table, the gate. | | |
 
 ### `db/`
 | File | Does | Imports | Imported by |
 |---|---|---|---|
-| `index.ts` | `openLibrary()` runs `schema.sql` verbatim on an empty DB or the migrations on an existing one; `getSetting`/`setSetting` over `app_settings`; `libraryStatus`. | `migrations.ts` | Every store and engine that opens its own statements; `routes/settings`, `routes/storage`, `routes/sync`, `sync/*`. |
+| `index.ts` | `openLibrary()` runs `schema.sql` verbatim on an empty DB or the migrations on an existing one, then mints the instance id; `getSetting`/`setSetting` over `app_settings`; `instanceId()` (Phase 33, get-or-create under `INSTANCE_ID`, never through the settings route); `libraryStatus`. | `migrations.ts` | Every store and engine that opens its own statements; `routes/settings`, `routes/storage`, `routes/sync`, `routes/instance`, `sync/*`. |
 | `migrations.ts` | `MIGRATIONS[]` — ordered upgrade steps for a DB that already has data. Every DDL change is written here **and** in `schema.sql`. | — | `db/index.ts` |
 | `migrations.test.ts` | Migrates an old DB and asserts it is structurally identical to a fresh `schema.sql` load. The test that catches the two drifting. | | |
 
@@ -247,6 +257,7 @@ All under `/api/v1`. Each file exports one `register*Routes(app, …)`; `index.t
 | `alerts.ts` | `GET /alerts`, `POST /alerts/:id/acknowledge`, `POST /alerts/:id/resolve` | `alerts/store` |
 | `events.ts` | `GET/POST /events`, `GET/PATCH/DELETE /events/:id`, `GET/POST /games`, `PATCH/DELETE /games/:id`, `GET /decks/:id/games` | `events/store` |
 | `schema.ts` | Shared ajv fragments: `ID`, `COUNT`, `MONEY`, `NAME`, `TEXT`, `FLAG`, `DATE`, `CATEGORY_LIST`, `enumOrNull`, `idParams`, `body`. | — |
+| `instance.ts` | Phase 33. `GET /instance` — `describeInstance` over the id from `db/index.ts` and the bound port/host/version `index.ts` passes in after `listen`. | `db/index`, `discovery/instance` |
 | `webClient.ts` | Phase 31. `@fastify/static` over `web/dist`, the `index.html` fallback for client routes (API paths stay a JSON 404), and `Cache-Control: no-cache` on `/sw.js` via an `onSend` hook (the plugin's `setHeaders` is overwritten by its own Cache-Control). | `@fastify/static` |
 | `errorHandler.ts` | Global handler: known error classes (`DeckNotFoundError`, `CardNotFoundError`, `UnknownFormatError`, `LocationInUseError`, `ListNameTakenError`, `TradeNotFoundError`, `TradeNotDraftError`, `InvalidBackupError`, `CacheLimitError`, `ScryfallError`, SQLite FK failures) → 4xx; else 500, stack to log only. Errors with extra detail to report (`TradeShortfallError`, `AssemblyError`, `ContentionError`, `SlotOverfilledError`) are caught in their own route file. | Every store's error classes |
 
@@ -301,7 +312,8 @@ web/scripts/render-icons.mjs → regenerates public/icons/ from the SVG mark (ql
 | `mana.ts` | `manaDisplay` — `{3}{W}{W}` → `5 ●●`. | `ManaCost` |
 | `playtest.ts` | Opening hands, mulligans, goldfish turns (pure, no rules engine). | `PlaytestPanel`, `mana` |
 | `theme.ts` | light / dark / system, `applyTheme`, `storedTheme`. | `App`, `DataPage` |
-| `reachability.ts` | Phase 31. `classifyHost(hostname)` → `tailnet` / `lan` / `local` / `unknown` (CGNAT + `*.ts.net`; RFC 1918 + `*.local`; loopback) and the reconnect message for each. Pure; `node --test`. | `ReconnectBanner` |
+| `reachability.ts` | Phase 31. `classifyHost(hostname)` → `tailnet` / `lan` / `local` / `unknown` (CGNAT + `*.ts.net`; RFC 1918 + `*.local`; loopback) and the reconnect message for each (the `lan` one ends with Phase 33's "scan the QR code on it again"). Pure; `node --test`. | `ReconnectBanner`, `pairing`, `PairPhonePanel` |
+| `pairing.ts` | Phase 33. `pairingTarget(info, page)` — the QR's host and port: the page's own origin when it is a home-network IPv4 (proven reachable; the only right answer behind Docker's bridge), else the server's first IPv4. `pairingRecord` (`{ v, id, mdns, port, addresses }`, target first), `pairingUrl` (`http://host:port/#pair=<base64url>`), `parsePairingFragment` (the parked companion app's half; null for anything malformed). Pure; `node --test`. | `PairPhonePanel` |
 | `vite-env.d.ts` | Vite's client types (`import.meta.env`). | — |
 | `viewport.ts` | `useNarrow(px)`, `useCoarsePointer()`. | `DeckBuilder`, `DeckPanes`, `DeckStatusPill`, `WantListsPage` |
 | `format.ts` | `formatBytes`, `percent`. | `DataPage` |
@@ -372,6 +384,7 @@ web/scripts/render-icons.mjs → regenerates public/icons/ from the SVG mark (ql
 | `BackToTop.tsx` | Works inside any scrolling container (capture-phase listener). |
 | `UndoToast.tsx` | "Removed X · Undo", last step only. |
 | `ReconnectBanner.tsx` | Phase 31. Raised by `api.onServerUnreachable`; while up, polls `probeHealth` every 3s and at once on `online` / tab visible; on a healthy answer clears and calls `onReconnected`. Message from `reachability.ts`. Nothing cached, nothing queued. |
+| `PairPhonePanel.tsx` | Phase 33. The *Pair a phone* section on the Data page: fetches `/instance`, renders the QR (`uqr` → one SVG path, black on white in every theme), every address and the `.local` name, and the *Add to Home Screen* line; with no address to offer, the sentence naming the sharing toggle (worded for the desktop window vs. a server install by `classifyHost`). `#pair` in the URL scrolls to it — the tray item's way in. |
 
 ---
 
@@ -382,7 +395,8 @@ A separate npm workspace. `desktop/CLAUDE.md` (auto-loaded when a session touche
 ```
 src/main.ts      the Electron main process — and the only process the shell has. Window, tray menu, app menu,
                  the status page (inline HTML: title, line, boot messages), the toggles, first-launch notice,
-                 crash restart, Quit. Imports the three below; nothing imports it.
+                 crash restart, Quit. Sets MTG_ADVERTISE with the sharing toggle and "Pair a phone…" loads the
+                 web app's /data#pair (Phase 33). Imports the three below; nothing imports it.
 src/server.ts    ServerProcess: spawn server/dist/index.js on the bundled Node with the shell's env, forward
                  stdout/stderr to the log, stop (SIGTERM on POSIX, stdin close on Windows, SIGKILL only after
                  STOP_GRACE_MS). waitForHealth polls /api/v1/health.
@@ -399,7 +413,8 @@ scripts/stage.mjs           the Dockerfile's runtime stage per target into stagi
                             better_sqlite3.node swapped per platform with prebuild-install.
 scripts/check-packaged.mjs  the gate: layout, binary formats, and check-sqlite.mjs on the packaged Node.
 scripts/package.mjs         `npm run desktop:package`: fetch → stage → tsc → gate → electron-builder → gate.
-scripts/verify-lifecycle.mjs  drives the doc's verification items 4–6 over electron --inspect, against the
+scripts/verify-lifecycle.mjs  drives the doc's verification items 4–6, plus Phase 33's advertise-follows-sharing
+                            (dns-sd on macOS) and "Pair a phone…" checks, over electron --inspect, against the
                             dev app or (--app) a packaged one.
 ```
 

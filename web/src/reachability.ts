@@ -14,10 +14,11 @@
 
 export type Reachability = 'tailnet' | 'lan' | 'local' | 'unknown';
 
-/** The banner's text for each way in. Phase 33 adds the QR clause to `lan`. */
+/** The banner's text for each way in. The `lan` clause about the QR is Phase
+ *  33's: a changed address is fixed by scanning the code on the computer again. */
 export const REACHABILITY_MESSAGE: Record<Reachability, string> = {
   tailnet: "Can't reach your library. Turn on Tailscale and it will reconnect.",
-  lan: "Can't reach your library. Be on your home wifi — the computer may be asleep, or its address may have changed.",
+  lan: "Can't reach your library. Be on your home wifi — the computer may be asleep, or its address may have changed; scan the QR code on it again.",
   local: 'The MTG Library server has stopped.',
   unknown: "Can't reach the MTG Library server. Is it running? Are you on its network?",
 };
