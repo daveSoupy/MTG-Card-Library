@@ -48,6 +48,14 @@ sudo tailscale up
 
 Install Tailscale on your phone and sign in to the same tailnet. The app is then at `http://<machine-name>:8080` from any device on the tailnet, at home or at a card shop, with no port forwarding and no certificates.
 
+**Pin it to the home screen.** On iOS, open it in Safari and use the share sheet's *Add to Home Screen*; on Android, Chrome's menu has *Add to Home screen*. Either launches the app in its own window with its own icon, and if the phone cannot reach the server — VPN off, the machine asleep — it opens to the app's own *reconnect* screen and recovers on its own once the path is back. Plain `http://` is enough for all of that. The one thing it does not give you is Android's automatic install prompt, which needs HTTPS; if you want it, put Tailscale's own certificate in front:
+
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
+```
+
+and use `https://<machine-name>.<tailnet>.ts.net` instead. Still tailnet-only; nothing is exposed.
+
 > **If you ever move off Tailscale** — a Cloudflare Tunnel, or forwarding a port — the app becomes reachable by strangers. It ships with **no authentication** because the tailnet is the security boundary. Add a login before doing that.
 
 ## 4. First run

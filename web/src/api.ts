@@ -214,9 +214,54 @@ export interface SearchParams {
   knownTotal?: number;
 }
 
-/** What the page says when the server never answered. */
-export const CONNECTIVITY_MESSAGE =
-  "Can't reach the MTG Library server. Is it running? Are you on the tailnet?";
+/**
+ * What a page says beside the thing that failed when the server never
+ * answered. Deliberately just the fact: the diagnosis and the fix ("turn on
+ * Tailscale", "be on your home wifi") belong to the one app-level banner,
+ * which chooses them by how the page was reached (`reachability.ts`, Phase
+ * 31). Before that banner existed this sentence carried the advice too — and
+ * told a phone on the home wifi to check the tailnet.
+ */
+export const CONNECTIVITY_MESSAGE = "Couldn't reach the MTG Library server.";
+
+/**
+ * Told each time a request finds the server unreachable — the signal the
+ * reconnect banner is raised on. Every path through this module that builds
+ * a connectivity `ApiError` reports here first, so a page never has to; a
+ * page catching the error and showing `CONNECTIVITY_MESSAGE` is the local
+ * half, this is the global half. Returns the unsubscribe.
+ */
+export function onServerUnreachable(listener: () => void): () => void {
+  unreachableListeners.add(listener);
+  return () => { unreachableListeners.delete(listener); };
+}
+
+const unreachableListeners = new Set<() => void>();
+
+function reportUnreachable(): void {
+  for (const listener of unreachableListeners) listener();
+}
+
+/**
+ * One health round-trip, true when the server answered. The banner polls
+ * this while it is up; a plain `fetch` on purpose, so a probe that fails does
+ * not itself report unreachable and re-raise the banner it is trying to
+ * clear. `/api/*` is never touched by the service worker, so a true here
+ * means the server, not a cache.
+ */
+export async function probeHealth(): Promise<boolean> {
+  try {
+    const response = await fetch('/api/v1/health', {
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) return false;
+    const body = (await response.json().catch(() => null)) as { ok?: unknown } | null;
+    return body?.ok === true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * A request that did not succeed, and whether that is the server's doing.
@@ -254,6 +299,7 @@ async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
     return await fetch(url, init);
   } catch (cause) {
     if (cause instanceof Error && cause.name === 'AbortError') throw cause;
+    reportUnreachable();
     throw new ApiError(CONNECTIVITY_MESSAGE, null, true, cause);
   }
 }
@@ -281,6 +327,7 @@ export async function errorFromResponse(
     return new ApiError(message, response.status, false);
   }
   if (response.status >= 500) {
+    reportUnreachable();
     return new ApiError(CONNECTIVITY_MESSAGE, response.status, true);
   }
   return new ApiError(fallback ?? `Request failed with status ${response.status}`, response.status, false);

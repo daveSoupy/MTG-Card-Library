@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ApiError, CONNECTIVITY_MESSAGE, fetchStatus, formatRecord, isConnectivityError, startSync,
+  ApiError, CONNECTIVITY_MESSAGE, fetchStatus, formatRecord, isConnectivityError,
+  onServerUnreachable, probeHealth, startSync,
 } from './api.ts';
 
 /** How a record is written on a chip: "12–4", or "12–4–1" once there is a draw. */
@@ -97,4 +98,64 @@ test('writes map the same way as reads', async () => {
     // 409 on the sync endpoint means "already running" and is not a failure.
     await startSync('oracle_cards');
   });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 31. The reconnect banner is raised from here, not from any page: each
+// path that builds a connectivity error tells the listeners first.
+
+test('every connectivity failure reports to onServerUnreachable; nothing else does', async () => {
+  let raised = 0;
+  const off = onServerUnreachable(() => { raised += 1; });
+  try {
+    await withFetch(async () => { throw new TypeError('Failed to fetch'); }, async () => {
+      await rejects(() => fetchStatus());
+    });
+    assert.equal(raised, 1, 'no response at all');
+    await withFetch(async () => text(502, 'Bad Gateway'), async () => {
+      await rejects(() => fetchStatus());
+    });
+    assert.equal(raised, 2, 'a gateway 5xx with no server body');
+    await withFetch(async () => json(404, { error: 'No such endpoint.' }), async () => {
+      await rejects(() => fetchStatus());
+    });
+    await withFetch(async () => json(500, { error: 'Something broke.' }), async () => {
+      await rejects(() => fetchStatus());
+    });
+    assert.equal(raised, 2, 'the server answering, even with an error, is not unreachable');
+    const controller = new AbortController();
+    controller.abort();
+    await withFetch(async () => { throw new DOMException('aborted', 'AbortError'); }, async () => {
+      await rejects(() => fetchStatus(controller.signal));
+    });
+    assert.equal(raised, 2, 'an abort is the caller\'s doing');
+  } finally {
+    off();
+  }
+  await withFetch(async () => { throw new TypeError('Failed to fetch'); }, async () => {
+    await rejects(() => fetchStatus());
+  });
+  assert.equal(raised, 2, 'unsubscribed');
+});
+
+test('probeHealth answers true only for a healthy server, and never reports unreachable', async () => {
+  let raised = 0;
+  const off = onServerUnreachable(() => { raised += 1; });
+  try {
+    await withFetch(async () => json(200, { ok: true, dataDir: '/x' }), async () => {
+      assert.equal(await probeHealth(), true);
+    });
+    await withFetch(async () => { throw new TypeError('Failed to fetch'); }, async () => {
+      assert.equal(await probeHealth(), false);
+    });
+    await withFetch(async () => text(502, 'Bad Gateway'), async () => {
+      assert.equal(await probeHealth(), false);
+    });
+    await withFetch(async () => text(200, '<html>captive portal</html>'), async () => {
+      assert.equal(await probeHealth(), false, 'a 200 that is not our JSON is not our server');
+    });
+    assert.equal(raised, 0);
+  } finally {
+    off();
+  }
 });
