@@ -32,6 +32,14 @@ export function AddBySetTab({
   const [cards, setCards] = useState<Awaited<ReturnType<typeof fetchSetChecklist>>>([]);
   const [loading, setLoading] = useState(false);
   const [locationId, setLocationId] = useState(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? 0);
+  // The tab can mount before the locations have arrived (a reload on
+  // /collection/add), which left locationId at 0 while the select looked
+  // fine — every add then failed validation. Pick the default once they are
+  // here, and follow along if the chosen one is deleted.
+  useEffect(() => {
+    if (locations.length === 0 || locations.some((l) => l.id === locationId)) return;
+    setLocationId(locations.find((l) => l.is_default)?.id ?? locations[0]!.id);
+  }, [locations, locationId]);
   const [finish, setFinish] = useState('nonfoil');
   const [condition, setCondition] = useState('NM');
   const [hideOwned, setHideOwned] = useState(false);
@@ -69,8 +77,23 @@ export function AddBySetTab({
     setTimeout(() => setJustAdded((current) => (current === message ? null : current)), 1400);
   };
 
+  // Bump just one card's owned count in place — no full reload, so the grid
+  // doesn't flash or jump to the top, and you can click the same card again
+  // to add another copy.
+  const bump = (printingId: string, by: number) =>
+    setCards((prev) => prev.map((c) =>
+      c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty + by) } : c));
+
   const add = async (printingId: string, name: string) => {
     setError(null);
+    // The number follows the tap, not the round trip. A binder page is dozens
+    // of taps in a row, and each POST can wait in the browser's connection
+    // queue behind the grid's own image loads (six connections per host, and
+    // an uncached image holds one for as long as Scryfall takes). The server
+    // is still the truth: if it refuses, the count goes back and the error
+    // says why.
+    bump(printingId, +1);
+    flash(`Added ${name}`);
     try {
       // Box split and Draft both pool. Open the server-side pool on the first
       // add (so it survives a break), reuse it after, and refresh its running
@@ -83,14 +106,10 @@ export function AddBySetTab({
         batchId: pooled && current ? current.id : undefined,
       });
       if (pooled) await refreshPool();
-      flash(`Added ${name}`);
-      // Bump just this card's owned count in place — no full reload, so the grid
-      // doesn't flash or jump to the top, and you can click the same card again
-      // to add another copy.
-      setCards((prev) => prev.map((c) =>
-        c.printing_id === printingId ? { ...c, owned_qty: c.owned_qty + 1 } : c));
       onChanged();
     } catch (e) {
+      bump(printingId, -1);
+      flash(`Not added: ${name}`, true);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -102,8 +121,7 @@ export function AddBySetTab({
       const result = await decrementCollectionCopy({ printingId, locationId, finish, condition });
       if (!result.removed) return; // nothing plainly-added here to take back
       flash(`Removed ${name}`, true);
-      setCards((prev) => prev.map((c) =>
-        c.printing_id === printingId ? { ...c, owned_qty: Math.max(0, c.owned_qty - 1) } : c));
+      bump(printingId, -1);
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
