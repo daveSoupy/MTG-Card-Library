@@ -30,6 +30,8 @@
 #     CSC_LINK                    the Developer ID Application certificate as a
 #                                 .p12 exported from Keychain Access, base64:
 #                                   base64 -i DeveloperID.p12 | pbcopy
+#                                 (the names are electron-builder's, but the
+#                                 import is done by a step below — see it)
 #     CSC_KEY_PASSWORD            the password given when exporting the .p12
 #     APPLE_ID                    the Apple ID email of the developer account
 #     APPLE_APP_SPECIFIC_PASSWORD an app-specific password made at
@@ -131,13 +133,38 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      # The certificate goes into a temporary keychain here, not through
+      # electron-builder's CSC_LINK: its importer hands the .p12 password to
+      # `security set-key-partition-list -k`, which wants the *keychain*
+      # password, so it only works when the two happen to match. This is the
+      # same sequence apple-actions/import-codesign-certs runs. The keychain
+      # is passed on as CSC_KEYCHAIN and dies with the runner.
+      - name: Import the Developer ID certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          echo "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/certificate.p12"
+          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "Identities in the keychain:"
+          security find-identity -v -p codesigning "$keychain"
+
       # fetch → stage → tsc → check-sqlite on the staged tree → electron-builder
       # (sign, notarise, staple, dmg + zip) → check-packaged. The two
       # --require flags make an unsigned or un-notarised result a failure.
       - name: Package, sign, notarise
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
