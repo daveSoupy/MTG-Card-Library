@@ -175,7 +175,7 @@ jobs:
         # bundled Node, answers /api/v1/health, and the lifecycle checks pass.
         # A JIT crash would show here, not on a user's Mac. Run from desktop/ —
         # the script resolves scratch and vendor paths from its own location.
-        run: node desktop/scripts/verify-lifecycle.mjs --app "desktop/out/mac-arm64/MTG Library.app/Contents/MacOS/MTG Library"
+        run: node desktop/scripts/verify-lifecycle.mjs --app "$GITHUB_WORKSPACE/desktop/out/mac-arm64/MTG Library.app/Contents/MacOS/MTG Library"
 
       - name: What was built
         run: ls -la desktop/out/*.dmg desktop/out/*.zip desktop/out/*.blockmap desktop/out/latest-mac.yml
