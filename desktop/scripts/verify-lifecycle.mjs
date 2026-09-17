@@ -7,6 +7,7 @@
 //
 //   node scripts/verify-lifecycle.mjs [--data-dir <existing library>] [--keep]
 //                                     [--app <path to a packaged app's executable>]
+//                                     [--skip-mdns]
 //
 // With --app it drives the packaged build instead (e.g.
 // "~/Applications/MTG Library.app/Contents/MacOS/MTG Library"), which adds
@@ -86,7 +87,10 @@ function lanAddress() {
  * each listed instance for its TXT record.
  */
 async function advertisedIds() {
-  if (process.platform !== 'darwin') return null;
+  // --skip-mdns: a network with no multicast (GitHub's macOS runners) can
+  // never see the advertisement; null skips those two checks, as it does
+  // where dns-sd itself is missing.
+  if (process.platform !== 'darwin' || args.includes('--skip-mdns')) return null;
   const browse = spawn('dns-sd', ['-B', '_mtglibrary._tcp']);
   let listing = '';
   browse.stdout.on('data', (chunk) => { listing += chunk; });
