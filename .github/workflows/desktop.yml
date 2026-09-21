@@ -176,6 +176,7 @@ jobs:
         run: npm run package --workspace=desktop -- --mac --require-signed --require-notarized
 
       - name: Runs under the hardened runtime
+        timeout-minutes: 8
         # The packaged app, launched for real: the server comes up on the
         # bundled Node, answers /api/v1/health, and the lifecycle checks pass.
         # A JIT crash would show here, not on a user's Mac. --skip-mdns: the

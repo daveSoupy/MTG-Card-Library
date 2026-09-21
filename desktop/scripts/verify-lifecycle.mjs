@@ -142,6 +142,16 @@ class MainProcess {
       this.ws.addEventListener('open', resolve, { once: true });
       this.ws.addEventListener('error', reject, { once: true });
     });
+    // A reply that never comes must not hang the run: when the app exits
+    // mid-call (Quit is one such call) every outstanding evaluate rejects.
+    const dropAll = (why) => {
+      for (const [id, waiting] of this.pending) {
+        this.pending.delete(id);
+        waiting.reject(new Error(`inspector ${why} before replying`));
+      }
+    };
+    this.ws.addEventListener('close', () => dropAll('closed'), { once: true });
+    this.ws.addEventListener('error', () => dropAll('errored'), { once: true });
     this.ws.addEventListener('message', (event) => {
       const message = JSON.parse(event.data);
       const waiting = this.pending.get(message.id);
@@ -323,7 +333,7 @@ async function main() {
 
   // Item 4: Quit stops the server, cleanly.
   const pid = (await main.state()).pid;
-  await main.evaluate('__mtgDesktop.quit()');
+  await main.evaluate('__mtgDesktop.quit()').catch(() => {}); // the process may go before it replies
   main.close();
   const { code } = await run.exited;
   check('app exits 0 on Quit', code === 0, `code ${code}`);
@@ -352,7 +362,7 @@ async function main() {
   });
   state = await main.state();
   check('same port reused on relaunch', state.port === port, `port ${state.port}`);
-  await main.evaluate('__mtgDesktop.quit()');
+  await main.evaluate('__mtgDesktop.quit()').catch(() => {}); // the process may go before it replies
   main.close();
   await run.exited;
 
@@ -361,6 +371,12 @@ async function main() {
   else console.log(`kept ${scratch}`);
   process.exit(failures === 0 ? 0 : 1);
 }
+
+// A hung check must fail loudly (locally and on the runner this takes about a minute), not sit until the CI job's own timeout.
+setTimeout(() => {
+  console.error('\nverify-lifecycle: did not finish within 5 minutes (a hung inspector call, most likely); giving up');
+  process.exit(1);
+}, 5 * 60_000).unref();
 
 main().catch((error) => {
   console.error(`\n${error.stack ?? error.message}`);
