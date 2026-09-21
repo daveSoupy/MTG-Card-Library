@@ -1,6 +1,6 @@
 {
   "name": "@mtg-library/desktop",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "license": "MIT",
   "author": "David Campbell",
@@ -28,21 +28,5 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
-  },
-  "build": {
-    "appId": "com.davesoupy.mtglibrary",
-    "productName": "MTG Library",
-    "win": {
-      "target": [
-        "nsis",
-        "zip"
-      ],
-      "verifyUpdateCodeSignature": false,
-      "forceCodeSigning": false
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
   }
 }

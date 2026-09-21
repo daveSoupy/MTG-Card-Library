@@ -143,11 +143,6 @@ win:
     - from: vendor/node/win32-x64/LICENSE
       to: node/LICENSE
 
-import { autoUpdater } from "electron-updater";
-
-// Disable signature check on downloadable updates for unsigned builds
-autoUpdater.verifyUpdateCodeSignature = false;
-
 nsis:
   oneClick: false
   perMachine: false
@@ -158,17 +153,3 @@ nsis:
 # Never: systemd and Docker cover Linux.
 linux:
   target: []
-
-"build": {
-  "appId": "com.davesoupy.mtglibrary",
-  "productName": "MTG Library",
-  "win": {
-    "target": ["nsis", "zip"],
-    "verifyUpdateCodeSignature": false,
-    "forceCodeSigning": false
-  },
-  "nsis": {
-    "oneClick": false,
-    "allowToChangeInstallationDirectory": true
-  }
-}

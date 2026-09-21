@@ -17,7 +17,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,7 +96,11 @@ export async function fetchNode(target) {
   if (actual !== expected) throw new Error(`SHA-256 mismatch for ${archive}: expected ${expected}, got ${actual}`);
   console.log(`  sha256 ok ${actual}`);
 
-  const work = mkdtempSync(join(tmpdir(), 'mtg-node-'));
+  // Unpack beside the destination, not in the OS temp dir: a rename across
+  // drives fails (EXDEV), and GitHub's Windows runner keeps TEMP on C: and
+  // the workspace on D:.
+  mkdirSync(join(desktopDir, 'vendor'), { recursive: true });
+  const work = mkdtempSync(join(desktopDir, 'vendor', 'mtg-node-'));
   try {
     const archivePath = join(work, archive);
     writeFileSync(archivePath, bytes);
