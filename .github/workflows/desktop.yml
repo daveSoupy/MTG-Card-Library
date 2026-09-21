@@ -40,8 +40,11 @@
 #     APPLE_TEAM_ID               the ten-character Team ID (developer.apple.com
 #                                 -> Membership details)
 #
-#   Windows — optional pair. With both set the installer is signed; with
-#   neither, it is built unsigned and the job says so. A signed installer from
+#   Windows — the job only runs when the repository *variable* BUILD_WINDOWS
+#   is "true" (Settings -> Secrets and variables -> Actions -> Variables);
+#   until a code-signing certificate is bought, a release is the Mac build
+#   alone. Then the optional pair: with both set the installer is signed;
+#   with neither, it is built unsigned and the job says so. A signed installer from
 #   a new certificate still shows SmartScreen until the certificate accrues
 #   reputation; an EV certificate skips it.
 #     WIN_CSC_LINK                the code-signing certificate as a .pfx, base64
@@ -196,6 +199,7 @@ jobs:
   # ------------------------------------------------------------------------
   windows:
     needs: release
+    if: vars.BUILD_WINDOWS == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -248,6 +252,8 @@ jobs:
   # ------------------------------------------------------------------------
   publish:
     needs: [release, mac, windows]
+    # Runs when the Mac build passed and Windows either passed or was switched off.
+    if: ${{ !cancelled() && needs.mac.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -258,7 +264,7 @@ jobs:
       - name: SHA256SUMS
         working-directory: release
         run: |
-          sha256sum *.dmg *.zip *.exe *.yml *.blockmap > SHA256SUMS
+          sha256sum ./* > SHA256SUMS
           cat SHA256SUMS
 
       - name: Upload to the release and publish it

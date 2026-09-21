@@ -28,5 +28,19 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+
+  "build": {
+  "appId": "com.davesoupy.mtglibrary",
+  "productName": "MTG Library",
+  "win": {
+    "target": ["nsis", "zip"],
+    "verifyUpdateCodeSignature": false,
+    "forceCodeSigning": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+   }
   }
 }
