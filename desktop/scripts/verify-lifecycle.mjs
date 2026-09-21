@@ -346,8 +346,9 @@ async function main() {
   main = new MainProcess();
   await main.connect();
   await until('the server to answer', async () => {
-    const s = await main.state();
-    return s.running && s.port !== null && (await health('127.0.0.1', s.port));
+    // Same race as launch 1: the handle is not there on the first polls.
+    const s = await main.state().catch(() => null);
+    return s !== null && s.running && s.port !== null && (await health('127.0.0.1', s.port));
   });
   state = await main.state();
   check('same port reused on relaunch', state.port === port, `port ${state.port}`);
