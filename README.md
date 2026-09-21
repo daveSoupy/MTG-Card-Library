@@ -5,6 +5,12 @@ machine at home; open it from your desktop to build decks and from your phone at
 a card shop to record a trade. All your data lives in one SQLite file on your
 own box.
 
+> **Download the desktop app** (latest release, updates itself):
+> [**macOS**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.5-mac-arm64.dmg) (Apple silicon, signed and notarised) ·
+> [**Windows**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.5-win-x64-setup.exe) (unsigned for now — click *More info → Run anyway*) ·
+> [all releases](https://github.com/daveSoupy/MTG-Card-Library/releases).
+> Prefer a server? See [Running it](#running-it).
+
 - **Full card database** synced from [Scryfall](https://scryfall.com) bulk data,
   so search never touches the internet and works with Scryfall's syntax
   (`c:ur t:instant cmc<=2`, `o:"draw a card"`, plus `owned:`, `available:` and
