@@ -106,7 +106,8 @@ self-hosted install, so it is one or the other.
 **Download:** the latest release on the
 [Releases page](https://github.com/daveSoupy/MTG-Card-Library/releases/latest) —
 `MTG-Library-<version>-mac-arm64.dmg` for a Mac, `MTG-Library-<version>-win-x64-setup.exe`
-for Windows. It is 150–250 MB, most of it the bundled runtime. **It updates
+for Windows (**unsigned for now** — see below for the one extra click). It is
+150–250 MB, most of it the bundled runtime. **It updates
 itself:** the app checks for a new release when it opens and once a day,
 downloads it in the background, and applies it the next time you quit (or
 sooner from *Restart to update* in the menu). Nothing interrupts you
@@ -129,9 +130,12 @@ What the two operating systems say on first open:
 - **macOS** — nothing. The build is signed with a Developer ID and notarised
   by Apple, so the `.dmg` opens straight from the browser download with no
   warning and no terminal.
-- **Windows** — the installer is not signed yet (a code-signing certificate
-  is a separate purchase), so SmartScreen shows *"Windows protected your PC"*.
-  Click **More info → Run anyway**; that is the whole of it. The first time
+- **Windows** — the installer is **unsigned for now** (a code-signing
+  certificate is a separate purchase, not yet made), so SmartScreen shows
+  *"Windows protected your PC"*. Click **More info → Run anyway**; that is the
+  whole of it — the app installs, runs and updates itself exactly as a signed
+  one would, and a later signed release installs over it without any extra
+  step. The first time
   you turn on *Allow other devices on this network*, Windows Defender Firewall
   asks about `node.exe`; allow it on private networks or phones will not find
   the app.
