@@ -21,14 +21,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-
 const here = fileURLToPath(new URL('.', import.meta.url));
 const desktopDir = join(here, '..');
 const rootDir = join(desktopDir, '..');
-const normalizedZipPath = path.resolve(zipPath).replace(/\\/g, '/');
-const normalizedDestDir = path.resolve(destDir).replace(/\\/g, '/');
+
+// bsdtar extracts both .tar.gz and .zip. On Windows it must be the system's
+// own copy by full path: under Git Bash (the GitHub runner's `shell: bash`)
+// a bare `tar` is Git's GNU tar, which reads `C:` in a path as a hostname.
+const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
 
 /** Node's own naming for each target, and the file inside the archive we keep. */
 export const NODE_TARGETS = {
@@ -101,8 +101,7 @@ export async function fetchNode(target) {
   try {
     const archivePath = join(work, archive);
     writeFileSync(archivePath, bytes);
-    // bsdtar (macOS, and Windows 10+) extracts both .tar.gz and .zip.
-    execFileSync('tar', ['-xf', normalizedZipPath, '-C', normalizedDestDir], { stdio: 'inherit' });
+    execFileSync(TAR, ['-xf', archivePath, '-C', work], { stdio: 'inherit' });
     const extracted = join(work, archive.replace(/\.(tar\.gz|zip)$/, ''));
 
     const dir = vendorDir(target);

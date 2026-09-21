@@ -12,11 +12,13 @@
 # both installers. docker.yml is not touched by this file and knows nothing
 # about it.
 #
-# The release is created as a draft first and published only after both
-# builds have passed their gates and uploaded, so an installed app that
-# checks for updates never sees a release with half its files. If either job
-# fails the draft stays a draft — delete it or fix and re-run; a re-run
-# uploads over it.
+# The release is created as a draft first and published only after the Mac
+# build has passed its gates and uploaded, so an installed app that checks
+# for updates never sees a release with half its files. The Windows job is
+# optional in both senses: it runs only when switched on, and if it fails the
+# release still goes out with the Mac files — a broken Windows build must
+# never hold the Mac one back. If the Mac job fails the draft stays a draft;
+# fix and re-run, and the re-run uploads over it.
 #
 # The tag must equal desktop/package.json's version: that version is what the
 # running app compares against latest*.yml, so a tag that does not match it
@@ -41,9 +43,9 @@
 #                                 -> Membership details)
 #
 #   Windows — the job only runs when the repository *variable* BUILD_WINDOWS
-#   is "true" (Settings -> Secrets and variables -> Actions -> Variables);
-#   until a code-signing certificate is bought, a release is the Mac build
-#   alone. Then the optional pair: with both set the installer is signed;
+#   is "true" (Settings -> Secrets and variables -> Actions -> Variables),
+#   and its failure never blocks the release. Then the optional pair: with
+#   both set the installer is signed;
 #   with neither, it is built unsigned and the job says so. A signed installer from
 #   a new certificate still shows SmartScreen until the certificate accrues
 #   reputation; an EV certificate skips it.
@@ -76,7 +78,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Tag matches desktop/package.json
         id: version
@@ -109,9 +111,9 @@ jobs:
     needs: release
     runs-on: macos-latest # Apple silicon since macos-14; the build is arm64-only
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -183,7 +185,7 @@ jobs:
       - name: What was built
         run: ls -la desktop/out/*.dmg desktop/out/*.zip desktop/out/*.blockmap desktop/out/latest-mac.yml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: mac
           path: |
@@ -202,9 +204,9 @@ jobs:
     if: vars.BUILD_WINDOWS == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -237,7 +239,7 @@ jobs:
         shell: bash
         run: ls -la desktop/out/*.exe desktop/out/*.blockmap desktop/out/latest.yml
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: windows
           path: |
@@ -248,18 +250,27 @@ jobs:
           retention-days: 7
 
   # ------------------------------------------------------------------------
-  # Both passed: one SHA256SUMS over everything, upload, publish the draft.
+  # Mac passed: one SHA256SUMS over whatever was built, upload, publish.
   # ------------------------------------------------------------------------
   publish:
     needs: [release, mac, windows]
-    # Runs when the Mac build passed and Windows either passed or was switched off.
-    if: ${{ !cancelled() && needs.mac.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') }}
+    # The Mac build is the release; Windows is added when it succeeded and
+    # left out (with a warning) when it was off or failed.
+    if: ${{ !cancelled() && needs.mac.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           path: release
           merge-multiple: true
+
+      - name: Windows outcome
+        run: |
+          case "${{ needs.windows.result }}" in
+            success) echo "Windows installer included" ;;
+            skipped) echo "::notice::Windows build is off (repository variable BUILD_WINDOWS is not 'true'); Mac-only release" ;;
+            *)       echo "::warning::Windows build ${{ needs.windows.result }}; publishing the Mac release without it. Fix the Windows job and re-run this workflow to add the installer to the same release." ;;
+          esac
 
       - name: SHA256SUMS
         working-directory: release
