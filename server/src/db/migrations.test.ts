@@ -49,7 +49,15 @@ function databaseAtVersion(version: number): Database.Database {
   // "old" database identical to a fresh one, and the drift check below would
   // pass without ever comparing anything — so the assertion that the fixture
   // really is missing something is what keeps this list honest.
+  //
+  // Some inverses cannot be derived from the migration at all. Undoing a
+  // DROP COLUMN means putting the column back, and the statement that dropped
+  // it never said what type it was; undoing a table rebuild means rebuilding
+  // it the old way. Those migrations declare their own inverse with a
+  // `-- rewind: <statement>` comment, which runs here before the derived ones.
   for (const migration of [...MIGRATIONS].reverse().filter((m) => m.version > version)) {
+    // Declared inverses first: a re-added column may be one a later step reads.
+    for (const statement of rewindDirectives(migration.sql)) db.exec(statement);
     // Triggers first: SQLite re-validates every trigger body whenever the
     // schema is re-read, so a trigger left behind pointing at a table the next
     // line drops fails everything after it.
@@ -76,24 +84,41 @@ function databaseAtVersion(version: number): Database.Database {
   return db;
 }
 
+/**
+ * A migration's SQL with comments stripped.
+ *
+ * Every extractor below runs over this rather than the raw text, so prose in a
+ * comment can never be mistaken for DDL. That matters now that a migration can
+ * carry a `-- rewind:` directive: an inverse reading "ALTER TABLE x ADD COLUMN
+ * y" would otherwise be picked up by addedColumns() and promptly undone.
+ */
+function withoutComments(sql: string): string {
+  return sql.replace(/--[^\n]*/g, ' ');
+}
+
+/** The inverses a migration declares for itself, as `-- rewind: <statement>`. */
+function rewindDirectives(sql: string): string[] {
+  return [...sql.matchAll(/--\s*rewind:\s*(.+)/gi)].map((m) => m[1].trim());
+}
+
 function createdTables(sql: string): string[] {
-  return [...sql.matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+  return [...withoutComments(sql).matchAll(/CREATE TABLE (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function createdTriggers(sql: string): string[] {
-  return [...sql.matchAll(/CREATE TRIGGER (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+  return [...withoutComments(sql).matchAll(/CREATE TRIGGER (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function createdViews(sql: string): string[] {
-  return [...sql.matchAll(/CREATE VIEW (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+  return [...withoutComments(sql).matchAll(/CREATE VIEW (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function createdIndexes(sql: string): string[] {
-  return [...sql.matchAll(/CREATE(?: UNIQUE)? INDEX (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
+  return [...withoutComments(sql).matchAll(/CREATE(?: UNIQUE)? INDEX (?:IF NOT EXISTS )?(\w+)/gi)].map((m) => m[1]);
 }
 
 function addedColumns(sql: string): Array<{ table: string; column: string }> {
-  return [...sql.matchAll(/ALTER TABLE (\w+) ADD COLUMN (\w+)/gi)]
+  return [...withoutComments(sql).matchAll(/ALTER TABLE (\w+) ADD COLUMN (\w+)/gi)]
     .map((m) => ({ table: m[1], column: m[2] }));
 }
 

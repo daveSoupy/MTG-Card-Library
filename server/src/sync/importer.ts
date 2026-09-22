@@ -66,12 +66,6 @@ function jsonArray(value: unknown): string | null {
   return Array.isArray(value) && value.length > 0 ? JSON.stringify(value) : null;
 }
 
-function jsonObject(value: unknown): string | null {
-  return value && typeof value === 'object' && Object.keys(value).length > 0
-    ? JSON.stringify(value)
-    : null;
-}
-
 /**
  * Scryfall puts `oracle_id` on the card for most layouts, but reversible cards
  * carry it on the individual faces instead.
@@ -153,10 +147,10 @@ export class CardImporter {
          is_oversized, in_booster, image_small, image_normal, image_large, image_png,
          image_art_crop, image_status, price_usd, price_usd_foil, price_usd_etched,
          price_eur, price_eur_foil, price_tix, prices_updated_at,
-         tcgplayer_id, tcgplayer_etched_id, cardmarket_id, purchase_uris,
+         tcgplayer_id, tcgplayer_etched_id, cardmarket_id,
          scryfall_uri, scryfall_updated_at, synced_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-              strftime('%Y-%m-%dT%H:%M:%SZ','now'),?,?,?,?,?,?,
+              strftime('%Y-%m-%dT%H:%M:%SZ','now'),?,?,?,?,?,
               strftime('%Y-%m-%dT%H:%M:%SZ','now'))
       ON CONFLICT(id) DO UPDATE SET
         oracle_id=excluded.oracle_id, set_code=excluded.set_code,
@@ -178,7 +172,7 @@ export class CardImporter {
         price_eur=excluded.price_eur, price_eur_foil=excluded.price_eur_foil,
         price_tix=excluded.price_tix, prices_updated_at=excluded.prices_updated_at,
         tcgplayer_id=excluded.tcgplayer_id, tcgplayer_etched_id=excluded.tcgplayer_etched_id,
-        cardmarket_id=excluded.cardmarket_id, purchase_uris=excluded.purchase_uris,
+        cardmarket_id=excluded.cardmarket_id,
         scryfall_uri=excluded.scryfall_uri, scryfall_updated_at=excluded.scryfall_updated_at,
         synced_at=excluded.synced_at`);
 
@@ -379,7 +373,6 @@ export class CardImporter {
       price(prices, 'usd'), price(prices, 'usd_foil'), price(prices, 'usd_etched'),
       price(prices, 'eur'), price(prices, 'eur_foil'), price(prices, 'tix'),
       num(card.tcgplayer_id), num(card.tcgplayer_etched_id), num(card.cardmarket_id),
-      jsonObject(card.purchase_uris),
       text(card.scryfall_uri),
       text(card.released_at),
     );

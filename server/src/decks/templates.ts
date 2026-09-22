@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { CATEGORY_LABELS } from '../sync/categories.ts';
 import { categoryListMatches, parseCategoryList } from './categories.ts';
 import type { DeckCard } from './types.ts';
+import { prepared } from '../db/index.ts';
 
 /** Setting key: when '1', the "Follow a template" control appears on decks. */
 export const SHOW_DECK_TEMPLATES = 'show_deck_templates';
@@ -179,14 +180,37 @@ export class TemplateStore {
     this.db = db;
   }
 
+  /**
+   * Every template with its targets, in two queries rather than one per row.
+   *
+   * The targets came back through a per-template SELECT inside the map, which
+   * is the shape that quietly turns a template list into N+1 round trips. One
+   * ordered sweep of the child table grouped in JS gives the same answer: the
+   * ORDER BY carries template_id first so each group is already contiguous and
+   * already in sort_order within itself.
+   */
   list(): DeckTemplate[] {
-    const rows = this.db.prepare('SELECT * FROM deck_templates ORDER BY sort_order, name COLLATE NOCASE').all() as any[];
-    return rows.map((row) => {
-      const targets = (this.db.prepare(
-        'SELECT * FROM deck_template_targets WHERE template_id = ? ORDER BY sort_order',
-      ).all(row.id) as any[]).map(toTarget);
-      return toTemplate(row, targets);
-    });
+    const rows = prepared(
+      this.db,
+      'SELECT * FROM deck_templates ORDER BY sort_order, name COLLATE NOCASE',
+    ).all() as any[];
+    if (rows.length === 0) return [];
+
+    const byTemplate = new Map<number, TemplateTargetRow[]>();
+    const targetRows = prepared(
+      this.db,
+      'SELECT * FROM deck_template_targets ORDER BY template_id, sort_order',
+    ).all() as any[];
+    for (const target of targetRows) {
+      let group = byTemplate.get(target.template_id);
+      if (!group) {
+        group = [];
+        byTemplate.set(target.template_id, group);
+      }
+      group.push(toTarget(target));
+    }
+
+    return rows.map((row) => toTemplate(row, byTemplate.get(row.id) ?? []));
   }
 
   get(id: number): DeckTemplate | null {

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { getSetting } from '../db/index.ts';
+import { getSetting, prepared } from '../db/index.ts';
 import { reconcileDeckClaims } from './reconcile.ts';
 import { buildabilityDetail, type BuildabilityRow } from './buildability.ts';
 
@@ -994,7 +994,7 @@ function moveCopies(
   db: Database.Database,
   input: { lotId: number; quantity: number; toLocationId: number; cardName: string },
 ): MoveOutcome {
-  const source = db.prepare(`
+  const source = prepared(db, `
     SELECT ci.id, ci.quantity, ci.location_id, ${LOT_IDENTITY_COLUMNS}
       FROM collection_items ci WHERE ci.id = ?`).get(input.lotId) as any | undefined;
 
@@ -1028,7 +1028,7 @@ function moveCopies(
   // offer with no record of why, and a partial move would leave a listing
   // claiming more copies than remain.
   const adjustments: TradeListAdjustment[] = [];
-  const listings = db.prepare(`
+  const listings = prepared(db, `
     SELECT tli.id, tli.quantity, tl.name AS list_name
       FROM trade_list_items tli
       JOIN trade_lists tl ON tl.id = tli.trade_list_id
@@ -1041,7 +1041,7 @@ function moveCopies(
     // over-stated comes back within bounds rather than staying wrong.
     const next = Math.min(listing.quantity - moved, remaining);
     if (next > 0) {
-      db.prepare(`UPDATE trade_list_items SET quantity = ?,
+      prepared(db, `UPDATE trade_list_items SET quantity = ?,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`)
         .run(next, listing.id);
       adjustments.push({
@@ -1051,7 +1051,7 @@ function moveCopies(
         removed: false,
       });
     } else {
-      db.prepare('DELETE FROM trade_list_items WHERE id = ?').run(listing.id);
+      prepared(db, 'DELETE FROM trade_list_items WHERE id = ?').run(listing.id);
       adjustments.push({
         listName: listing.list_name,
         cardName: input.cardName,
@@ -1062,20 +1062,20 @@ function moveCopies(
   }
 
   if (remaining > 0) {
-    db.prepare(`UPDATE collection_items SET quantity = ?,
+    prepared(db, `UPDATE collection_items SET quantity = ?,
                   updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`)
       .run(remaining, source.id);
   } else {
-    db.prepare('DELETE FROM collection_items WHERE id = ?').run(source.id);
+    prepared(db, 'DELETE FROM collection_items WHERE id = ?').run(source.id);
   }
 
   const destination = findLot(db, input.toLocationId, identity);
   if (destination) {
-    db.prepare(`UPDATE collection_items SET quantity = ?,
+    prepared(db, `UPDATE collection_items SET quantity = ?,
                   updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`)
       .run(destination.quantity + moved, destination.id);
   } else {
-    db.prepare(`
+    prepared(db, `
       INSERT INTO collection_items
         (printing_id, location_id, quantity, finish, condition, language, price_override,
          is_signed, is_altered, notes, acquired_at, acquired_unit_cost, acquisition_kind,
@@ -1167,14 +1167,14 @@ export function completeRun(db: Database.Database, runId: number): CompletionSum
         adjustments.push(...outcome.adjustments);
         if (outcome.problem) {
           problems.push(outcome.problem);
-          db.prepare('UPDATE deck_assembly_items SET notes = ? WHERE id = ?')
+          prepared(db, 'UPDATE deck_assembly_items SET notes = ? WHERE id = ?')
             .run(outcome.problem, item.id);
         }
         // The moved copies are now in the deck box. The lot they came from may
         // be gone, so the item stops pointing at it and keeps its snapshot,
         // which is what a later disassembly matches on.
         if (run.kind === 'assemble') {
-          db.prepare('UPDATE deck_assembly_items SET collection_item_id = NULL WHERE id = ?')
+          prepared(db, 'UPDATE deck_assembly_items SET collection_item_id = NULL WHERE id = ?')
             .run(item.id);
         }
       }

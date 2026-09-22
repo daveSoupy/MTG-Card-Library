@@ -375,22 +375,6 @@ export function allocationFor(
   return allocationForMany(db, [oracleId], options).get(oracleId)!;
 }
 
-export function ownedFor(db: Database.Database, oracleId: string): number {
-  return allocationFor(db, oracleId).owned;
-}
-
-export function tradeListedFor(db: Database.Database, oracleId: string): number {
-  return allocationFor(db, oracleId).tradeListed;
-}
-
-export function reservedFor(
-  db: Database.Database,
-  oracleId: string,
-  options: AllocationOptions = {},
-): number {
-  return allocationFor(db, oracleId, options).reserved;
-}
-
 export function availableFor(
   db: Database.Database,
   oracleId: string,

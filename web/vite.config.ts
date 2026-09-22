@@ -16,6 +16,10 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // No sourcemap in the production build. It was 2,036,556 bytes — four times
+    // the app itself — and @fastify/static's wildcard served it publicly, so it
+    // shipped in the Docker image and both Electron bundles for no one's benefit.
+    // Set this true locally when you actually need to debug a built bundle.
+    sourcemap: false,
   },
 });

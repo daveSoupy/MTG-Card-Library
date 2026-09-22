@@ -170,7 +170,6 @@ button { cursor: pointer; }
 .topbar-random { display: contents; }
 
 /* Desktop width for the sort menu; the phone media query lets it shrink. */
-.sort-select { width: 140px; }
 
 .brand {
   font-weight: 700;
@@ -2181,7 +2180,6 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
      tall, so the button can be too without growing anything. */
   .searchbox .hint { min-height: 40px; padding: 0 6px; }
   /* Sort menu shrinks and shares the controls row with the buttons. */
-  .sort-select { flex: 1 1 auto; width: auto; min-width: 0; }
   .results { padding: 10px; }
   .list-page { padding: 10px; }
   .trade-editor .trade-columns { grid-template-columns: 1fr; }

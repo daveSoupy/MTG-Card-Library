@@ -856,10 +856,6 @@ export const startDisassembly = (deckId: number) =>
   send<AssemblySheet>(`/api/v1/decks/${deckId}/disassembly`, 'POST');
 
 /** The run in progress, if any — so the deck header can offer to resume it. */
-export const fetchOpenRun = (deckId: number, signal?: AbortSignal) =>
-  getJson<{ run: AssemblyRun | null }>(`/api/v1/decks/${deckId}/assembly`, signal)
-    .then((r) => r.run);
-
 export const fetchRunHistory = (deckId: number, signal?: AbortSignal) =>
   getJson<{ runs: AssemblyRun[] }>(`/api/v1/decks/${deckId}/assembly/runs`, signal)
     .then((r) => r.runs);
@@ -1077,30 +1073,6 @@ export const addRecommendedLands = (deckId: number) =>
 
 export const fetchTemplates = (signal?: AbortSignal) =>
   getJson<{ templates: DeckTemplate[] }>('/api/v1/deck-templates', signal).then((r) => r.templates);
-
-export interface TemplateTargetInput {
-  category: string;
-  ideal: number;
-  minCount?: number | null;
-  maxCount?: number | null;
-  note?: string | null;
-}
-
-export const createTemplate = (input: {
-  name: string; formatCode?: string | null; archetype?: string | null;
-  description?: string | null; targets?: TemplateTargetInput[];
-}) => send<{ template: DeckTemplate }>('/api/v1/deck-templates', 'POST', input).then((r) => r.template);
-
-export const updateTemplate = (id: number, changes: {
-  name?: string; formatCode?: string | null; archetype?: string | null;
-  description?: string | null; targets?: TemplateTargetInput[];
-}) => send<{ template: DeckTemplate }>(`/api/v1/deck-templates/${id}`, 'PATCH', changes).then((r) => r.template);
-
-export const cloneTemplate = (id: number, name?: string) =>
-  send<{ template: DeckTemplate }>(`/api/v1/deck-templates/${id}/clone`, 'POST', { name }).then((r) => r.template);
-
-export const deleteTemplate = (id: number) =>
-  send<void>(`/api/v1/deck-templates/${id}`, 'DELETE');
 
 export type CostMethod = 'unknown' | 'free' | 'market' | 'fixed' | 'box';
 
@@ -1421,10 +1393,6 @@ export const createLocation = (name: string, kind: string) =>
   send<{ locations: StorageLocation[] }>('/api/v1/locations', 'POST', { name, kind })
     .then((r) => r.locations);
 
-export const updateLocation = (id: number, changes: { name?: string; kind?: string }) =>
-  send<{ locations: StorageLocation[] }>(`/api/v1/locations/${id}`, 'PATCH', changes)
-    .then((r) => r.locations);
-
 /** `moveTo` relocates the contents first; without it a non-empty location 409s. */
 export const deleteLocation = (id: number, moveTo?: number) =>
   send<{ locations: StorageLocation[] }>(
@@ -1691,9 +1659,6 @@ export interface DeckDiff {
 export const setDeckCover = (deckId: number, printingId: string | null) =>
   send<{ decks: DeckSummary[] }>(`/api/v1/decks/${deckId}/cover`, 'PUT', { printingId });
 
-export const fetchDeckTags = (signal?: AbortSignal) =>
-  getJson<{ tags: DeckTag[] }>('/api/v1/deck-tags', signal).then((r) => r.tags);
-
 export const addDeckTag = (deckId: number, tag: string) =>
   send<{ tags: string[]; allTags: DeckTag[] }>(`/api/v1/decks/${deckId}/tags`, 'POST', { tag });
 
@@ -1754,7 +1719,6 @@ export const createTrade = (input: { counterpartyName: string; counterpartyConta
 export const updateTrade = (id: number, changes: Record<string, unknown>) =>
   send<{ trade: Trade }>(`/api/v1/trades/${id}`, 'PATCH', changes).then((r) => r.trade);
 export const deleteTrade = (id: number) => send<void>(`/api/v1/trades/${id}`, 'DELETE');
-export const cancelTrade = (id: number) => send<{ trade: Trade }>(`/api/v1/trades/${id}/cancel`, 'POST', {}).then((r) => r.trade);
 export const addTradeItem = (id: number, item: Record<string, unknown>) =>
   send<{ trade: Trade }>(`/api/v1/trades/${id}/items`, 'POST', item).then((r) => r.trade);
 export const updateTradeItem = (id: number, itemId: number, changes: Record<string, unknown>) =>

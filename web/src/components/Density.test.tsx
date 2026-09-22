@@ -201,7 +201,15 @@ describe('Lined-up', () => {
     // wider than the pane — so this checks the rule itself rather than a
     // layout jsdom does not perform.
     const css = readFileSync('src/styles.css', 'utf8');
-    expect(css).toMatch(/\.cascade-col\s*\{[^}]*width:\s*min\(var\(--cascade-card-w\),\s*100%\)/);
+    // Matched loosely on purpose. This asserts the two properties the comment
+    // above claims — the width is derived from --cascade-card-w, and it is
+    // capped at 100% so it can never exceed the pane — without pinning the
+    // exact expression between them. The literal form was pinned once and went
+    // stale the moment --cascade-gutter was added to the calc, which made a
+    // passing rule look like a failure.
+    expect(css).toMatch(
+      /\.cascade-col\s*\{[^}]*width:\s*min\([^;]*var\(--cascade-card-w\)[^;]*,\s*100%\)/,
+    );
     // Wrapping, not shrinking — two columns that do not fit go onto two rows
     // rather than each squeezing to half a card.
     expect(css).toMatch(/\.deck-cascade\s*\{[^}]*flex-wrap:\s*wrap/);

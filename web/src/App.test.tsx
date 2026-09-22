@@ -88,7 +88,6 @@ vi.mock('./api.ts', async (importOriginal) => ({
   fetchTradeLists: vi.fn(async () => []),
   fetchSetCompletion: vi.fn(async () => []),
   fetchDecks: vi.fn(async () => []),
-  fetchDeckTags: vi.fn(async () => []),
   // Pending forever: the routing tests only need the deck builder to mount
   // for the id in the URL, not to render a deck.
   fetchDeck: vi.fn(() => new Promise(() => undefined)),

@@ -6,6 +6,7 @@ import type { CollectionStore, Finish, Condition } from '../collection/store.ts'
 import type { AlertStore } from '../alerts/store.ts';
 import { reconcileWants, type FulfilledWant } from '../collection/wants.ts';
 import { reconcileAlerts } from '../decks/contention.ts';
+import { prepared } from '../db/index.ts';
 
 /**
  * Recording trades.
@@ -673,7 +674,7 @@ export class TradeStore {
         // may have been edited since the trade was drafted, and the user's
         // choice of lot is the stronger statement of which copies are meant.
         // Then other matching lots, oldest first.
-        const lots = this.db.prepare(`
+        const lots = prepared(this.db, `
           SELECT id, quantity, finish, condition, language,
                  acquired_unit_cost, acquired_at, location_id
           FROM collection_items
@@ -691,7 +692,7 @@ export class TradeStore {
           if (remaining <= 0) break;
           const take = Math.min(remaining, lot.quantity);
 
-          this.db.prepare(`
+          prepared(this.db, `
             INSERT INTO collection_disposals
               (printing_id, quantity, finish, condition, language, disposed_on, disposal_kind,
                unit_proceeds_usd, unit_cost_usd, acquired_at, source_lot_id, trade_id,
@@ -777,7 +778,7 @@ export class TradeStore {
   ): void {
     out.forEach((item, index) => {
       const primaryLocation = consumed.find((c) => c.requestIndex === index)?.locationId ?? null;
-      this.db.prepare(`
+      prepared(this.db, `
         UPDATE trade_items
            SET source_location_id = COALESCE(source_location_id, ?),
                snapshot_name = ?, snapshot_set_code = ?, snapshot_number = ?,
@@ -807,7 +808,7 @@ export class TradeStore {
       // would quietly lose that intent over a trade it had no part in.
       const statuses = reservingStatuses(allocationSettings(this.db))
         .map((status) => `'${status}'`).join(',');
-      const claims = this.db.prepare(`
+      const claims = prepared(this.db, `
         SELECT dc.id, dc.quantity_from_collection AS q, d.name AS deck_name
         FROM deck_cards dc JOIN decks d ON d.id = dc.deck_id
         WHERE dc.oracle_id = ? AND dc.board IN ('main','side','command')
@@ -820,7 +821,7 @@ export class TradeStore {
       for (const claim of claims) {
         if (overclaim <= 0) break;
         const reduce = Math.min(claim.q, overclaim);
-        this.db.prepare('UPDATE deck_cards SET quantity_from_collection = ? WHERE id = ?')
+        prepared(this.db, 'UPDATE deck_cards SET quantity_from_collection = ? WHERE id = ?')
           .run(claim.q - reduce, claim.id);
         overclaim -= reduce;
       }
@@ -851,7 +852,7 @@ export class TradeStore {
       }>;
 
     for (const row of rows) {
-      this.db.prepare('UPDATE trade_list_items SET quantity = ? WHERE id = ?')
+      prepared(this.db, 'UPDATE trade_list_items SET quantity = ? WHERE id = ?')
         .run(row.owned, row.id);
       this.alerts.raise({
         kind: 'trade_list_clamped',

@@ -57,7 +57,6 @@ export const CATEGORY_LIST = { type: ['string', 'null'], maxLength: 200 } as con
 export const FLAG = { type: 'boolean' } as const;
 
 /** 'YYYY-MM-DD', the form every date column in the schema stores. */
-export const DATE = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' } as const;
 export const DATE_OR_NULL = {
   type: ['string', 'null'], pattern: '^\\d{4}-\\d{2}-\\d{2}$',
 } as const;

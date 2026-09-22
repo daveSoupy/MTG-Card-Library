@@ -63,8 +63,6 @@ export interface DensityPrefs {
   overrides: Partial<Record<DensityPage, Density>>;
 }
 
-export const DEFAULT_DENSITY_PREFS: DensityPrefs = { global: 'full', overrides: {} };
-
 const GLOBAL_KEY = 'mtg.density';
 const PAGE_KEY: Record<DensityPage, string> = {
   browse: 'mtg.density.browse',

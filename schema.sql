@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 21;
+PRAGMA user_version = 22;
 
 
 -- =====================================================================
@@ -282,10 +282,13 @@ CREATE TABLE card_printings (
     prices_updated_at       TEXT,
 
     -- Outbound links (Phase 1 detail view, Phase 5 cart links).
+    -- Scryfall's purchase_uris JSON is deliberately NOT stored: it was 60MB of
+    -- this database, written on every sync and read by nothing. The three ids
+    -- below are everything those affiliate URLs contain, so a "buy this card"
+    -- link is built at read time instead of cached.
     tcgplayer_id            INTEGER,
     tcgplayer_etched_id     INTEGER,
     cardmarket_id           INTEGER,
-    purchase_uris           TEXT,   -- JSON object from Scryfall
     scryfall_uri            TEXT,
 
     scryfall_updated_at     TEXT,

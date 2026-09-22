@@ -94,6 +94,26 @@ function stageBase(base) {
   for (const bin of walk(join(base, 'node_modules'), { directories: true, keep: (name) => name === '.bin' })) {
     rmSync(bin, { recursive: true, force: true });
   }
+  // The C source better-sqlite3 builds from. We ship the prebuilt .node and
+  // never compile on a user's machine, so the amalgamation is 9.5MB of dead
+  // weight in every installer, per target.
+  rmSync(join(base, 'node_modules', 'better-sqlite3', 'deps'), { recursive: true, force: true });
+
+  // Third-party test fixtures — about 1,200 files. Worth removing for the
+  // bytes, but the real reason is signing: @electron/osx-sign tries to sign
+  // every file whose *content* looks binary, and these directories carry .jpg,
+  // .zip and similar fixtures that codesign then stores a signature for in an
+  // extended attribute, which the outer bundle refuses when sealing Resources.
+  // That is the hazard electron-builder.yml's `signIgnore` works around; this
+  // removes the cause rather than the symptom. (Keep `signIgnore` — it also
+  // covers the web client's own PNG icons, which do ship.)
+  for (const dir of walk(join(base, 'node_modules'), {
+    directories: true,
+    keep: (name) => name === 'test' || name === 'tests',
+  })) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
   // The web and desktop manifests only existed for npm's benefit.
   rmSync(join(base, 'desktop'), { recursive: true, force: true });
   rmSync(join(base, 'web'), { recursive: true, force: true });
@@ -102,8 +122,11 @@ function stageBase(base) {
   mkdirSync(join(base, 'server', 'scripts'));
   cpSync(join(rootDir, 'server', 'scripts', 'check-sqlite.mjs'), join(base, 'server', 'scripts', 'check-sqlite.mjs'));
   cpSync(join(rootDir, 'web', 'dist'), join(base, 'web', 'dist'), { recursive: true });
-  // Source maps are dev output; the server's dist has them beside every file.
-  for (const map of walk(join(base, 'server', 'dist'), { keep: (name) => name.endsWith('.map') })) unlinkSync(map);
+  // Source maps are dev output. This sweeps the whole staged tree, not just
+  // server/dist: dependencies ship their own (638 files, 14MB measured), and
+  // web/dist carried a 2MB one until the production build stopped emitting it.
+  // Walking `base` covers all three without having to know which.
+  for (const map of walk(base, { keep: (name) => name.endsWith('.map') })) unlinkSync(map);
   const links = walk(base, { symlinks: true, keep: () => true });
   if (links.length > 0) throw new Error(`symlinks left in the staged tree:\n  ${links.join('\n  ')}`);
 }

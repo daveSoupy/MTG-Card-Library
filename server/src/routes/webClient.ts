@@ -16,7 +16,14 @@ export async function registerWebClient(app: FastifyInstance, webDist: string): 
   // directory once at registration, so a rebuild's new hashed filenames are
   // unknown and fall through to the HTML fallback — which the browser then
   // rejects as a module script.
-  await app.register(fastifyStatic, { root: webDist });
+  // `preCompressed` serves `<file>.br` or `<file>.gz` when the browser accepts
+  // one and the file exists, falling back to the original when it does not —
+  // so a dist built without `web/scripts/precompress.mjs` still works, just
+  // uncompressed. The bundle measured 487KB raw against 144KB gzipped, and
+  // this way that 343KB is saved without the server spending any CPU per
+  // request. @fastify/compress sees the encoding is already set and leaves it
+  // alone; it only handles the dynamic JSON responses.
+  await app.register(fastifyStatic, { root: webDist, preCompressed: true });
 
   // Two files must be revalidated on every load; `no-cache` means exactly
   // that, not "never store". The service worker, which the browser may

@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import fastifyCompress from '@fastify/compress';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +67,28 @@ const app = Fastify({
 // Known error classes become their 4xx; anything else is a bare 500 with the
 // stack in the log and nothing in the response.
 app.setErrorHandler(errorHandler);
+
+// Compress every response big enough to be worth it. Measured on the real
+// library: a 60-card search page is 46KB raw and 7KB gzipped, /api/v1/sets is
+// 96KB raw and 14KB gzipped — 6.6x, on the responses a phone waits for most.
+//
+// gzip is listed before brotli deliberately, which is the reverse of this
+// plugin's default. Brotli wins a few percent on size and costs several times
+// the CPU to produce, and this server is expected to run on a Pi or an old
+// NAS; for a response generated fresh on every request that trade is the wrong
+// way round. The *static* bundle is the opposite case — compressed once at
+// build time, served thousands of times — so it is pre-compressed to both and
+// served by @fastify/static, which picks the best one the browser accepts.
+//
+// Two things are deliberately not compressed, and neither needs configuring:
+// card images, because mime-db marks JPEG and PNG incompressible, and the sync
+// progress stream, because it writes to reply.raw and so never reaches an
+// onSend hook at all. Compressing SSE would buffer it and stall the progress
+// bar — worth knowing before anyone "fixes" that route to use reply.send.
+await app.register(fastifyCompress, {
+  encodings: ['gzip', 'br', 'deflate'],
+  threshold: 1024,
+});
 
 registerCardRoutes(app, store);
 registerSyncRoutes(app, library.db, sync);

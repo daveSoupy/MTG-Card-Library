@@ -48,12 +48,6 @@ export function progressFraction(sheet: AssemblySheet): number {
   return sheet.summary.pickedCards / sheet.summary.cardsToPull;
 }
 
-/** What the two kinds of run are called everywhere they are named. */
-export const RUN_VERB: Record<AssemblyRun['kind'], string> = {
-  assemble: 'Assemble',
-  disassemble: 'Put away',
-};
-
 export const RUN_NOUN: Record<AssemblyRun['kind'], string> = {
   assemble: 'pull sheet',
   disassemble: 'put-away sheet',

@@ -162,6 +162,10 @@ export function pushEntriesToWantList(
       -- Re-opens an entry that had been marked fulfilled but is wanted again.
       status = 'active'`);
 
+  const findItem = db.prepare(
+    'SELECT id FROM want_list_items WHERE want_list_id = ? AND oracle_id = ?',
+  );
+
   const upsertDeckNeed = db.prepare(`
     INSERT INTO want_list_item_decks (want_list_item_id, deck_id, quantity)
     VALUES (?,?,?)
@@ -182,17 +186,21 @@ export function pushEntriesToWantList(
     let updated = 0;
 
     for (const entry of wanted) {
-      const before = db.prepare(
-        'SELECT id FROM want_list_items WHERE want_list_id = ? AND oracle_id = ?',
-      ).get(target.id, entry.oracleId) as { id: number } | undefined;
+      const before = findItem.get(target.id, entry.oracleId) as { id: number } | undefined;
+      const result = upsertItem.run(target.id, entry.oracleId, entry.needed);
 
-      upsertItem.run(target.id, entry.oracleId, entry.needed);
-      const item = db.prepare(
-        'SELECT id FROM want_list_items WHERE want_list_id = ? AND oracle_id = ?',
-      ).get(target.id, entry.oracleId) as { id: number };
+      // One lookup, not two. The old code re-read the row after the upsert to
+      // learn its id, but both answers were already in hand: an existing row
+      // brought its own id, and a new one is the insert's rowid. That second
+      // read only looked necessary because the two cases were not separated.
+      //
+      // lastInsertRowid is trusted *only* on the insert path — SQLite leaves
+      // it untouched when ON CONFLICT takes the DO UPDATE branch, so on an
+      // existing row it would be a stale id from somewhere else entirely.
+      const itemId = before ? before.id : Number(result.lastInsertRowid);
 
-      upsertDeckNeed.run(item.id, deckId, entry.needed);
-      recount.run(item.id);
+      upsertDeckNeed.run(itemId, deckId, entry.needed);
+      recount.run(itemId);
 
       if (before) updated += 1;
       else added += 1;

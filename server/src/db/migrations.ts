@@ -672,4 +672,30 @@ export const MIGRATIONS: Migration[] = [
       SELECT 'welcome_seen', '1' WHERE EXISTS (SELECT 1 FROM oracle_cards);
     `,
   },
+  {
+    version: 22,
+    description: 'Drop card_printings.purchase_uris — written every sync, read by nothing',
+    sql: `
+      -- 60MB of this database, 13% of it, holding Scryfall's affiliate-link
+      -- JSON for every printing. The importer wrote it on every sync and not
+      -- one route, store or client ever read it back.
+      --
+      -- Nothing is lost: those URLs are built from tcgplayer_id,
+      -- tcgplayer_etched_id and cardmarket_id, all of which stay. A "buy this
+      -- card" link is cheaper to construct at read time than to cache for
+      -- 118,000 printings.
+      --
+      -- No index, view or trigger referenced the column, which is what makes a
+      -- plain DROP COLUMN legal here. The space itself comes back in the
+      -- VACUUM that migrate() runs after this transaction commits — SQLite
+      -- leaves a dropped column's bytes as in-page slack, so without that step
+      -- the file does not shrink at all.
+      --
+      -- A dropped column's inverse cannot be derived from the statement below,
+      -- which never says what type it was, so migrations.test.ts is told how
+      -- to rebuild the pre-v22 shape for its drift check:
+      -- rewind: ALTER TABLE card_printings ADD COLUMN purchase_uris TEXT
+      ALTER TABLE card_printings DROP COLUMN purchase_uris;
+    `,
+  },
 ];
