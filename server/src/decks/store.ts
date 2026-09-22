@@ -554,6 +554,21 @@ export class DeckStore {
        * add below. Falls back to the card's default printing.
        */
       printingId?: string | null;
+      /**
+       * Skip the contention-alert pass, for a caller adding many cards at once.
+       *
+       * The claim is still reconciled — that has to happen per card, because
+       * each add changes what the next one can claim. Only the *alert*
+       * evaluation is deferred, and it is the expensive half: it reads the
+       * decks competing for the card and prices them. Raising it per card in a
+       * loop asks the same question of the same decks once per entry and
+       * throws away every answer but the last.
+       *
+       * A caller that sets this owes exactly one `reconcileAlerts` over every
+       * oracle id it touched, inside the same transaction, or the alerts go
+       * stale. `commitDecklist` is the reason this exists.
+       */
+      deferAlerts?: boolean;
     } = {},
   ): void {
     const deck = this.db.prepare(
@@ -620,7 +635,7 @@ export class DeckStore {
       // collection can actually spare, including a caller-supplied
       // `fromCollection` that a restore or an undo replayed from an older
       // state. Inside the transaction, so a rollback takes it too.
-      reconcileDeckClaims(this.db, deckId);
+      reconcileDeckClaims(this.db, deckId, { alerts: !options.deferAlerts });
       this.touch(deckId);
     })();
   }

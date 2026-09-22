@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import {
-  allocationFor, allocationSettings, reservingStatuses,
+  allocationFor, allocationForMany, allocationSettings, reservingStatuses,
 } from '../decks/allocation.ts';
 import type { CollectionStore, Finish, Condition } from '../collection/store.ts';
 import type { AlertStore } from '../alerts/store.ts';
@@ -622,13 +622,19 @@ export class TradeStore {
       byOracle.set(item.oracleId, entry);
     }
 
+    // One rollup for every card in the trade, not one per card. allocationFor
+    // is allocationForMany over a single id, and each call rebuilds the whole
+    // three-CTE collection/trade-list/deck aggregation — so a 40-card trade ran
+    // 40 complete rollups to ask 40 questions of the same data.
+    const allocation = allocationForMany(this.db, byOracle.keys());
+
     const conflicts: Conflict[] = [];
     for (const [oracleId, { name, qty }] of byOracle) {
       // allocation.ts owns what "claimed" means: only decks in a reserving
       // status count, and an exempt basic land is claimed by nobody. With no
       // claim at all there is no deck to be in conflict with — copies simply
       // missing are the shortfall above, not this.
-      const { owned, reserved: allocated } = allocationFor(this.db, oracleId);
+      const { owned, reserved: allocated } = allocation.get(oracleId)!;
       if (allocated > 0 && owned - qty < allocated) {
         conflicts.push({ oracleId, name, owned, allocated, tradingAway: qty });
       }
@@ -837,17 +843,27 @@ export class TradeStore {
     return conflicts;
   }
 
-  /** Clamps trade-list quantities that now exceed what the owning lot holds. */
+  /**
+   * Clamps trade-list quantities that now exceed what the owning lot holds.
+   *
+   * `oracleIds` is the set of cards this trade moved, and it now reaches the
+   * WHERE clause. It used to gate entry and then be ignored, so completing any
+   * trade scanned every over-stated trade-list row in the database and raised
+   * an alert for each — including rows about cards the trade never touched,
+   * which the user would see attributed to a trade they had just made.
+   */
   private reconcileTradeLists(oracleIds: Set<string>): number {
     if (oracleIds.size === 0) return 0;
     let clamped = 0;
+    const ids = [...oracleIds];
     const rows = this.db.prepare(`
       SELECT tli.id, tli.quantity, ci.quantity AS owned, o.name
       FROM trade_list_items tli
       JOIN collection_items ci ON ci.id = tli.collection_item_id
       JOIN card_printings p ON p.id = ci.printing_id
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id
-      WHERE tli.quantity > ci.quantity`).all() as Array<{
+      WHERE tli.quantity > ci.quantity
+        AND o.oracle_id IN (${ids.map(() => '?').join(',')})`).all(...ids) as Array<{
         id: number; quantity: number; owned: number; name: string;
       }>;
 

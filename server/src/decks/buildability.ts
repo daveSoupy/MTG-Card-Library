@@ -232,6 +232,15 @@ interface Engine {
   decks: Map<number, DeckMeta>;
   /** Every deck's claim on every card, before status is applied. */
   claims: Map<number, Map<string, number>>;
+  /**
+   * The same claims inverted: who holds this card, before status is applied.
+   *
+   * `rowsFor` needs "which other decks hold this card" per short row, and
+   * reading that out of `claims` meant spreading the whole map into an array
+   * once per row — O(decks) allocation for every missing card on the page.
+   * Built in the same pass that builds `claims`, so it costs one more Map.
+   */
+  claimsByOracle: Map<string, Array<{ deckId: number; quantity: number }>>;
   /** Claims summed over the decks that reserve under the effective statuses. */
   reservedByAll: Map<string, number>;
   collection: Map<string, { owned: number; listed: number }>;
@@ -282,11 +291,17 @@ function gather(
   }>;
 
   const claims = new Map<number, Map<string, number>>();
+  const claimsByOracle = new Map<string, Array<{ deckId: number; quantity: number }>>();
   const reservedByAll = new Map<string, number>();
   for (const row of claimRows) {
     const forDeck = claims.get(row.deck_id) ?? new Map<string, number>();
     forDeck.set(row.oracle_id, row.qty);
     claims.set(row.deck_id, forDeck);
+
+    const holders = claimsByOracle.get(row.oracle_id);
+    if (holders) holders.push({ deckId: row.deck_id, quantity: row.qty });
+    else claimsByOracle.set(row.oracle_id, [{ deckId: row.deck_id, quantity: row.qty }]);
+
     // `deckClaimsSql` deliberately does not filter on status, so the status
     // test lives here — which is what lets an override be honoured.
     if (reserves(effectiveStatus(row.deck_id), settings)) {
@@ -349,6 +364,7 @@ function gather(
     settings,
     decks,
     claims,
+    claimsByOracle,
     reservedByAll,
     collection: collectionRollup(db),
     requirements,
@@ -386,14 +402,16 @@ function rowsFor(engine: Engine, deckId: number, withHolders: boolean): Buildabi
     const missing = requirement.required - covered;
     const unitPriceUsd = engine.unitPrice(oracleId, requirement.preferredPrintingId);
 
+    // Read from the inverted index rather than walking every deck's claim map.
+    // Same answer, but the work is proportional to the number of decks that
+    // actually hold this card instead of to the number of decks that exist.
     const holdingDecks = withHolders && missing > 0
-      ? [...engine.claims]
-        .filter(([otherId]) => otherId !== deckId
-          && reserves(engine.effectiveStatus(otherId), engine.settings))
-        .flatMap(([otherId, forDeck]) => {
-          const quantity = forDeck.get(oracleId) ?? 0;
+      ? (engine.claimsByOracle.get(oracleId) ?? [])
+        .flatMap(({ deckId: otherId, quantity }) => {
+          if (otherId === deckId || quantity <= 0) return [];
+          if (!reserves(engine.effectiveStatus(otherId), engine.settings)) return [];
           const meta = engine.decks.get(otherId);
-          if (quantity <= 0 || !meta) return [];
+          if (!meta) return [];
           return [{
             deckId: otherId,
             deckName: meta.name,
@@ -508,10 +526,53 @@ export interface ReservingDeckRows {
 export function reservingDeckRows(
   db: Database.Database,
   statusOverrides?: StatusOverrides,
+  oracleIds?: Iterable<string>,
 ): { settings: AllocationSettings; decks: ReservingDeckRows[] } {
-  const engine = gather(db, undefined, statusOverrides);
+  // When the caller only cares about particular cards, gather only the decks
+  // that actually reference them.
+  //
+  // This is the difference between a write costing what it changed and a write
+  // costing the whole collection. `reconcileAlerts` runs at the tail of every
+  // deck and collection edit, almost always about one card, and it used to
+  // gather every slot of every deck and price every oracle id in all of them.
+  // Importing a 100-card decklist paid that 100 times over.
+  //
+  // Scoping the *decks* is safe because the figures a scoped deck's row needs
+  // are all gathered unscoped anyway: `decks`, `claims`, `claimsByOracle`,
+  // `reservedByAll` and `collection` are read whole either way, so
+  // `reservedByOthers` still counts competitors that fall outside the scope,
+  // and the holder list is still complete. Only `requirements` and the price
+  // lookup shrink, and a deck left out cannot contribute a row for these cards
+  // — a claim is derived from a deck_cards row, so a deck holding one of these
+  // cards necessarily references it and is therefore in scope.
+  const scopeIds = oracleIds ? [...new Set(oracleIds)] : null;
+  let deckScope: number[] | undefined;
+  if (scopeIds) {
+    if (scopeIds.length === 0) return { settings: allocationSettings(db), decks: [] };
+    const found = new Set<number>();
+    for (const chunk of inChunks(scopeIds, CHUNK)) {
+      // Not cached through prepared(): the placeholder count varies with the
+      // chunk, so caching would mint an entry per distinct id-count.
+      const rows = db.prepare(`
+        SELECT DISTINCT deck_id FROM deck_cards
+         WHERE board IN ('main','side','command')
+           AND oracle_id IN (${chunk.map(() => '?').join(',')})`).all(...chunk) as Array<{
+             deck_id: number;
+           }>;
+      for (const row of rows) found.add(row.deck_id);
+    }
+    // No deck references any of them: nothing can be contested, and gathering
+    // with an empty scope would read as "unscoped" to gather().
+    if (found.size === 0) return { settings: allocationSettings(db), decks: [] };
+    deckScope = [...found];
+  }
+
+  const engine = gather(db, deckScope, statusOverrides);
+  const candidates = deckScope ?? [...engine.decks.keys()];
   const decks: ReservingDeckRows[] = [];
-  for (const meta of engine.decks.values()) {
+  for (const deckId of candidates) {
+    const meta = engine.decks.get(deckId);
+    if (!meta) continue;
     const status = engine.effectiveStatus(meta.id);
     if (!reserves(status, engine.settings)) continue;
     decks.push({

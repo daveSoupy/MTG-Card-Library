@@ -171,6 +171,45 @@ export function reconcileDecksHolding(
   reconcileAlerts(db, [oracleId]);
 }
 
+/**
+ * The same for many cards at once, for a bulk collection change.
+ *
+ * A CSV import adds thousands of lots, and calling the single-card version per
+ * lot reconciles the same deck over and over and raises the same alert pass
+ * once per row. The union of affected decks is reconciled once here, and the
+ * alerts evaluated once over every card that moved — the same end state the
+ * per-card loop would reach, since both are functions of the final collection
+ * rather than of the order rows arrived in.
+ */
+export function reconcileDecksHoldingMany(
+  db: Database.Database,
+  oracleIds: Iterable<string>,
+  options: { settings?: AllocationSettings } = {},
+): void {
+  const ids = [...new Set(oracleIds)];
+  if (ids.length === 0) return;
+
+  const settings = options.settings ?? allocationSettings(db);
+  const boards = RESERVING_BOARDS.map((board) => `'${board}'`).join(',');
+
+  const decks = new Set<number>();
+  // Chunked well under SQLite's bound-parameter ceiling; an import can touch
+  // more distinct cards than that in one go.
+  for (let i = 0; i < ids.length; i += 900) {
+    const chunk = ids.slice(i, i + 900);
+    const rows = db.prepare(`
+      SELECT DISTINCT deck_id FROM deck_cards
+       WHERE board IN (${boards})
+         AND oracle_id IN (${chunk.map(() => '?').join(',')})`).all(...chunk) as Array<{
+           deck_id: number;
+         }>;
+    for (const row of rows) decks.add(row.deck_id);
+  }
+
+  for (const deckId of decks) reconcileDeckClaims(db, deckId, { settings, alerts: false });
+  reconcileAlerts(db, ids);
+}
+
 /** Every deck, for the one-time repair and for a location archive or move. */
 export function reconcileAllDecks(db: Database.Database): number {
   const settings = allocationSettings(db);

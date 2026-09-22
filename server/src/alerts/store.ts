@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { prepared } from '../db/index.ts';
 
 /**
  * In-app alerts.
@@ -49,7 +50,7 @@ export class AlertStore {
 
     if (alert.dedupeKey) {
       // Reactivate an existing row for this key rather than stacking duplicates.
-      const row = this.db.prepare(`
+      const row = prepared(this.db, `
         INSERT INTO alerts (kind, dedupe_key, state, subject_type, subject_id, title, message, payload)
         VALUES (?,?,'active',?,?,?,?,?)
         ON CONFLICT(dedupe_key) DO UPDATE SET
@@ -64,7 +65,7 @@ export class AlertStore {
       return row.id;
     }
 
-    const result = this.db.prepare(`
+    const result = prepared(this.db, `
       INSERT INTO alerts (kind, state, subject_type, subject_id, title, message, payload)
       VALUES (?,'active',?,?,?,?,?)`).run(
       alert.kind, alert.subjectType ?? null, alert.subjectId ?? null,
@@ -75,7 +76,7 @@ export class AlertStore {
 
   /** Marks a keyed alert resolved — used to re-arm a price target once the price rises back. */
   resolveByKey(dedupeKey: string): void {
-    this.db.prepare(
+    prepared(this.db, 
       `UPDATE alerts SET state = 'resolved' WHERE dedupe_key = ? AND state <> 'resolved'`,
     ).run(dedupeKey);
   }
@@ -90,13 +91,13 @@ export class AlertStore {
   }
 
   activeCount(): number {
-    return (this.db.prepare(`SELECT COUNT(*) AS n FROM alerts WHERE state = 'active'`)
+    return (prepared(this.db, `SELECT COUNT(*) AS n FROM alerts WHERE state = 'active'`)
       .get() as { n: number }).n;
   }
 
   setState(id: number, state: AlertState): void {
     const stamp = state === 'active' ? null : "strftime('%Y-%m-%dT%H:%M:%SZ','now')";
-    this.db.prepare(
+    prepared(this.db, 
       `UPDATE alerts SET state = ?, acknowledged_at = ${stamp ?? 'NULL'} WHERE id = ?`,
     ).run(state, id);
   }

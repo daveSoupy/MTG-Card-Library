@@ -1,7 +1,9 @@
 import type Database from 'better-sqlite3';
 import { allocationFor } from '../decks/allocation.ts';
 import { getSetting, setSetting } from '../db/index.ts';
-import { reconcileAllDecks, reconcileDecksHolding } from '../decks/reconcile.ts';
+import {
+  reconcileAllDecks, reconcileDecksHolding, reconcileDecksHoldingMany,
+} from '../decks/reconcile.ts';
 
 /** The single cost pool currently accepting cards, stored in app_settings. */
 export const OPEN_COST_POOL_ID = 'open_cost_pool_id';
@@ -309,6 +311,33 @@ export class CollectionStore {
     if (row) reconcileDecksHolding(this.db, row.oracle_id);
   }
 
+  /**
+   * The end-of-batch pass that `addLot({ bulk: true })` deferred.
+   *
+   * Call once, inside the same transaction as the adds. Re-splits the cost
+   * pool a single time over the batch's final count, and reconciles every deck
+   * holding any of the cards that arrived — one claim pass and one alert pass
+   * for the whole import instead of one of each per row.
+   */
+  finishBulkAdd(importBatchId: number | null, printingIds: Iterable<string>): void {
+    if (importBatchId != null) this.resplitCostPool(importBatchId);
+
+    const ids = [...new Set(printingIds)];
+    if (ids.length === 0) return;
+
+    const oracleIds = new Set<string>();
+    for (let i = 0; i < ids.length; i += 900) {
+      const chunk = ids.slice(i, i + 900);
+      const rows = this.db.prepare(`
+        SELECT DISTINCT oracle_id FROM card_printings
+         WHERE id IN (${chunk.map(() => '?').join(',')})`).all(...chunk) as Array<{
+           oracle_id: string;
+         }>;
+      for (const row of rows) oracleIds.add(row.oracle_id);
+    }
+    reconcileDecksHoldingMany(this.db, oracleIds);
+  }
+
   /** The same, for a change addressed by lot rather than by printing. */
   private reconcileLot(lotId: number): void {
     const row = this.db.prepare(`
@@ -336,6 +365,21 @@ export class CollectionStore {
     costMethod?: CostMethod;
     /** The amount for the 'fixed' method. */
     fixedAmount?: number | null;
+    /**
+     * Skip the two per-lot passes that only matter once the batch is complete,
+     * for a caller adding many lots at once.
+     *
+     * Both are end-state functions, not running totals, so deferring them
+     * changes nothing about where they land. Re-splitting a cost pool per lot
+     * is worse than wasteful: each call rewrites *every* row already in the
+     * batch, so an N-row box import writes N(N+1)/2 rows — a 1,000-card box is
+     * half a million updates, each firing the touch trigger — to reach the
+     * same per-copy figure one call at the end produces.
+     *
+     * A caller that sets this owes one `finishBulkAdd` inside the same
+     * transaction, or cost bases and deck claims are left stale.
+     */
+    bulk?: boolean;
   }): number {
     const finish = input.finish ?? 'nonfoil';
     const condition = input.condition ?? 'NM';
@@ -405,8 +449,10 @@ export class CollectionStore {
 
       // A cost-pool ('box') batch spreads its lump sum evenly across every copy
       // it holds, so each added lot re-divides the total over the new count.
-      if (input.importBatchId != null) this.resplitCostPool(input.importBatchId);
-      this.reconcilePrinting(input.printingId);
+      if (!input.bulk) {
+        if (input.importBatchId != null) this.resplitCostPool(input.importBatchId);
+        this.reconcilePrinting(input.printingId);
+      }
       return lotId;
     })();
   }

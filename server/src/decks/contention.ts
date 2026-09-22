@@ -95,16 +95,20 @@ export interface ContentionAlertPayload {
 /**
  * Every contested card, worst first.
  *
- * `oracleIds` narrows the answer, not the work: the engine is gathered for the
- * whole collection either way, which is one fixed set of queries. Sorted by
- * shortfall, then price — the expensive fights first.
+ * `oracleIds` now narrows the work as well as the answer: the engine is
+ * gathered only for the decks that reference those cards. It used to gather
+ * every slot of every deck whatever was asked, which is what made
+ * `reconcileAlerts` — one card, at the tail of every write — cost a whole-
+ * collection pass. Called with no ids it still gathers everything, because
+ * then everything is the answer. Sorted by shortfall, then price — the
+ * expensive fights first.
  */
 export function contestedCards(
   db: Database.Database,
   options: { oracleIds?: Iterable<string>; statusOverrides?: StatusOverrides } = {},
 ): ContestedCard[] {
   const only = options.oracleIds ? new Set(options.oracleIds) : null;
-  const { settings, decks } = reservingDeckRows(db, options.statusOverrides);
+  const { settings, decks } = reservingDeckRows(db, options.statusOverrides, only ?? undefined);
 
   interface Accumulator {
     name: string;
@@ -446,7 +450,19 @@ export function whatIf(db: Database.Database, deckId: number): WhatIfResult | nu
     - (a.after.coveredCards - a.before.coveredCards)
     || a.deckName.localeCompare(b.deckName, undefined, { sensitivity: 'base' }));
 
-  const freedCards = contestedCards(db)
+  // Only cards this deck actually claims can appear below — a card it does not
+  // hold cannot be freed by tearing it down. Asking about exactly those turns
+  // the third whole-collection gather this function used to do into a scoped
+  // one; before the scope existed there was no way to say so.
+  const claimed = db.prepare(`
+    SELECT DISTINCT oracle_id FROM deck_cards
+     WHERE deck_id = ? AND quantity_from_collection > 0`).all(deckId) as Array<{
+       oracle_id: string;
+     }>;
+
+  const freedCards = claimed.length === 0 ? [] : contestedCards(db, {
+    oracleIds: claimed.map((row) => row.oracle_id),
+  })
     .flatMap((card) => {
       const held = card.holders.find((holder) => holder.deckId === deckId);
       return held ? [{ oracleId: card.oracleId, name: card.name, quantity: held.quantity }] : [];

@@ -8,6 +8,7 @@ import {
 } from './csv.ts';
 import { CardResolver, resolvePrinting, type ResolvedCard } from './resolve.ts';
 import { normalizeName } from '../model/mtg.ts';
+import { reconcileAlerts } from '../decks/contention.ts';
 
 /**
  * Importing, in two steps: preview, then commit.
@@ -93,7 +94,12 @@ export function commitDecklist(
     for (const entry of entries) {
       // 'maybe' is a real board, but a pasted list never means to fill it.
       const board = entry.board === 'maybe' ? 'main' : entry.board;
-      decks.addCard(deckId, entry.oracleId, { board, quantity: entry.quantity });
+      // Alerts deferred to one pass below. Per card, the alert evaluation reads
+      // every deck competing for it and prices them; a 100-card list asked that
+      // 100 times and kept only the last answer.
+      decks.addCard(deckId, entry.oracleId, {
+        board, quantity: entry.quantity, deferAlerts: true,
+      });
       cards += entry.quantity;
 
       // Landing on the command board is not the same as *being* the commander:
@@ -111,6 +117,9 @@ export function commitDecklist(
         }
       }
     }
+    // The one alert pass the loop above deferred, over every card it touched.
+    // Inside the transaction, so a rollback takes the alerts with it.
+    reconcileAlerts(db, entries.map((entry) => entry.oracleId));
   })();
   return { added: entries.length, cards };
 }
@@ -245,6 +254,10 @@ export function commitCollectionCsv(
 
     let cards = 0;
     for (const row of input.rows) {
+      // Bulk: the cost-pool re-split and the deck-claim reconcile are deferred
+      // to the single pass below. Per row they would each redo the whole
+      // batch's work — the re-split rewrites every row already added, so the
+      // loop was quadratic in the number of lots.
       collection.addLot({
         printingId: row.printingId,
         locationId: input.locationId,
@@ -255,9 +268,11 @@ export function commitCollectionCsv(
         acquiredUnitCost: row.acquiredUnitCost ?? null,
         acquisitionKind: 'purchase',
         importBatchId: batchId,
+        bulk: true,
       });
       cards += row.quantity;
     }
+    collection.finishBulkAdd(batchId, input.rows.map((row) => row.printingId));
     return { batchId, lots: input.rows.length, cards };
   })();
 }
