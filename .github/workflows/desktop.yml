@@ -287,6 +287,30 @@ jobs:
             *)       echo "::warning::Windows build ${{ needs.windows.result }}; publishing the Mac release without it. Fix the Windows job and re-run this workflow to add the installer to the same release." ;;
           esac
 
+      # These two are the only files on the page whose *name* says nothing
+      # about what they are, and the name cannot change: an installed app
+      # requests its channel's file by that exact name, so renaming it would
+      # strand every app already out there. A YAML comment costs nothing —
+      # electron-updater's parser ignores it, and GitHub shows the raw text
+      # to anyone who clicks the file wondering what it is.
+      - name: Say inside the updater's own files what they are
+        working-directory: release
+        run: |
+          for f in latest-mac.yml latest.yml; do
+            [ -f "$f" ] || continue
+            {
+              echo "# MTG Library — update pointer for the $( [ "$f" = latest-mac.yml ] && echo macOS || echo Windows ) app."
+              echo "#"
+              echo "# Nothing to download. An installed MTG Library reads this file to see"
+              echo "# whether a newer version exists, and where to get it. To install the app,"
+              echo "# take the .dmg (macOS) or the -setup.exe (Windows) from this release page."
+              echo "#"
+              echo "# https://github.com/$GITHUB_REPOSITORY"
+              cat "$f"
+            } > "$f.labelled" && mv "$f.labelled" "$f"
+          done
+          cat latest-mac.yml
+
       - name: SHA256SUMS
         working-directory: release
         run: |
