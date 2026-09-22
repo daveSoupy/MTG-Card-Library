@@ -15,6 +15,10 @@ import { DeckRow } from './DeckRow.tsx';
 import { ManaCost } from './ManaCost.tsx';
 import { DeckTile } from './DeckTile.tsx';
 import { DeckStatsPanel } from './DeckStatsPanel.tsx';
+import {
+  getHoverPreview, setHoverPreview, useHoverPreview, clearHoverPreview,
+  type PickerPreview,
+} from '../hoverPreview.ts';
 import { PaneDivider } from './PaneDivider.tsx';
 import {
   DECK_SORTS, groupByField, groupCards, type DeckSort, type GroupBy,
@@ -74,20 +78,11 @@ function sortPickerResults(cards: CardSummary[], sort: string): CardSummary[] {
  * or its ✕ is pressed; a pinned one — the row's art button, the only way on a
  * touch screen — is a sheet over the picker with its own ✕, so it never sits
  * on the bottom of a list you are trying to scroll.
+ *
+ * The type and the value both live in `hoverPreview.ts` now; re-exported here
+ * because this is where every consumer already imports it from.
  */
-export type PickerPreview = {
-  oracleId: string;
-  printingId: string;
-  name: string;
-  pinned?: boolean;
-  /** Where a hover preview floats. A picker row's sits just left of the
-   *  picker, level with the row, and can be clicked; a deck card's sits
-   *  beside the mouse as a tooltip. */
-  anchor?: { top: number; left: number };
-  /** Beside the cursor and click-through: it may overlap the next tile, so
-   *  it must never take the pointer. Details are on the tile's own ⓘ. */
-  tooltip?: boolean;
-};
+export type { PickerPreview } from '../hoverPreview.ts';
 
 /** The hover popup's size, for keeping it on screen: a 240px-wide card plus
  *  its two buttons. Mirrors `.picker-hover` in styles.css. */
@@ -113,8 +108,6 @@ export type DeckPickerState = {
   pickingCommander: boolean;
   setPickingCommander: (value: boolean) => void;
   searchInput: RefObject<HTMLInputElement | null>;
-  preview: PickerPreview | null;
-  setPreview: (value: PickerPreview | null) => void;
   /** Set by a Template shortfall link. Invisible until now: it survived every
    *  later search with nothing on screen to say a filter was still applied. */
   pickerCategory: string | null;
@@ -210,7 +203,6 @@ export function DeckPanes({
     query, setQuery, filters, setFilters, sets, formats,
     results, resultsTotal, searching, loadingMore, loadMore,
     pickingCommander, setPickingCommander, searchInput,
-    preview, setPreview,
     pickerCategory, clearPickerCategory, categoryLabels: pickerCategoryLabels,
   } = picker;
 
@@ -303,8 +295,6 @@ export function DeckPanes({
   // The leave is on a short fuse rather than immediate, so the pointer can
   // cross the gap into the popup to press "Use as deck cover".
   const pickerRef = useRef<HTMLDivElement>(null);
-  const previewRef = useRef(preview);
-  previewRef.current = preview;
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelLeave = () => {
     if (leaveTimer.current) clearTimeout(leaveTimer.current);
@@ -320,10 +310,13 @@ export function DeckPanes({
     leaveTimer.current = setTimeout(() => {
       leaveTimer.current = null;
       // Only a hover preview goes on leave; a pinned one has its own close.
-      if (previewRef.current?.anchor) setPreview(null);
+      if (getHoverPreview()?.anchor) setHoverPreview(null);
     }, 160);
   };
   useEffect(() => cancelLeave, []);
+  // The hover store outlives this component, so leaving the deck builder with
+  // a card under the pointer would leave it there for the next mount.
+  useEffect(() => clearHoverPreview, []);
   const clampTop = (top: number) =>
     Math.max(8, Math.min(top, window.innerHeight - HOVER_POPUP_HEIGHT - 8));
   const hoverPreview = (event: PointerEvent, card: CardSummary) => {
@@ -331,7 +324,7 @@ export function DeckPanes({
     cancelLeave();
     const row = event.currentTarget.getBoundingClientRect();
     const pickerLeft = pickerRef.current?.getBoundingClientRect().left ?? window.innerWidth;
-    setPreview({
+    setHoverPreview({
       oracleId: card.oracleId,
       printingId: card.printingId,
       name: card.name,
@@ -350,7 +343,7 @@ export function DeckPanes({
   const hoverDeckCard = (card: DeckCard, event?: PointerEvent<HTMLElement>) => {
     if (!event) {
       cancelLeave();
-      setPreview(null);
+      setHoverPreview(null);
       setCascadeCard(card);
       return;
     }
@@ -360,7 +353,7 @@ export function DeckPanes({
     const listRight = list && list.width > 0 ? list.right : window.innerWidth;
     let left = event.clientX + 16;
     if (left + HOVER_POPUP_WIDTH > listRight) left = event.clientX - 16 - HOVER_POPUP_WIDTH;
-    setPreview({
+    setHoverPreview({
       oracleId: card.oracleId,
       printingId: card.printingId,
       name: card.name,
@@ -370,7 +363,7 @@ export function DeckPanes({
   };
   const pinPreview = (card: CardSummary) => {
     if (!card.printingId) return;
-    setPreview({ oracleId: card.oracleId, printingId: card.printingId, name: card.name, pinned: true });
+    setHoverPreview({ oracleId: card.oracleId, printingId: card.printingId, name: card.name, pinned: true });
   };
 
   // What the stats pane shows before anything is hovered: the deck's cover.
@@ -408,9 +401,43 @@ export function DeckPanes({
   const [detailFor, setDetailFor] = useState<string | null>(null);
   const openDetail = (oracleId: string) => {
     cancelLeave();
-    setPreview(null);
+    setHoverPreview(null);
     setDetailFor(oracleId);
   };
+
+  /**
+   * Every board's cards, count and grouping, computed once per real change.
+   *
+   * This was three passes per board *inside the JSX* — a filter, a reduce, and
+   * a full groupCards sort of the deck — and the grouping could not be
+   * memoized where it stood because `groupOptions` was rebuilt inline on the
+   * line above it, so its identity changed on every render regardless.
+   *
+   * That only mattered because the tree re-rendered constantly; with the hover
+   * moved out of React it already renders far less often. It is memoized
+   * anyway because the remaining triggers — adding a card, changing the sort —
+   * are exactly the ones where the deck is largest and the user is fastest.
+   */
+  const boardGroups = useMemo(() => {
+    const options = {
+      labels: categoryLabels,
+      // Grouped the way the template lists its categories where one is set, so
+      // a template-shaped deck reads in the template's order.
+      templateCategories: deck.templateProgress?.rows.map((r) => r.category),
+    };
+    return Object.fromEntries(BOARDS_TO_SHOW.map((board) => {
+      const cards = deck.cards.filter((c) => c.board === board);
+      return [board, {
+        cards,
+        count: cards.reduce((total, c) => total + c.quantity, 0),
+        groups: groupCards(cards, cardSort, options),
+      }];
+    })) as Record<Board, {
+      cards: DeckCard[];
+      count: number;
+      groups: ReturnType<typeof groupCards>;
+    }>;
+  }, [deck.cards, deck.templateProgress, cardSort, categoryLabels]);
   useEffect(() => {
     if (!detailFor) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -501,7 +528,10 @@ export function DeckPanes({
     >
       {/* Stats on the left, the deck in the middle, the picker on the right:
           read what the deck needs, then find the card. */}
-      <DeckStatsPanel
+      <StatsPanelWithCover
+        hoverInStats={hoverInStats}
+        coverPreview={coverPreview}
+        onOpenDetail={openDetail}
         stats={deck.stats}
         validation={deck.validation}
         manaBase={deck.manaBase}
@@ -512,12 +542,6 @@ export function DeckPanes({
         onFilterShortfall={onFilterShortfall}
         floating={statsFloating}
         onClose={onCloseStats}
-        preview={hoverInStats && preview?.anchor && !preview.pinned ? preview : coverPreview}
-        onOpenPreview={() => {
-          const hovered = hoverInStats && preview?.anchor && !preview.pinned ? preview : null;
-          const oracleId = hovered?.oracleId ?? coverPreview?.oracleId;
-          if (oracleId) openDetail(oracleId);
-        }}
       />
 
       {resizable && (
@@ -564,20 +588,12 @@ export function DeckPanes({
         </div>
 
         {BOARDS_TO_SHOW.map((board) => {
-          const cards = deck.cards.filter((c) => c.board === board);
+          const { cards, count, groups } = boardGroups[board];
           // The command zone stays on screen even when empty: choosing a
           // commander is the first thing you do, and it used to be the one
           // board you could not put a card into directly.
           const alwaysShow = board === 'main' || (board === 'command' && requiresCommander);
           if (cards.length === 0 && !alwaysShow) return null;
-          const count = cards.reduce((total, c) => total + c.quantity, 0);
-          // Grouped the way the template lists its categories where one is
-          // set, so a template-shaped deck reads in the template's order.
-          const groupOptions = {
-            labels: categoryLabels,
-            templateCategories: deck.templateProgress?.rows.map((r) => r.category),
-          };
-          const groups = groupCards(cards, cardSort, groupOptions);
 
           return (
             <section className="board" key={board}>
@@ -1033,71 +1049,23 @@ export function DeckPanes({
         )}
 
         {/* The pinned preview: a sheet over the picker with a ✕, tap outside
-            to dismiss. Fixed, so it never takes the bottom of the list. */}
-        {preview?.pinned && (
-          <div className="picker-preview-backdrop" onClick={() => setPreview(null)}>
-            <div
-              className="picker-preview-sheet"
-              role="dialog"
-              aria-label={preview.name}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="picker-preview-head">
-                <strong>{preview.name}</strong>
-                <button
-                  className="picker-preview-close"
-                  onClick={() => setPreview(null)}
-                  aria-label="Close preview"
-                  title="Close"
-                >✕</button>
-              </div>
-              <img
-                src={imageUrl(preview.printingId, 'normal')}
-                alt={preview.name}
-                decoding="async"
-              />
-              <button className="btn secondary small" onClick={() => openDetail(preview.oracleId)}>
-                Details
-              </button>
-            </div>
-          </div>
-        )}
+            to dismiss. Fixed, so it never takes the bottom of the list.
+            Its own subscriber, so opening and closing it does not re-render
+            the list behind it. */}
+        <PinnedPreview onOpenDetail={openDetail} />
       </div>
 
       {/* The hover popup, for a picker row or a deck card: floated over a
           column other than the one being worked in, gone when the pointer
-          leaves. Clicking the card opens its details. */}
-      {preview?.anchor && !preview.pinned && !hoverInStats && (
-        <div
-          className={`picker-hover${preview.tooltip ? ' tooltip' : ''}`}
-          style={{ top: preview.anchor.top, left: preview.anchor.left }}
-          onPointerEnter={cancelLeave}
-          onPointerLeave={() => setPreview(null)}
-        >
-          {preview.tooltip ? (
-            <img
-              src={imageUrl(preview.printingId, 'normal')}
-              alt={preview.name}
-              decoding="async"
-            />
-          ) : (
-            <>
-              <button
-                className="picker-hover-open"
-                onClick={() => openDetail(preview.oracleId)}
-                aria-label={`Open ${preview.name}`}
-                title="Details"
-              >
-                <img
-                  src={imageUrl(preview.printingId, 'normal')}
-                  alt={preview.name}
-                  decoding="async"
-                />
-              </button>
-            </>
-          )}
-        </div>
-      )}
+          leaves. Clicking the card opens its details.
+
+          This is the component the pointer actually moves — everything else on
+          the page now holds still while it does. */}
+      <HoverPopup
+        suppressed={hoverInStats}
+        onPointerEnterPopup={cancelLeave}
+        onOpenDetail={openDetail}
+      />
 
       {detailFor && (
         <CardDetailPane
@@ -1129,6 +1097,129 @@ export function DeckPanes({
         />
       )}
 
+    </div>
+  );
+}
+
+// -- hover preview subscribers -------------------------------------------------
+//
+// Three small components and a hook, and between them they are the only things
+// in the deck builder that re-render when the pointer moves. Everything that
+// reads the hovered card reads it here; nothing above them in the tree knows a
+// hover happened. See `hoverPreview.ts` for why the state sits outside React.
+
+/**
+ * The stats panel, plus the cover image that follows the pointer.
+ *
+ * A separate component because it is the *subscriber*. Reading the hover store
+ * inside DeckPanes would re-render DeckPanes — and therefore every tile in the
+ * deck list — on every pointer move, which is exactly what moving the state
+ * out of React was for. The subscription has to sit below the thing it must
+ * not re-render. (A regression test in DeckPanes.test.tsx counts list renders
+ * during a hover sweep; it caught this the first time.)
+ */
+function StatsPanelWithCover({
+  hoverInStats,
+  coverPreview,
+  onOpenDetail,
+  ...statsProps
+}: {
+  hoverInStats: boolean;
+  // Looser than PickerPreview on purpose: a deck's cover may point at a
+  // printing no longer in the list, and then there is no oracle id to open.
+  coverPreview: { oracleId: string | null; printingId: string; name: string } | null;
+  onOpenDetail: (oracleId: string) => void;
+} & Omit<Parameters<typeof DeckStatsPanel>[0], 'preview' | 'onOpenPreview'>) {
+  const hovered = useHoverPreview();
+  // Only a floating, unpinned preview takes over the cover, and only while the
+  // panel is docked — the same condition the inline expression used.
+  const live = hoverInStats && hovered?.anchor && !hovered.pinned ? hovered : null;
+  return (
+    <DeckStatsPanel
+      {...statsProps}
+      preview={live ?? coverPreview}
+      onOpenPreview={() => {
+        const oracleId = live?.oracleId ?? coverPreview?.oracleId;
+        if (oracleId) onOpenDetail(oracleId);
+      }}
+    />
+  );
+}
+
+/** The sheet a pinned preview opens in — the only preview a touch screen gets. */
+function PinnedPreview({ onOpenDetail }: { onOpenDetail: (oracleId: string) => void }) {
+  const preview = useHoverPreview();
+  if (!preview?.pinned) return null;
+  return (
+    <div className="picker-preview-backdrop" onClick={() => setHoverPreview(null)}>
+      <div
+        className="picker-preview-sheet"
+        role="dialog"
+        aria-label={preview.name}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="picker-preview-head">
+          <strong>{preview.name}</strong>
+          <button
+            className="picker-preview-close"
+            onClick={() => setHoverPreview(null)}
+            aria-label="Close preview"
+            title="Close"
+          >✕</button>
+        </div>
+        <img
+          src={imageUrl(preview.printingId, 'normal')}
+          alt={preview.name}
+          decoding="async"
+        />
+        <button className="btn secondary small" onClick={() => onOpenDetail(preview.oracleId)}>
+          Details
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The floating card that follows the pointer. */
+function HoverPopup({
+  suppressed,
+  onPointerEnterPopup,
+  onOpenDetail,
+}: {
+  /** The stats panel is showing the card instead, so this must not also. */
+  suppressed: boolean;
+  onPointerEnterPopup: () => void;
+  onOpenDetail: (oracleId: string) => void;
+}) {
+  const preview = useHoverPreview();
+  if (suppressed || !preview?.anchor || preview.pinned) return null;
+  return (
+    <div
+      className={`picker-hover${preview.tooltip ? ' tooltip' : ''}`}
+      style={{ top: preview.anchor.top, left: preview.anchor.left }}
+      onPointerEnter={onPointerEnterPopup}
+      onPointerLeave={() => setHoverPreview(null)}
+    >
+      {preview.tooltip ? (
+        <img
+          src={imageUrl(preview.printingId, 'normal')}
+          alt={preview.name}
+          decoding="async"
+        />
+      ) : (
+        <button
+          className="picker-hover-open"
+          onClick={() => onOpenDetail(preview.oracleId)}
+          aria-label={`Open ${preview.name}`}
+          title="Details"
+        >
+          <img
+            src={imageUrl(preview.printingId, 'normal')}
+            alt={preview.name}
+            decoding="async"
+          />
+        </button>
+      )}
     </div>
   );
 }

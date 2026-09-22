@@ -82,7 +82,7 @@ const picker = (): DeckPickerState => ({
   filters: EMPTY_FILTERS, setFilters: noop, sets: [], formats: [],
   results: [], resultsTotal: 0, searching: false, loadingMore: false, loadMore: noop,
   pickingCommander: false, setPickingCommander: noop, searchInput: createRef(),
-  preview: null, setPreview: noop,
+
   pickerCategory: null, clearPickerCategory: noop, categoryLabels: {},
 });
 

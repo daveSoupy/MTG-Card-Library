@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useMemo, useState, type CSSProperties } from 'react';
 import {
   addWantItem, fetchFormats, fetchLocations, fetchRandomCard, fetchSets, fetchSettings, fetchStatus,
   fetchWantItemsForOracle, fetchWantList, fetchWantLists, imageUrl, removeWantItem, searchCards,
@@ -175,6 +175,18 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(storedTheme);
   const [densityPrefs, setDensityPrefs] = useState(loadDensity);
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
+
+  /**
+   * The loaded results, grouped — computed when the results or the grouping
+   * change, not on every render.
+   *
+   * It was called inline in the JSX, and `text` is one of this component's
+   * thirty-odd useState hooks. The *request* is debounced by 180ms; the render
+   * is not, so every keystroke regrouped every card already on screen —
+   * growing worse the further someone had paged with "Load more", which
+   * appends without bound.
+   */
+  const cardGroups = useMemo(() => groupByField(cards, groupBy), [cards, groupBy]);
   const [wantLists, setWantLists] = useState<NamedList[]>([]);
   // Only for the settings that decide what the shell shows. Every page that
   // needs more of them still fetches its own copy.
@@ -650,7 +662,7 @@ export default function App() {
           {/* Grouping runs client-side over the rows that are loaded, so a
               header count is only ever "what you can see" until the last page
               lands — it says so rather than reading as a total. */}
-          {groupByField(cards, groupBy).map((group) => (
+          {cardGroups.map((group) => (
             <div key={group.key}>
               {group.key !== 'all' && (
                 <h4 className="group-head">

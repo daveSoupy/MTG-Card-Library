@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import {
   addCollectionLot, addTradeListItem, createLocation, deleteLocation, fetchCollection,
   fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets,
@@ -356,6 +356,13 @@ export function CollectionPage({
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('name');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
+
+  // Same reasoning as App.tsx: this was called inline in the JSX, over up to
+  // 120 rows, in a component whose state changes on every keystroke.
+  const cardGroups = useMemo(
+    () => groupByField(cards, groupBy, (card) => card.ownedQuantity),
+    [cards, groupBy],
+  );
   const [selected, setSelected] = useState<OwnedGridSelection | null>(null);
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
   const [newLocation, setNewLocation] = useState('');
@@ -568,7 +575,7 @@ export function CollectionPage({
             {/* The collection browses one capped page (120 rows) with no
                 "Load more", so grouping is over what came back — the counts
                 say "loaded" whenever that is short of the real total. */}
-            {groupByField(cards, groupBy, (card) => card.ownedQuantity).map((group) => (
+            {cardGroups.map((group) => (
               <div key={group.key}>
                 {group.key !== 'all' && (
                   <h4 className="group-head">

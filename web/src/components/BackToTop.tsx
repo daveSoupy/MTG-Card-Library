@@ -26,18 +26,43 @@ export function BackToTop({ label = 'Back to top' }: { label?: string }) {
   const container = useRef<HTMLElement | null>(null);
   const [shown, setShown] = useState(false);
 
+  /**
+   * Watch whichever scroller this button sits inside.
+   *
+   * Capture-phase on `document` because scroll does not bubble, so there is no
+   * other way to hear about an arbitrary inner scroller without knowing which
+   * one it is. Three things make that affordable:
+   *
+   * `passive: true` — without it the browser must wait for this handler before
+   * it can commit the scroll frame, which is the textbook cause of scroll
+   * jank. Nothing here calls preventDefault, so there was never a reason to
+   * hold that right.
+   *
+   * The `contains` walk is cached. It was run on every scroll event — at 60 to
+   * 120Hz, over a DOM that may hold a thousand card tiles — purely to answer a
+   * question whose answer does not change while the component is mounted.
+   * Once the scroller is identified, later events are matched by identity.
+   *
+   * And `setShown` is called only on a transition. React bails out of an
+   * unchanged boolean anyway, but only after entering the scheduler, and this
+   * component is mounted on three list pages at once.
+   */
   useEffect(() => {
     const onScroll = (event: Event) => {
       const node = event.target instanceof HTMLElement
         ? event.target
         : (document.scrollingElement as HTMLElement | null);
-      if (!node || !anchor.current || !node.contains(anchor.current)) return;
-      container.current = node;
-      setShown(node.scrollTop > SHOW_AFTER);
+      if (!node) return;
+      if (node !== container.current) {
+        if (!anchor.current || !node.contains(anchor.current)) return;
+        container.current = node;
+      }
+      const next = node.scrollTop > SHOW_AFTER;
+      setShown((prev) => (prev === next ? prev : next));
     };
 
-    document.addEventListener('scroll', onScroll, true);
-    return () => document.removeEventListener('scroll', onScroll, true);
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    return () => document.removeEventListener('scroll', onScroll, { capture: true });
   }, []);
 
   return (

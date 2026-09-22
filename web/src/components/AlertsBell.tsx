@@ -32,10 +32,41 @@ export function AlertsBell({ refreshKey }: { refreshKey?: number }) {
   }, []);
 
   useEffect(load, [load, refreshKey]);
-  // A slow poll so a price-sync alert appears without a manual refresh.
+  /**
+   * A slow poll so a price-sync alert appears without a manual refresh —
+   * paused while the tab is hidden.
+   *
+   * This component lives in the topbar, so it is mounted on every page for the
+   * whole session, and it issues two requests each tick. Without the
+   * visibility gate a backgrounded phone tab woke the radio every 60 seconds
+   * for as long as the app stayed open, which is a battery cost paid for
+   * nothing — nobody is looking at the bell.
+   *
+   * Reloading once on reveal is what makes pausing free: the poll exists so
+   * the count is current when you glance at it, and a glance is a reveal.
+   * ReconnectBanner.tsx uses the same shape.
+   */
   useEffect(() => {
-    const timer = setInterval(load, 60_000);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const start = () => {
+      if (timer === null) timer = setInterval(load, 60_000);
+    };
+    const stop = () => {
+      if (timer !== null) { clearInterval(timer); timer = null; }
+    };
+    const onVisibility = () => {
+      if (document.hidden) { stop(); return; }
+      load();
+      start();
+    };
+
+    if (!document.hidden) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [load]);
 
   // "Seen" keeps it: moves the alert from unread into the recent history.

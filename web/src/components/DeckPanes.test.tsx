@@ -1,9 +1,14 @@
 import { createRef } from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
-import { DeckPanes, type DeckPickerState, type PickerPreview } from './DeckPanes.tsx';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import {
+  setHoverPreview, getHoverPreview, clearHoverPreview, type PickerPreview,
+} from '../hoverPreview.ts';
+import { DeckPanes, type DeckPickerState } from './DeckPanes.tsx';
 import { EMPTY_FILTERS } from './FilterPanel.tsx';
 import type { CardSummary, Deck, DeckCard } from '../api.ts';
+
+beforeEach(() => { clearHoverPreview(); });
 
 const api = vi.hoisted(() => ({
   // Typed by hand: the mocked module's own type is not available inside
@@ -63,7 +68,6 @@ function fakePicker(overrides: Partial<DeckPickerState> = {}): DeckPickerState {
     filters: EMPTY_FILTERS, setFilters: vi.fn(), sets: [], formats: [],
     results: [], resultsTotal: 0, searching: false, loadingMore: false, loadMore: vi.fn(),
     pickingCommander: false, setPickingCommander: vi.fn(), searchInput: createRef(),
-    preview: null, setPreview: vi.fn(),
     pickerCategory: null, clearPickerCategory: vi.fn(), categoryLabels: {},
     ...overrides,
   };
@@ -209,10 +213,18 @@ function result(oracleId: string, name: string): CardSummary {
 const solRing = result('ORACLE-1', 'Sol Ring');
 const arcaneSignet = result('ORACLE-2', 'Arcane Signet');
 
+/**
+ * The hovered card lives in a module store now, not in props, so these tests
+ * seed it directly and assert on it afterwards. That is a better check than
+ * the old `setPreview` spy: it proves what the user ends up seeing rather than
+ * which callback fired.
+ */
 function renderPicker(
-  picker: Partial<DeckPickerState>,
+  picker: Partial<DeckPickerState> & { preview?: PickerPreview | null },
   props: Partial<Parameters<typeof DeckPanes>[0]> = {},
 ) {
+  const { preview, ...pickerState } = picker;
+  if (preview !== undefined) setHoverPreview(preview);
   const apply = vi.fn();
   const view = render(
     <DeckPanes
@@ -226,7 +238,7 @@ function renderPicker(
       onDensity={vi.fn()}
       setCardSort={vi.fn()}
       listRef={createRef()}
-      picker={fakePicker(picker)}
+      picker={fakePicker(pickerState)}
       setArtFor={vi.fn()}
       setError={vi.fn()}
       jumpToCard={vi.fn()}
@@ -248,28 +260,55 @@ async function addedBy(apply: ReturnType<typeof vi.fn>) {
 }
 
 describe('DeckPanes picker preview', () => {
+  it('a hover does not re-render the deck list', () => {
+    // The point of moving the hovered card out of React (hoverPreview.ts).
+    // `problemFor` is called once per card every time the list renders, so it
+    // doubles as a render counter without instrumenting anything.
+    //
+    // Before, each pointerenter set a freshly allocated object in root state,
+    // so every row the mouse crossed re-rendered DeckBuilder -> DeckPanes ->
+    // every tile, regrouping and re-sorting the deck on the way. On a 100-card
+    // Commander list that is a hundred full reconciles for a mouse sweep.
+    const problemFor = vi.fn(() => null);
+    renderPicker({ results: [solRing, arcaneSignet], resultsTotal: 2 }, { problemFor });
+
+    const beforeSweep = problemFor.mock.calls.length;
+    expect(beforeSweep).toBeGreaterThan(0); // it really is being called
+
+    act(() => {
+      fireEvent.pointerEnter(screen.getByTitle('Add Sol Ring'), { pointerType: 'mouse' });
+    });
+    act(() => {
+      fireEvent.pointerEnter(screen.getByTitle('Add Arcane Signet'), { pointerType: 'mouse' });
+    });
+
+    // The hover landed...
+    expect(getHoverPreview()).toMatchObject({ name: 'Arcane Signet' });
+    // ...and the list did not render again for it.
+    expect(problemFor.mock.calls.length).toBe(beforeSweep);
+  });
+
   it('previews on a mouse hover but not as a finger scrolls over a row', () => {
-    const setPreview = vi.fn();
-    renderPicker({ results: [solRing, arcaneSignet], resultsTotal: 2, setPreview });
+    renderPicker({ results: [solRing, arcaneSignet], resultsTotal: 2 });
     const row = screen.getByTitle('Add Sol Ring');
 
     // iOS fires enter events as a finger passes over rows while scrolling;
     // that must never open a picture that then sits over the list.
     fireEvent.pointerEnter(row, { pointerType: 'touch' });
-    expect(setPreview).not.toHaveBeenCalled();
+    expect(getHoverPreview()).toBeNull();
 
     fireEvent.pointerEnter(row, { pointerType: 'mouse' });
     // A picker row's popup is the clickable kind, not the tooltip.
-    expect(setPreview).toHaveBeenCalledWith(expect.objectContaining({
-      oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', anchor: expect.any(Object),
-    }));
-    expect(setPreview.mock.calls[0][0]).not.toHaveProperty('tooltip');
+    expect(getHoverPreview()).toMatchObject({
+      oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring',
+    });
+    expect(getHoverPreview()!.anchor).toBeTruthy();
+    expect(getHoverPreview()).not.toHaveProperty('tooltip');
   });
 
   it('with the stats pane docked, the hovered card shows at the top of it and stays', () => {
-    const setPreview = vi.fn();
     const { container } = renderPicker({
-      results: [solRing], resultsTotal: 1, setPreview,
+      results: [solRing], resultsTotal: 1,
       preview: { oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', anchor: { top: 120, left: 600 } },
     });
     // No floating popup; the card is the first thing in the stats pane.
@@ -281,7 +320,7 @@ describe('DeckPanes picker preview', () => {
     expect(art.querySelector('img')?.getAttribute('alt')).toBe('Sol Ring');
     // Leaving the results does not take it away.
     fireEvent.pointerLeave(screen.getByRole('listbox', { name: 'Matching cards' }));
-    expect(setPreview).not.toHaveBeenCalled();
+    expect(getHoverPreview()).not.toBeNull();
     // Clicking it opens the details.
     fireEvent.click(screen.getByRole('button', { name: 'Open Sol Ring' }));
     expect(container.querySelector('.detail-pane.floating')).not.toBeNull();
@@ -317,7 +356,12 @@ describe('DeckPanes picker preview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open Sol Ring' }));
     expect(container.querySelector('.detail-pane.floating')).not.toBeNull();
 
-    // A hover takes over the slot.
+    // A hover takes over the slot. Written to the store the component reads,
+    // which is where the hovered card lives now.
+    setHoverPreview({
+      oracleId: 'ORACLE-2', printingId: 'PRINT-ORACLE-2', name: 'Arcane Signet',
+      anchor: { top: 1, left: 1 },
+    });
     rerender(
       <DeckPanes
         deck={{ ...deck, coverPrintingId: 'PRINT-ORACLE-1', cards: [{ ...card, printingId: 'PRINT-ORACLE-1' }] }}
@@ -330,9 +374,7 @@ describe('DeckPanes picker preview', () => {
         onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
-        picker={fakePicker({
-          preview: { oracleId: 'ORACLE-2', printingId: 'PRINT-ORACLE-2', name: 'Arcane Signet', anchor: { top: 1, left: 1 } },
-        })}
+        picker={fakePicker()}
         setArtFor={vi.fn()}
         setError={vi.fn()}
         jumpToCard={vi.fn()}
@@ -348,9 +390,8 @@ describe('DeckPanes picker preview', () => {
   it('with the stats pane not docked, a hover preview floats beside the row and goes when the pointer leaves', () => {
     vi.useFakeTimers();
     try {
-      const setPreview = vi.fn();
       const { container } = renderPicker({
-        results: [solRing], resultsTotal: 1, setPreview,
+        results: [solRing], resultsTotal: 1,
         preview: { oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', anchor: { top: 120, left: 600 } },
       }, { statsDocked: false });
       const popup = container.querySelector('.picker-hover') as HTMLElement;
@@ -367,25 +408,27 @@ describe('DeckPanes picker preview', () => {
       fireEvent.pointerLeave(screen.getByRole('listbox', { name: 'Matching cards' }));
       fireEvent.pointerEnter(popup);
       vi.advanceTimersByTime(500);
-      expect(setPreview).not.toHaveBeenCalled();
+      expect(getHoverPreview()).not.toBeNull();
 
       fireEvent.pointerLeave(popup);
-      expect(setPreview).toHaveBeenCalledWith(null);
+      expect(getHoverPreview()).toBeNull();
 
       // And with nowhere to go, the fuse clears it.
-      setPreview.mockClear();
+      act(() => setHoverPreview({
+        oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring',
+        anchor: { top: 120, left: 600 },
+      }));
       fireEvent.pointerLeave(screen.getByRole('listbox', { name: 'Matching cards' }));
       vi.advanceTimersByTime(500);
-      expect(setPreview).toHaveBeenCalledWith(null);
+      expect(getHoverPreview()).toBeNull();
     } finally {
       vi.useRealTimers();
     }
   });
 
   it('a pinned preview is a dialog with its own close, and a way to the details', () => {
-    const setPreview = vi.fn();
     const { container } = renderPicker({
-      results: [solRing], resultsTotal: 1, setPreview,
+      results: [solRing], resultsTotal: 1,
       preview: { oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', pinned: true },
     });
     // Not a sticky-bottom element: that is what stole the bottom of the list.
@@ -394,10 +437,15 @@ describe('DeckPanes picker preview', () => {
     expect(dialog.querySelector('img')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Details' }));
     expect(container.querySelector('.detail-pane.floating')).not.toBeNull();
-    expect(setPreview).toHaveBeenCalledWith(null);
-    setPreview.mockClear();
+    // Opening the details dismisses the sheet.
+    expect(getHoverPreview()).toBeNull();
+
+    // And so does its own ✕.
+    act(() => setHoverPreview({
+      oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', pinned: true,
+    }));
     fireEvent.click(screen.getByRole('button', { name: 'Close preview' }));
-    expect(setPreview).toHaveBeenCalledWith(null);
+    expect(getHoverPreview()).toBeNull();
   });
 });
 
@@ -661,7 +709,6 @@ describe('DeckPanes deck-card preview', () => {
   const printed: DeckCard = { ...card, printingId: 'PRINT-ORACLE-1' };
 
   it('a mouse over a deck row floats the same popup; a finger does not', () => {
-    const setPreview = vi.fn();
     render(
       <DeckPanes
         deck={{ ...deck, cards: [printed] }}
@@ -674,7 +721,7 @@ describe('DeckPanes deck-card preview', () => {
         onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
-        picker={fakePicker({ setPreview })}
+        picker={fakePicker()}
         setArtFor={vi.fn()}
         setError={vi.fn()}
         jumpToCard={vi.fn()}
@@ -686,19 +733,18 @@ describe('DeckPanes deck-card preview', () => {
     );
     const row = screen.getByTitle('Artifact').closest('.deck-row')!;
     fireEvent.pointerEnter(row, { pointerType: 'touch' });
-    expect(setPreview).not.toHaveBeenCalled();
+    expect(getHoverPreview()).toBeNull();
     fireEvent.pointerEnter(row, { pointerType: 'mouse', clientX: 300, clientY: 200 });
-    expect(setPreview).toHaveBeenCalledWith(expect.objectContaining({
+    expect(getHoverPreview()).toMatchObject({
       oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring',
       // Beside the cursor, and a tooltip: click-through, so it can lie over
       // the next tile without taking the pointer from it.
-      anchor: expect.objectContaining({ left: 316 }),
+      anchor: { left: 316 },
       tooltip: true,
-    }));
+    });
   });
 
   it('tiles do not raise the popup — only Ultra-compact rows, which show no art', () => {
-    const setPreview = vi.fn();
     render(
       <DeckPanes
         deck={{ ...deck, cards: [printed] }}
@@ -711,7 +757,7 @@ describe('DeckPanes deck-card preview', () => {
         onDensity={vi.fn()}
         setCardSort={vi.fn()}
         listRef={createRef()}
-        picker={fakePicker({ setPreview })}
+        picker={fakePicker()}
         setArtFor={vi.fn()}
         setError={vi.fn()}
         jumpToCard={vi.fn()}
@@ -723,10 +769,10 @@ describe('DeckPanes deck-card preview', () => {
     );
     const tile = screen.getByLabelText('Remove Sol Ring').closest('.deck-tile')!;
     fireEvent.pointerEnter(tile, { pointerType: 'mouse', clientX: 300, clientY: 200 });
-    expect(setPreview).not.toHaveBeenCalled();
+    expect(getHoverPreview()).toBeNull();
   });
 
-  const linedPanes = (setPreview = vi.fn(), apply = vi.fn(), preview: PickerPreview | null = null) => (
+  const linedPanes = (apply = vi.fn(), preview: PickerPreview | null = null) => (
     <DeckPanes
       deck={{ ...deck, cards: [printed, { ...printed, id: 2, oracleId: 'ORACLE-2', name: 'Arcane Signet' }] }}
       apply={apply}
@@ -738,7 +784,7 @@ describe('DeckPanes deck-card preview', () => {
       onDensity={vi.fn()}
       setCardSort={vi.fn()}
       listRef={createRef()}
-      picker={fakePicker({ setPreview, preview })}
+      picker={fakePicker()}
       setArtFor={vi.fn()}
       setError={vi.fn()}
       jumpToCard={vi.fn()}
@@ -752,26 +798,21 @@ describe('DeckPanes deck-card preview', () => {
   it('Lined-up: a mouse over a strip shows the tooltip; a click raises the tile in place with its controls', () => {
     vi.useFakeTimers();
     try {
-      const setPreview = vi.fn();
       const apply = vi.fn();
-      // Rendered with the tooltip already up, as it would be after the hover
-      // below, since the mocked setter cannot put it there itself.
-      render(linedPanes(setPreview, apply, {
-        oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring',
-        anchor: { top: 10, left: 10 }, tooltip: true,
-      }));
+      // The hover below puts the tooltip up for real now — the store is the
+      // same one the component writes to, so nothing has to be seeded.
+      render(linedPanes(apply));
       const tile = screen.getByLabelText('Remove Sol Ring').closest('.deck-tile') as HTMLElement;
       fireEvent.pointerEnter(tile, { pointerType: 'mouse', clientX: 300, clientY: 200 });
-      expect(setPreview).toHaveBeenCalledWith(expect.objectContaining({ name: 'Sol Ring', tooltip: true }));
+      expect(getHoverPreview()).toMatchObject({ name: 'Sol Ring', tooltip: true });
 
       // The click: the tile itself is raised (no panel). The hovered card in
       // the docked stats pane stays — it is not in the way there.
-      setPreview.mockClear();
       fireEvent.click(tile);
       expect(tile.className).toContain('controls-open');
       expect(screen.queryByRole('dialog')).toBeNull();
       vi.advanceTimersByTime(500);
-      expect(setPreview).not.toHaveBeenCalled();
+      expect(getHoverPreview()).toMatchObject({ name: 'Sol Ring' });
 
       // Its controls are the tile's own, and using one keeps it open.
       fireEvent.click(within(tile).getByRole('button', { name: 'One more Sol Ring' }));
@@ -780,9 +821,9 @@ describe('DeckPanes deck-card preview', () => {
       expect(within(tile).getByRole('button', { name: 'Details for Sol Ring' })).toBeInTheDocument();
 
       // Hovering the raised card floats no second copy beside it.
-      setPreview.mockClear();
+      const before = getHoverPreview();
       fireEvent.pointerEnter(tile, { pointerType: 'mouse', clientX: 300, clientY: 200 });
-      expect(setPreview).not.toHaveBeenCalled();
+      expect(getHoverPreview()).toBe(before);
 
       // A click elsewhere tucks it back; so does Escape.
       fireEvent.click(document.body);
@@ -858,14 +899,12 @@ describe('DeckPanes deck-card preview', () => {
   });
 
   it('clicking the floating card opens its details, which close again', async () => {
-    const setPreview = vi.fn();
     const { container } = renderPicker({
-      setPreview,
       preview: { oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1', name: 'Sol Ring', anchor: { top: 10, left: 10 } },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Open Sol Ring' }));
     // The popup is dismissed for the pane, which floats over the builder.
-    expect(setPreview).toHaveBeenCalledWith(null);
+    expect(getHoverPreview()).toBeNull();
     const pane = container.querySelector('.detail-pane.floating');
     expect(pane).not.toBeNull();
     expect(api.fetchCard).toHaveBeenCalledWith('ORACLE-1', expect.anything());

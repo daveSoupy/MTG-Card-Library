@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addCollectionLot, decrementCollectionCopy, fetchSetChecklist, imageUrl,
   type CostMethod, type SetRecord, type StorageLocation,
@@ -142,8 +142,16 @@ export function AddBySetTab({
     add(printingId, name);
   };
 
-  const shown = hideOwned ? cards.filter((c) => !hiddenIds.has(c.printing_id)) : cards;
-  const ownedCount = cards.filter((c) => c.owned_qty > 0).length;
+  // Two full passes over the set, memoized. A modern set is 250-500 printings
+  // and these ran in the render body, so every tap re-walked the whole
+  // checklist twice — and a tap here also schedules a flash and a 1.4s timer,
+  // so the renders come in threes. Working through a binder is dozens of taps
+  // in a row; that is the whole interaction this tab exists for.
+  const shown = useMemo(
+    () => (hideOwned ? cards.filter((c) => !hiddenIds.has(c.printing_id)) : cards),
+    [cards, hideOwned, hiddenIds],
+  );
+  const ownedCount = useMemo(() => cards.filter((c) => c.owned_qty > 0).length, [cards]);
 
   return (
     <div className="set-entry">

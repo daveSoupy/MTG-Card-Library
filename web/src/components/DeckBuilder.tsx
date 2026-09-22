@@ -10,7 +10,7 @@ import {
 } from '../api.ts';
 import { effectivePickerColors } from '../pickerColors.ts';
 import { withScope } from '../searchScope.ts';
-import { DeckPanes, type PickerPreview } from './DeckPanes.tsx';
+import { DeckPanes } from './DeckPanes.tsx';
 import { EMPTY_FILTERS, type Filters } from './FilterPanel.tsx';
 import { DeckExportDialog } from './DeckExportDialog.tsx';
 import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
@@ -92,6 +92,33 @@ export function pickerSearchParams(input: {
   };
 }
 
+/**
+ * Warms the first few results' thumbnails so an added card's tile paints from
+ * cache rather than after a round trip.
+ *
+ * Capped, and that is the whole point. This ran over every result — 60 of
+ * them, 40 when the picker floats — and `new Image()` is an *eager* fetch that
+ * walks straight past the `loading="lazy"` every grid image carries. On
+ * HTTP/1.1 that saturates all six connections to the server, and each one an
+ * uncached image holds while the server fetches it from Scryfall is a
+ * connection the POST for the card you are actually adding has to wait for.
+ * The prefetch was making the thing it existed to speed up slower.
+ *
+ * Eight is about what fits above the fold, which is the only part that can be
+ * clicked before the lazy images below have loaded themselves. Skipped
+ * entirely on a metered connection, where speculative downloads are exactly
+ * what the browser is asking us not to do.
+ */
+const WARM_ART_COUNT = 8;
+
+function warmArt(cards: CardSummary[]): void {
+  const connection = (navigator as { connection?: { saveData?: boolean } }).connection;
+  if (connection?.saveData) return;
+  for (const card of cards.slice(0, WARM_ART_COUNT)) {
+    if (card.printingId) new Image().src = imageUrl(card.printingId, 'small');
+  }
+}
+
 export function DeckBuilder({
   deckId,
   reloadKey = 0,
@@ -134,7 +161,6 @@ export function DeckBuilder({
   const [resultsTotal, setResultsTotal] = useState(0);
   const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [preview, setPreview] = useState<PickerPreview | null>(null);
   const [artFor, setArtFor] = useState<DeckCard | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
@@ -423,9 +449,7 @@ export function DeckBuilder({
           // Warm the small art so a card's deck tile paints from cache the
           // instant it is added — the reason an owned card felt faster to add
           // was simply that its art was already on disk.
-          for (const card of r.cards) {
-            if (card.printingId) new Image().src = imageUrl(card.printingId, 'small');
-          }
+          warmArt(r.cards);
         })
         .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
         .finally(() => { if (generation === searchGeneration.current) setSearching(false); });
@@ -455,9 +479,7 @@ export function DeckBuilder({
           const seen = new Set(current.map((c) => c.oracleId));
           return [...current, ...r.cards.filter((c) => !seen.has(c.oracleId))];
         });
-        for (const card of r.cards) {
-          if (card.printingId) new Image().src = imageUrl(card.printingId, 'small');
-        }
+        warmArt(r.cards);
       })
       .catch((e) => { if (e.name !== 'AbortError') setError(e.message); })
       .finally(() => {
@@ -473,10 +495,23 @@ export function DeckBuilder({
     );
   }
 
-  const problemFor = (card: DeckCard): 'error' | 'warning' | null => {
-    const issue = deck.validation.issues.find((i) => i.oracleId === card.oracleId);
-    return issue ? issue.severity : null;
-  };
+  // One pass over the issues, then a lookup per card — not a linear scan of
+  // the issue list for every card in the deck, which is what `.find()` inside
+  // the callback made it. A 100-card deck with a dozen issues did twelve
+  // hundred comparisons to colour a handful of rows, on every render.
+  //
+  // Built plainly rather than in a useMemo: this sits below an early return,
+  // so a hook here would break the rules of hooks, and the issue list is short
+  // enough that rebuilding the map is not the cost — the per-card scan was.
+  const problemByOracle = new Map<string, 'error' | 'warning'>();
+  for (const issue of deck.validation.issues) {
+    // First issue wins, matching `.find()`'s behaviour on a card with several.
+    if (issue.oracleId && !problemByOracle.has(issue.oracleId)) {
+      problemByOracle.set(issue.oracleId, issue.severity);
+    }
+  }
+  const problemFor = (card: DeckCard): 'error' | 'warning' | null =>
+    problemByOracle.get(card.oracleId) ?? null;
 
   const jumpToCard = (oracleId: string) => {
     const target = listRef.current?.querySelector<HTMLElement>(`[data-oracle="${oracleId}"]`);
@@ -916,7 +951,6 @@ export function DeckBuilder({
           filters: pickerFilters, setFilters: setPickerFilters, sets, formats,
           results, resultsTotal, searching, loadingMore, loadMore,
           pickingCommander, setPickingCommander, searchInput,
-          preview, setPreview,
           pickerCategory, clearPickerCategory: () => setPickerCategory(null),
           categoryLabels,
         }}
