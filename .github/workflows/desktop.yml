@@ -5,8 +5,13 @@
 #                     MTG-Library-1.2.3-mac-arm64.zip      what an installed Mac app's updater fetches
 #                     MTG-Library-1.2.3-win-x64-setup.exe  the Windows installer
 #                     latest-mac.yml, latest.yml           electron-updater's pointers to the above
-#                     *.blockmap                           differential-download indexes
+#                     *.zip.blockmap, *.exe.blockmap       differential-download indexes
 #                     SHA256SUMS
+#
+# The .dmg's blockmap is deliberately not uploaded: the updater fetches the
+# .zip, so a dmg blockmap is a file on the page that nothing ever reads. The
+# other two must be there — without the blockmap beside a file, an update
+# downloads the whole 165 MB instead of the changed few.
 #
 # The same tag triggers docker.yml, so one `git tag` produces the image and
 # both installers. docker.yml is not touched by this file and knows nothing
@@ -91,16 +96,20 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      # The body is .github/release-notes.md, which says which file to
+      # download and what the rest of them are for.
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          version: ${{ steps.version.outputs.version }}
         run: |
           if gh release view "$GITHUB_REF_NAME" --json isDraft >/dev/null 2>&1; then
             echo "release $GITHUB_REF_NAME exists; uploading over it"
           else
+            sed "s/VERSION/$version/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
               --title "MTG Library $GITHUB_REF_NAME" \
-              --notes "Desktop app for macOS (Apple silicon) and Windows. Installed apps update to this release on their own. The Docker image is ghcr.io/davesoupy/mtg-card-library:${GITHUB_REF_NAME#v}."
+              --notes-file "$RUNNER_TEMP/notes.md"
           fi
 
   # ------------------------------------------------------------------------
@@ -186,13 +195,18 @@ jobs:
       - name: What was built
         run: ls -la desktop/out/*.dmg desktop/out/*.zip desktop/out/*.blockmap desktop/out/latest-mac.yml
 
+      - name: Drop the dmg's blockmap
+        # Nothing reads it: the updater fetches the .zip. One less file on the
+        # release page for someone deciding what to download.
+        run: rm -f desktop/out/*.dmg.blockmap
+
       - uses: actions/upload-artifact@v5
         with:
           name: mac
           path: |
             desktop/out/*.dmg
             desktop/out/*.zip
-            desktop/out/*.blockmap
+            desktop/out/*.zip.blockmap
             desktop/out/latest-mac.yml
           if-no-files-found: error
           retention-days: 7
