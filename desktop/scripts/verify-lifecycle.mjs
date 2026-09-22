@@ -286,9 +286,12 @@ async function main() {
   state = await main.state();
   check('keep-awake + sharing → powerSaveBlocker held', state.blocking === true);
   if (process.platform === 'darwin') {
-    // `prevent-app-suspension` shows up as a NoIdleSleepAssertion owned by the app's pid.
-    const assertions = execFileSync('pmset', ['-g', 'assertions'], { encoding: 'utf8' });
-    check('macOS reports a NoIdleSleepAssertion from this app', new RegExp(`pid ${run.child.pid}\\(.*NoIdleSleepAssertion`).test(assertions));
+    // `prevent-app-suspension` shows up as a NoIdleSleepAssertion owned by
+    // the app's pid — but powerSaveBlocker returns before the kernel has
+    // registered it, so poll rather than read once.
+    const wanted = new RegExp(`pid ${run.child.pid}\\(.*NoIdleSleepAssertion`);
+    const assertion = await until('the power assertion to register', () => wanted.test(execFileSync('pmset', ['-g', 'assertions'], { encoding: 'utf8' })), { timeoutMs: 10_000 }).catch(() => false);
+    check('macOS reports a NoIdleSleepAssertion from this app', assertion === true);
   }
   await main.evaluate('__mtgDesktop.setKeepAwake(false)');
   check('keep-awake off → blocker released', (await main.state()).blocking === false);
