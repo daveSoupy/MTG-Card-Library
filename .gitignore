@@ -22,3 +22,11 @@ data/
 
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# Internal design and reference docs — kept on disk, deliberately not published.
+# Removed from the repo and its history on 2026-09-22; the public README no
+# longer links to them. Claude Code still auto-loads CLAUDE.md from disk.
+/phases/
+/docs/
+/CLAUDE.md
+/desktop/CLAUDE.md
