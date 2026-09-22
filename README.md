@@ -399,6 +399,57 @@ git tag v1.2.0 && git push origin v1.2.0
 
 ---
 
+## Why it works this way
+
+A few choices in here look like limitations until you know what they buy.
+These are the ones people ask about.
+
+**One server owns the data _and_ the rules.** Deck legality, search parsing,
+allocation maths, format rules — all of it lives on the server, and every
+client only renders what it is told. That is why the phone layout and the
+desktop layout are one codebase, and why the desktop app is just a window
+around the same server you would run in Docker. Nothing is implemented twice,
+so nothing can disagree with itself.
+
+**Search never touches the internet.** Scryfall publishes daily bulk exports
+precisely so that applications cache locally instead of calling the API on
+every keystroke. A full import takes about 17 seconds and runs in a worker
+thread, so the app keeps serving while it happens and a failed sync leaves the
+previous data completely usable. The cost is that prices are around a day old
+— fine for "what is this box worth", not for arbitrage.
+
+**There is no offline mode, on purpose.** Clients are always connected; there
+is no local cache to reconcile and no sync layer. That sounds like a missing
+feature, but it is what buys zero conflict-resolution code — the class of bug
+where two devices each believe they are right and your collection quietly ends
+up wrong. One database, one writer, no merge logic to get subtly wrong.
+
+**It only works on your own network, and that is not an oversight.** Reaching a
+machine at home from somewhere else means getting through NAT, and every method
+of doing that needs a publicly reachable third party: a tunnel, a relay, a
+coordination server. Someone has to operate it, and it becomes a part of the
+path that can break in a way you cannot fix. Tailscale is the honest version of
+that trade — you install it, you control it, and it is one app rather than
+something buried in here pretending to be free. So the default is your own LAN,
+and access from away stays opt-in and yours. See
+[Security](#security-read-this).
+
+**A card can only be in one deck at a time, and that is enforced by
+recalculating rather than remembering.** Each deck's claim on your collection is
+derived — from what you own, and from what every other deck has already taken
+— and recomputed on every write that could change the answer. Nothing stores
+"this deck holds these two copies" as a standalone fact that could drift. So the
+numbers cannot rot: delete a deck and its cards are free immediately, trade one
+away and every deck that wanted it updates at once. Only decks marked
+*building* or *assembled* reserve anything — a brew holds a list without
+starving the decks you actually intend to put on the table.
+
+**Your whole library is one file.** `library.sqlite` is the entirety of it —
+no directory of state, no external service holding a piece. The card database is
+not in the backup because it re-downloads from Scryfall in seconds.
+
+---
+
 ## License
 
 [MIT](LICENSE). Run it, fork it, change it.
