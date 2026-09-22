@@ -379,7 +379,7 @@ endpoints and reimplement nothing.
 - `web/` — React + Vite. One codebase, desktop and phone layouts.
 - `desktop/` — the Electron shell around the unmodified server: a bundled
   Node runs `server/dist`, the window shows `web/dist`. No UI or rules of its
-  own; `desktop/CLAUDE.md` has what must stay true.
+  own.
 - `schema.sql` — the complete database schema for fresh installs;
   `server/src/db/migrations.ts` upgrades existing databases, and a test proves
   the two produce identical databases.
@@ -396,44 +396,6 @@ moves `latest`. So cutting a release that friends will get on their next
 ```bash
 git tag v1.2.0 && git push origin v1.2.0
 ```
-
-### Reading the docs
-
-If you want to understand how everything connects — or change something —
-there's a set of docs written for exactly that, in the order you'd read them:
-
-1. **[`docs/CODEBASE-MAP.md`](docs/CODEBASE-MAP.md)** — start here. It opens
-   with a *"Where do I edit…?"* table: pick the thing you want to change
-   ("how buildable % is computed", "add a setting", "the Have it / Buy 4
-   chip") and it names the one file that owns it. Below that: a diagram of the
-   shape of the system, the dependency layers on each side (what imports
-   what, bottom to top), a per-file entry for every source file, and a
-   walkthrough of how a typical change flows from the schema up through a
-   store, a route, the API client and a component.
-2. **[`docs/atlas/codebase-atlas.html`](docs/atlas/codebase-atlas.html)** —
-   the same map as an interactive page. Open it in a browser straight from
-   disk; click a file and its imports and importers light up, arranged by
-   layer. A Styles tab does the same for the stylesheet.
-3. **[`docs/CSS-INDEX.md`](docs/CSS-INDEX.md)** — `web/src/styles.css` is one
-   ~3,000-line file in named sections, and the early sections accumulated the
-   shared classes. This index says which section defines each class and which
-   components use it, so you can find a rule without grepping. Generated, like
-   the atlas, by `python3 docs/atlas/build.py`.
-4. **[`CLAUDE.md`](CLAUDE.md)** — the project brief: the tech stack, the seven
-   concepts in the data model and why they're kept separate, and the
-   allocation rules (a physical card can only be in one deck at a time, and
-   the machinery that keeps that honest). It was written for the AI assistant
-   this was built with, but it's the best single page on *why* the design is
-   the way it is.
-5. **[`phases/`](phases/)** — the design doc each feature was built from,
-   numbered in build order. Each one has a *Why*, the schema and server and
-   client changes, and a *Verification* section listing what had to be true
-   before the phase was called done. Where the build diverged from the plan,
-   the doc says so rather than being rewritten — so they double as the
-   project's history.
-
-Both generated files are checked in, so nothing needs building to read them;
-rerun `build.py` after moving or renaming a source file and commit the result.
 
 ---
 
