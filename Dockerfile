@@ -21,9 +21,33 @@ RUN npm ci
 COPY schema.sql ./
 COPY server/ server/
 COPY web/ web/
+
+# Build, then reduce the tree to exactly what the runtime needs. Everything
+# here happens in this stage on purpose: a layer can only add, so deleting in
+# the runtime stage would leave the bytes in the image and add a whiteout on
+# top.
+#
+#   npm ci --workspace=server   rather than `npm prune --omit=dev`, which
+#                               cannot express this: react and react-dom are
+#                               *web's* production dependencies, so they
+#                               survived a prune (7.6 MB) even though the
+#                               client is already bundled into web/dist.
+#                               Measured: 155 packages / 47 MB down to
+#                               133 / 36 MB. This is what scripts/stage.mjs
+#                               does for the Electron build, for the same
+#                               reason.
+#   check-sqlite.mjs            after the reinstall, so the gate covers the
+#                               better-sqlite3 binary that actually ships.
+#   deps/                       the SQLite amalgamation better-sqlite3 builds
+#                               from (9.5 MB). A prebuilt binary is what runs;
+#                               nothing compiles inside the image.
+#   *.test.ts                   server/src ships because the CLI tools import
+#                               it, but its 53 test files (496 KB) do not.
 RUN npm run build \
+ && npm ci --workspace=server --omit=dev --no-audit --no-fund \
  && node server/scripts/check-sqlite.mjs \
- && npm prune --omit=dev
+ && rm -rf node_modules/better-sqlite3/deps \
+ && find server/src -name '*.test.ts' -delete
 
 # ---------- runtime --------------------------------------------------------
 # The paths matter: server/dist walks up to find schema.sql and web/dist, so

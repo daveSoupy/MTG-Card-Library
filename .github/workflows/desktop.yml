@@ -1,12 +1,19 @@
 # Builds, signs and publishes the desktop app (Phase 34).
 #
 #   tag v1.2.3   -> one GitHub Release "v1.2.3" carrying
-#                     MTG-Library-1.2.3-mac-arm64.dmg      what a Mac user downloads
+#                     MTG-Library-1.2.3-mac-arm64.dmg      Apple silicon download
+#                     MTG-Library-1.2.3-mac-x64.dmg        Intel download
 #                     MTG-Library-1.2.3-mac-arm64.zip      what an installed Mac app's updater fetches
+#                     MTG-Library-1.2.3-mac-x64.zip        the same, on an Intel Mac
 #                     MTG-Library-1.2.3-win-x64-setup.exe  the Windows installer
 #                     latest-mac.yml, latest.yml           electron-updater's pointers to the above
 #                     *.zip.blockmap, *.exe.blockmap       differential-download indexes
 #                     SHA256SUMS
+#
+# One latest-mac.yml covers both Mac arches: electron-builder merges the two
+# arches' entries into the one channel file, and electron-updater picks by the
+# "arm64" in the file name. That is why the arch must stay in the artifact
+# name — see the comment on `mac.artifactName` in desktop/electron-builder.yml.
 #
 # The .dmg's blockmap is deliberately not uploaded: the updater fetches the
 # .zip, so a dmg blockmap is a file on the page that nothing ever reads. The
@@ -113,12 +120,19 @@ jobs:
           fi
 
   # ------------------------------------------------------------------------
-  # macOS: arm64, signed with the Developer ID, hardened runtime, notarised
-  # and stapled by electron-builder; then the gate proves all of it.
+  # macOS: arm64 and x64, both signed with the Developer ID, hardened runtime,
+  # notarised and stapled by electron-builder; then the gate proves all of it.
+  # Two apps means two trips through Apple's notarisation service, so this job
+  # takes roughly twice as long as it did when the build was arm64-only.
   # ------------------------------------------------------------------------
   mac:
     needs: release
-    runs-on: macos-latest # Apple silicon since macos-14; the build is arm64-only
+    # Apple silicon since macos-14. Both arches are cross-built from here:
+    # electron-builder downloads each Electron, and stage.mjs fetches each
+    # better-sqlite3 with prebuild-install --arch. check-packaged.mjs reads
+    # the Mach-O header of both to prove no arm64 binary ended up in the
+    # Intel app, which is the failure this runner could not otherwise see.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -190,6 +204,12 @@ jobs:
         # bundled Node, answers /api/v1/health, and the lifecycle checks pass.
         # A JIT crash would show here, not on a user's Mac. --skip-mdns: the
         # runner's network carries no multicast, so dns-sd can never see it.
+        #
+        # arm64 only — the runner cannot be relied on to have Rosetta, and an
+        # x64 app that will not launch here would say nothing about whether it
+        # launches on an Intel Mac. The Intel build is covered by the same
+        # signature, notarisation and layout gates, and by the Mach-O arch
+        # check; actually opening it needs a real Intel Mac.
         run: node desktop/scripts/verify-lifecycle.mjs --app "$GITHUB_WORKSPACE/desktop/out/mac-arm64/MTG Library.app/Contents/MacOS/MTG Library" --skip-mdns
 
       - name: What was built

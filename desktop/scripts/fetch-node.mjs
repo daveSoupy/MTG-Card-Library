@@ -4,10 +4,13 @@
 //   node scripts/fetch-node.mjs [--target darwin-arm64|win32-x64]...
 //
 // The version is `config.nodeVersion` in desktop/package.json and must
-// satisfy the root package's `engines.node`. One binary per target lands in
-// desktop/vendor/node/<target>/ (node, or node.exe) beside Node's LICENSE,
-// with the SHA-256 checked against the release's SHASUMS256.txt. The
-// directory is gitignored; a fetched binary is reused until the version
+// satisfy the root package's `engines.node` — a floor, not a target. The
+// floor is what the *server* needs (Node 20); what ships here is current
+// Node, because the app is downloaded rather than found on the machine and
+// there is no reason to hand anyone an old runtime. One binary per target
+// lands in desktop/vendor/node/<target>/ (node, or node.exe) beside Node's
+// LICENSE, with the SHA-256 checked against the release's SHASUMS256.txt.
+// The directory is gitignored; a fetched binary is reused until the version
 // changes.
 //
 // Why a bundled Node rather than Electron's own: better-sqlite3's prebuilt
@@ -32,6 +35,7 @@ const TAR = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:\\W
 /** Node's own naming for each target, and the file inside the archive we keep. */
 export const NODE_TARGETS = {
   'darwin-arm64': { archive: (v) => `node-${v}-darwin-arm64.tar.gz`, binary: 'bin/node', out: 'node' },
+  'darwin-x64': { archive: (v) => `node-${v}-darwin-x64.tar.gz`, binary: 'bin/node', out: 'node' },
   'win32-x64': { archive: (v) => `node-${v}-win-x64.zip`, binary: 'node.exe', out: 'node.exe' },
 };
 

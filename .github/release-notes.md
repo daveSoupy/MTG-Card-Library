@@ -7,7 +7,8 @@
 
 **Which file do I download?**
 
-- **macOS** (Apple silicon) — `MTG-Library-VERSION-mac-arm64.dmg`. Signed and notarised, so it opens with no warning.
+- **macOS, Apple silicon** (M1 and later) — `MTG-Library-VERSION-mac-arm64.dmg`. Signed and notarised, so it opens with no warning.
+- **macOS, Intel** — `MTG-Library-VERSION-mac-x64.dmg`. Same, for a Mac with an Intel processor. Not sure which you have? Apple menu → **About This Mac**: a line reading *Chip* means take the first one, *Processor* means take this one.
 - **Windows** (x64) — `MTG-Library-VERSION-win-x64-setup.exe`. Not signed yet, so SmartScreen shows *"Windows protected your PC"*: click **More info → Run anyway**.
 
 Open it once and it sets itself up — there is nothing else to install. **The app updates itself** from here: it checks on launch and once a day, downloads in the background and applies the update the next time you quit. An installed app needs nothing from this page.

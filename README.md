@@ -6,7 +6,8 @@ a card shop to record a trade. All your data lives in one SQLite file on your
 own box.
 
 > **Download the desktop app** (latest release, updates itself):
-> [**macOS**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.7-mac-arm64.dmg) (Apple silicon, signed and notarised) ·
+> [**macOS, Apple silicon**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.7-mac-arm64.dmg) (signed and notarised) ·
+> [**macOS, Intel**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.7-mac-x64.dmg) ·
 > [**Windows**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.7-win-x64-setup.exe) (unsigned for now — click *More info → Run anyway*) ·
 > [all releases](https://github.com/daveSoupy/MTG-Card-Library/releases).
 > Prefer a server? See [Running it](#running-it).
@@ -103,17 +104,21 @@ covered [below](#backups).
 
 ## Desktop app
 
-The same server as an ordinary application for a Mac (Apple silicon) or a
-Windows PC: double-click to start, quit from the menu bar or system tray to
-stop. No Docker, no Node, no terminal. It is for people *without* a home
+The same server as an ordinary application for a Mac — Apple silicon or Intel
+— or a Windows PC: double-click to start, quit from the menu bar or system
+tray to stop. No Docker, no Node, no terminal. It is for people *without* a home
 server — it keeps its own library, and there is no syncing between it and a
 self-hosted install, so it is one or the other.
 
 **Download:** the latest release on the
 [Releases page](https://github.com/daveSoupy/MTG-Card-Library/releases/latest) —
-`MTG-Library-<version>-mac-arm64.dmg` for a Mac, `MTG-Library-<version>-win-x64-setup.exe`
-for Windows (**unsigned for now** — see below for the one extra click). It is
-150–250 MB, most of it the bundled runtime. **It updates
+`MTG-Library-<version>-mac-arm64.dmg` for an Apple silicon Mac,
+`MTG-Library-<version>-mac-x64.dmg` for an Intel one (Apple menu → *About This
+Mac*: *Chip* means the first, *Processor* the second), and
+`MTG-Library-<version>-win-x64-setup.exe` for Windows (**unsigned for now** —
+see below for the one extra click). It is 150–250 MB, most of it the bundled
+runtime. The Intel build needs macOS 13, which is as far back as Electron
+goes; a 2017-or-later Mac can run it. **It updates
 itself:** the app checks for a new release when it opens and once a day,
 downloads it in the background, and applies it the next time you quit (or
 sooner from *Restart to update* in the menu). Nothing interrupts you
@@ -153,9 +158,10 @@ To build it yourself (macOS, with the repository set up as under
 npm run desktop:package
 ```
 
-That produces `desktop/out/MTG-Library-<version>-mac-arm64.dmg` (and the
-`.zip` the updater uses) and `desktop/out/MTG-Library-<version>-win-x64-setup.exe`
-— the Windows installer is built on the Mac too. Your own build is signed if
+That produces `desktop/out/MTG-Library-<version>-mac-arm64.dmg` and
+`-mac-x64.dmg` (plus the `.zip`s the updater uses) and
+`desktop/out/MTG-Library-<version>-win-x64-setup.exe` — the Intel Mac build
+and the Windows installer are both cross-built from whichever Mac you are on. Your own build is signed if
 a *Developer ID Application* certificate is in your keychain and notarised if
 `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` are in the
 environment; without a certificate it is unsigned and runs only where it was
@@ -206,7 +212,16 @@ docker compose pull && docker compose up -d   # update to the latest release
 
 ### Option B — Node directly
 
-Needs **Node.js 22.6 or newer** (`node --version`).
+Needs **Node.js 20 or newer** (`node --version`). 20 is the oldest release
+still getting security updates; the server itself only uses APIs that landed
+in 18, so a NAS box or an LTS distro a couple of years behind will run it.
+
+Three things here still want a newer Node, none of them on the path below:
+`npm test` and the Electron shell need **22.12**, and the command-line tools
+under `server/scripts/` need **22.6**, because they load the TypeScript source
+through `--experimental-strip-types`. On 20 or 21 `npm install` prints an
+`EBADENGINE` warning about the first two; building and running the server are
+unaffected.
 
 ```bash
 git clone https://github.com/daveSoupy/MTG-Card-Library.git

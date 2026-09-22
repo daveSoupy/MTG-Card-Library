@@ -8,10 +8,7 @@ import { resolveCategoryClosures, writeCardCategories, syncCardCategories, type 
 const SCHEMA = readFileSync(SCHEMA_PATH, 'utf8');
 
 function tag(id: string, slug: string, childIds: string[], oracleIds: string[]): TagRecord {
-  return {
-    id, slug, label: slug, type: 'oracle', childIds,
-    taggings: oracleIds.map((oracleId) => ({ oracleId, weight: 'median' })),
-  };
+  return { id, slug, label: slug, type: 'oracle', childIds, oracleIds };
 }
 
 test('a root tag with no direct taggings resolves through its children', () => {
@@ -115,7 +112,9 @@ function stubScryfall(updatedAt: string, tags: TagRecord[]) {
     const body = tags.map((t) => JSON.stringify({
       object: 'tag', type: 'oracle', id: t.id, slug: t.slug, label: t.label,
       child_ids: t.childIds,
-      taggings: t.taggings.map((x) => ({ oracle_id: x.oracleId, weight: x.weight })),
+      // The real file's taggings carry a weight the parser ignores; emit one
+      // so "ignores it" is what this exercises rather than "never saw one".
+      taggings: t.oracleIds.map((oracleId) => ({ oracle_id: oracleId, weight: 'median' })),
     })).join('\n');
     return new Response(gzipSync(Buffer.from(body)), { status: 200 });
   }) as unknown as typeof fetch;

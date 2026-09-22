@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { FetchQueue } from './fetchQueue.ts';
 import { fetchAndCacheImage, type ImageSize } from './fetch.ts';
-import { cacheLimitBytes } from './cache.ts';
+import { cacheLimitBytes, evictImages } from './cache.ts';
 
 /**
  * Downloading card art ahead of time, so browsing and deck-building have no
@@ -21,6 +21,13 @@ const WARM_SIZES: ImageSize[] = ['small', 'normal'];
 
 /** Fallback average bytes when the cache has no samples to measure from. */
 const FALLBACK_AVG: Record<string, number> = { small: 40_000, normal: 130_000 };
+
+/**
+ * Downloads between cache sweeps, the same interval routes/images.ts uses for
+ * the same reason: the check is a SUM over image_cache, so it is worth doing
+ * occasionally rather than per image.
+ */
+const EVICT_EVERY = 200;
 
 export interface ImageDownloadState {
   running: boolean;
@@ -176,9 +183,41 @@ export class ImageDownloadManager {
     if (this.state.running) this.state.canceled = true;
   }
 
+  /**
+   * Runs the work list, six at a time, keeping the cache under its cap.
+   *
+   * Eviction used to be triggered from one place only — routes/images.ts,
+   * every 200th on-demand download — and this loop calls fetchAndCacheImage
+   * directly, so a pre-download never swept. A 'referenced' warm-up over a
+   * large collection could therefore walk straight past the 2 GiB cap and
+   * keep going, which is the one path that writes thousands of files without
+   * a single request passing through the route. A 'scope: all' run is still
+   * refused up front by start(); this is what covers everything else.
+   *
+   * Sweeps are serialised through `sweeping` so six workers cannot start six
+   * of them, and one runs at the end regardless of the count, so a top-up of
+   * fifty images into an already-full cache is not exempt.
+   */
   private async run(work: WorkItem[]): Promise<void> {
     const CONCURRENCY = 6;
     let next = 0;
+    let sinceSweep = 0;
+    let sweeping: Promise<unknown> | null = null;
+
+    // Not awaited by the worker: the sweep is unlinks and small deletes, and
+    // holding six downloads still for it would cost more than it saves.
+    const sweep = () => {
+      if (sweeping !== null) return;
+      sinceSweep = 0;
+      sweeping = evictImages(this.db)
+        // An eviction failure is an error of the run — the cache is now over
+        // its limit — but not a failed download, so the counter stays put.
+        .catch((error) => {
+          this.state.lastError = `image cache eviction failed: ${
+            error instanceof Error ? error.message : String(error)}`;
+        })
+        .finally(() => { sweeping = null; });
+    };
 
     const worker = async () => {
       while (!this.state.canceled) {
@@ -197,12 +236,16 @@ export class ImageDownloadManager {
           this.state.lastError = error instanceof Error ? error.message : String(error);
         }
         this.state.processed += 1;
+        if ((sinceSweep += 1) >= EVICT_EVERY) sweep();
       }
     };
 
     try {
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
     } finally {
+      await sweeping;
+      sweep();
+      await sweeping;
       this.state.running = false;
       this.state.finishedAt = new Date().toISOString();
     }

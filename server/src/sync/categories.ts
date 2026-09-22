@@ -18,14 +18,25 @@ import { USER_AGENT } from './scryfall.ts';
  * errors (see runSync.ts).
  */
 
-/** One row from the oracle_tags bulk file. */
+/**
+ * One row from the oracle_tags bulk file.
+ *
+ * `taggings` in the file is an array of objects carrying an oracle id and a
+ * `weight`; only the id is kept. The weight was parsed into an object per
+ * tagging and then read by nothing — 236,260 objects and 236,260 extra
+ * strings held for the length of the sideload, measured against the live
+ * file. If a weight is ever wanted (ranking a card's fit to a category, say),
+ * it comes back as a parallel array or a richer type, not as a field nobody
+ * asked for.
+ */
 export interface TagRecord {
   id: string;
   slug: string;
   label: string;
   type: string;
   childIds: string[];
-  taggings: Array<{ oracleId: string | null; weight: string }>;
+  /** Oracle ids this tag is applied to; nulls in the file are dropped. */
+  oracleIds: string[];
 }
 
 /**
@@ -59,19 +70,17 @@ export const CATEGORY_LABELS: Record<string, string> = {
 
 function normalizeTag(raw: any): TagRecord | null {
   if (!raw || raw.object !== 'tag' || raw.type !== 'oracle') return null;
-  const taggings = Array.isArray(raw.taggings)
-    ? raw.taggings.map((t: any) => ({
-        oracleId: typeof t?.oracle_id === 'string' ? t.oracle_id : null,
-        weight: typeof t?.weight === 'string' ? t.weight : 'median',
-      }))
-    : [];
+  const oracleIds: string[] = [];
+  if (Array.isArray(raw.taggings)) {
+    for (const t of raw.taggings) if (typeof t?.oracle_id === 'string') oracleIds.push(t.oracle_id);
+  }
   return {
     id: String(raw.id),
     slug: String(raw.slug ?? ''),
     label: String(raw.label ?? ''),
     type: raw.type,
     childIds: Array.isArray(raw.child_ids) ? raw.child_ids.map(String) : [],
-    taggings,
+    oracleIds,
   };
 }
 
@@ -149,9 +158,7 @@ export function resolveCategoryClosures(tags: TagRecord[]): Map<string, Set<stri
         seen.add(id);
         const tag = byId.get(id);
         if (!tag) continue;
-        for (const tagging of tag.taggings) {
-          if (tagging.oracleId) oracleIds.add(tagging.oracleId);
-        }
+        for (const tagged of tag.oracleIds) oracleIds.add(tagged);
         queue.push(...tag.childIds);
       }
     }

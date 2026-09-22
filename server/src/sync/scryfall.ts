@@ -192,16 +192,26 @@ export async function* streamBulkCards(
     .pipeThrough(gunzip)
     .pipeThrough(decode);
 
+  // A cursor into the buffer rather than re-slicing it after every line. The
+  // buffer is only compacted once per chunk, when the next chunk is appended,
+  // so the unconsumed remainder is copied once per chunk instead of once per
+  // line. Measured over the real default_cards file (604 MB decompressed,
+  // 118,609 lines): 1,795 ms to 1,627 ms for the split loop alone. Modest,
+  // because V8 answers `slice` with a SlicedString that shares the parent
+  // rather than a copy — the textbook quadratic blow-up this pattern has in
+  // other languages does not happen here.
   let buffer = '';
+  let start = 0;
   for await (const chunk of lines as unknown as AsyncIterable<string>) {
-    buffer += chunk;
+    buffer = start === 0 ? buffer + chunk : buffer.slice(start) + chunk;
+    start = 0;
     let newline: number;
-    while ((newline = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
+    while ((newline = buffer.indexOf('\n', start)) >= 0) {
+      const line = buffer.slice(start, newline).trim();
+      start = newline + 1;
       if (line.length > 0) yield JSON.parse(line);
     }
   }
-  const tail = buffer.trim();
+  const tail = buffer.slice(start).trim();
   if (tail.length > 0) yield JSON.parse(tail);
 }

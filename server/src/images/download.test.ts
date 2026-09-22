@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { SCHEMA_PATH, setSetting } from '../db/index.ts';
 import { FetchQueue } from './fetchQueue.ts';
 import { fetchAndCacheImage } from './fetch.ts';
+import { cacheSizeBytes } from './cache.ts';
 import { ImageDownloadManager, CacheLimitError } from './downloadManager.ts';
 
 const SCHEMA = readFileSync(SCHEMA_PATH, 'utf8');
@@ -159,6 +160,39 @@ test('a full download is refused when it would not fit the cache cap', async () 
     const state = mgr.start('all');
     assert.equal(state.running, true);
     await drain(mgr);
+  } finally {
+    stub.restore();
+    db.close();
+  }
+});
+
+test('a referenced warm-up stays under the cache cap', async () => {
+  // The gap this covers: eviction used to be triggered only by the HTTP
+  // route, every 200th on-demand download. ImageDownloadManager.run calls
+  // fetchAndCacheImage directly, so a pre-download swept never — and only
+  // `scope: all` is refused up front, which left the referenced warm-up free
+  // to walk past the cap and keep writing files.
+  const { db, imageDir } = fixture();
+  const stub = stubFetch();
+  const mgr = new ImageDownloadManager(db, imageDir);
+  try {
+    // Four items at 16 bytes each (the stub's body); 40 bytes cannot hold them.
+    setSetting(db, 'image_cache_max_bytes', '40');
+    mgr.start('referenced');
+    await drain(mgr);
+
+    assert.equal(mgr.current.downloaded, 4, 'every item was still fetched');
+    // evictImages trims to 90% of the cap, so at most 36 bytes may survive.
+    const size = cacheSizeBytes(db);
+    assert.ok(size <= 36, `cache holds ${size} bytes against a 40-byte cap`);
+
+    // Eviction deletes files, not just rows: every remaining row has its file
+    // and no file outlives its row.
+    const rows = db.prepare('SELECT file_path FROM image_cache').all() as Array<{ file_path: string }>;
+    for (const row of rows) assert.ok(existsSync(row.file_path), `${row.file_path} is missing`);
+    const onDisk = readdirSync(imageDir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile()).length;
+    assert.equal(onDisk, rows.length, 'an evicted row left its file behind');
   } finally {
     stub.restore();
     db.close();

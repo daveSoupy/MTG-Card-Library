@@ -2,7 +2,7 @@
 // The gate: is the packaged app's server tree right, and does its SQLite
 // have what schema.sql needs?
 //
-//   node scripts/check-packaged.mjs --target darwin-arm64|win32-x64 [--resources <dir>]
+//   node scripts/check-packaged.mjs --target darwin-arm64|darwin-x64|win32-x64 [--resources <dir>]
 //                                   [--require-signed] [--require-notarized]
 //
 // Checks the layout under the app's resources directory (the walk-up from
@@ -33,7 +33,7 @@ import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { binaryFormat } from './stage.mjs';
+import { binaryArch, binaryFormat } from './stage.mjs';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const desktopDir = join(here, '..');
@@ -43,9 +43,18 @@ const argValue = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] :
 // @electron/asar comes with electron-builder; nothing at runtime needs it.
 const require = createRequire(import.meta.url);
 
-/** Where electron-builder leaves the unpacked app's resources for each target. */
+/**
+ * Where electron-builder leaves the unpacked app's resources for each target.
+ *
+ * The directory is the platform key plus an arch suffix, and the suffix is
+ * dropped for the *default* arch, which is x64 — so the Intel build is in
+ * out/mac with no suffix and Apple silicon is in out/mac-arm64. Only the
+ * directory works that way; the artifact names carry both arches, because
+ * artifactName is set in electron-builder.yml (see the comment there).
+ */
 export function defaultResourcesDir(target) {
   if (target === 'darwin-arm64') return join(desktopDir, 'out', 'mac-arm64', 'MTG Library.app', 'Contents', 'Resources');
+  if (target === 'darwin-x64') return join(desktopDir, 'out', 'mac', 'MTG Library.app', 'Contents', 'Resources');
   if (target === 'win32-x64') return join(desktopDir, 'out', 'win-unpacked', 'resources');
   throw new Error(`unknown target ${target}`);
 }
@@ -120,9 +129,22 @@ export function checkPackaged(target, resources = defaultResourcesDir(target), {
   check('shell in app.asar', existsSync(join(resources, 'app.asar')));
 
   const expected = isWindows ? 'pe' : 'mach-o';
-  if (existsSync(node)) check(`bundled node is ${expected}`, binaryFormat(node) === expected);
+  // The arch, not just the format. Mach-O 64-bit is the same magic number on
+  // Intel and Apple silicon, so the format check alone would pass an arm64
+  // binary sitting inside the Intel app — and that mistake only shows up on
+  // the machine this build cannot be tested on. A fat binary satisfies any
+  // target. See binaryArch in stage.mjs.
+  const wantArch = target.endsWith('-arm64') ? 'arm64' : 'x64';
+  const archOk = (path) => [wantArch, 'fat'].includes(binaryArch(path));
+  if (existsSync(node)) {
+    check(`bundled node is ${expected}`, binaryFormat(node) === expected);
+    check(`bundled node is ${wantArch}`, archOk(node), `${binaryArch(node)}`);
+  }
   const sqlite = required[10];
-  if (existsSync(sqlite)) check(`better_sqlite3.node is ${expected}`, binaryFormat(sqlite) === expected);
+  if (existsSync(sqlite)) {
+    check(`better_sqlite3.node is ${expected}`, binaryFormat(sqlite) === expected);
+    check(`better_sqlite3.node is ${wantArch}`, archOk(sqlite), `${binaryArch(sqlite)}`);
+  }
 
   // Phase 34: what the updater needs. app-update.yml is electron-builder's
   // copy of the publish config; electron-updater must be in the asar, not

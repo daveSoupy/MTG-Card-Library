@@ -44,6 +44,7 @@ const stagingDir = join(desktopDir, 'staging');
 
 const PLATFORM_ARCH = {
   'darwin-arm64': { platform: 'darwin', arch: 'arm64' },
+  'darwin-x64': { platform: 'darwin', arch: 'x64' },
   'win32-x64': { platform: 'win32', arch: 'x64' },
 };
 
@@ -66,6 +67,44 @@ export function binaryFormat(path) {
     if (magic === 0xfeedfacf || magic === 0xcffaedfe) return 'mach-o';
     if (magic === 0xcafebabe || magic === 0xbebafeca) return 'mach-o'; // fat
     return 'unknown';
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Which CPU the binary is actually for — 'x64', 'arm64', 'fat' or null.
+ *
+ * The format check above cannot tell an Intel Mach-O from an Apple silicon
+ * one: both are MH_MAGIC_64. That did not matter while every Mac build was
+ * arm64 on an arm64 machine, but a cross-built target is fetched by
+ * `prebuild-install --arch`, and if that ever resolved to the host's binary
+ * instead the mistake would not surface until someone opened the app on the
+ * machine we cannot test on. Four bytes of header answer it here instead.
+ */
+export function binaryArch(path) {
+  const fd = openSync(path, 'r');
+  try {
+    const head = Buffer.alloc(8);
+    readSync(fd, head, 0, 8, 0);
+
+    // Windows PE: e_lfanew at 0x3c points at "PE\0\0" + a 2-byte machine id.
+    if (head[0] === 0x4d && head[1] === 0x5a) {
+      const offset = Buffer.alloc(4);
+      readSync(fd, offset, 0, 4, 0x3c);
+      const coff = Buffer.alloc(6);
+      readSync(fd, coff, 0, 6, offset.readUInt32LE(0));
+      if (coff.toString('latin1', 0, 4) !== 'PE\0\0') return null;
+      return { 0x8664: 'x64', 0x014c: 'ia32', 0xaa64: 'arm64' }[coff.readUInt16LE(4)] ?? null;
+    }
+
+    const magic = head.readUInt32LE(0);
+    // A fat binary carries several; naming one would be a lie.
+    if (magic === 0xcafebabe || magic === 0xbebafeca) return 'fat';
+    if (magic !== 0xfeedfacf && magic !== 0xcffaedfe) return null;
+    // cpu_type_t, with the 0x01000000 CPU_ARCH_ABI64 bit set on both.
+    const cpu = magic === 0xfeedfacf ? head.readUInt32LE(4) : head.readUInt32BE(4);
+    return { 0x01000007: 'x64', 0x0100000c: 'arm64' }[cpu] ?? null;
   } finally {
     closeSync(fd);
   }
@@ -173,7 +212,9 @@ function fetchSqliteBinary(dir, target) {
   const format = binaryFormat(binary);
   const expected = platform === 'win32' ? 'pe' : 'mach-o';
   if (format !== expected) throw new Error(`${binary} is ${format}, expected ${expected}`);
-  console.log(`  ${binary.replace(dir, '')} ok (${format})`);
+  const builtFor = binaryArch(binary);
+  if (builtFor !== arch) throw new Error(`${binary} is ${builtFor ?? 'an unreadable architecture'}, expected ${arch}`);
+  console.log(`  ${binary.replace(dir, '')} ok (${format}, ${builtFor})`);
 }
 
 export function stage(targets) {

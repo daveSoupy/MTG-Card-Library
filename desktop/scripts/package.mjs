@@ -9,9 +9,10 @@
 //   3. tsc                 the shell
 //   4. gate, staged        check-sqlite.mjs on the bundled Node against the
 //                          staged tree, for the target this machine can run
-//   5. electron-builder    .dmg + .zip (mac arm64), NSIS installer (win x64);
-//                          signed and notarised when the environment allows
-//                          (electron-builder.yml's header says what decides)
+//   5. electron-builder    .dmg + .zip (mac arm64 and x64), NSIS installer
+//                          (win x64); signed and notarised when the
+//                          environment allows (electron-builder.yml's header
+//                          says what decides)
 //   6. gate, packaged      check-packaged.mjs on what electron-builder produced
 //
 // A failed gate fails the package: a build whose SQLite lacks FTS5 must
@@ -42,8 +43,13 @@ const wantMac = args.includes('--mac') || (!args.includes('--win') && process.pl
 const wantWin = args.includes('--win') || !args.includes('--mac');
 if (wantMac && process.platform !== 'darwin') throw new Error('the macOS build needs a Mac');
 
+// Both Mac arches: Electron 44 runs on macOS 13, which Intel Macs from 2017
+// on can install, and the build is cross-compiled from whichever Mac this is
+// — prebuild-install fetches better-sqlite3 per arch and check-packaged.mjs
+// verifies the header, so the only thing that still needs a real Intel Mac is
+// launching it.
 const targets = [];
-if (wantMac) targets.push('darwin-arm64');
+if (wantMac) targets.push('darwin-arm64', 'darwin-x64');
 if (wantWin) targets.push('win32-x64');
 const host = `${process.platform}-${process.arch}`;
 

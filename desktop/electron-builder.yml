@@ -89,11 +89,29 @@ mac:
   target:
     # The .dmg is what a person downloads; the .zip is what an installed app's
     # updater fetches (latest-mac.yml cannot be generated without one).
+    #
+    # Two arches. Electron 44 needs macOS 13, which every Intel Mac from 2017
+    # on can run, and an arm64-only build gave those machines no artifact at
+    # all. Universal binaries are the alternative and were not taken: they
+    # would double the download for everyone to serve the smaller half.
+    #
+    # electron-builder writes ONE latest-mac.yml listing both zips —
+    # writeUpdateInfoFiles merges tasks that share a channel file — and
+    # electron-updater picks between them by looking for the string "arm64"
+    # in the file name (MacUpdater.filterFilesForArch: an Apple silicon Mac
+    # prefers a file that has it, an Intel Mac excludes every file that does).
+    # So the arch has to stay in the artifact name, and the x64 name must not
+    # contain the word "arm64" anywhere.
     - target: dmg
-      arch: [arm64]
+      arch: [arm64, x64]
     - target: zip
-      arch: [arm64]
-  artifactName: MTG-Library-${version}-mac-arm64.${ext}
+      arch: [arm64, x64]
+  # ${arch} survives for *both* arches only because this pattern is set here.
+  # electron-builder strips the "-${arch}" fragment for the default arch (x64)
+  # — unless the pattern came from the config, which expandArtifactNamePattern
+  # calls isUserForced. It did, so arm64 keeps exactly the name it has always
+  # had and Intel gets "-mac-x64" rather than a bare "-mac".
+  artifactName: MTG-Library-${version}-mac-${arch}.${ext}
   category: public.app-category.utilities
   darkModeSupport: true
   hardenedRuntime: true
@@ -116,14 +134,18 @@ mac:
   notarize: true
   # spctl only accepts a notarised app; the workflow runs it after notarisation.
   gatekeeperAssess: false
+  # ${arch} again: FileMatcher runs every `from`/`to` through the same macro
+  # expander, so one block serves both arches and there is no second place to
+  # forget to update. scripts/stage.mjs and scripts/fetch-node.mjs produce the
+  # matching directory per target.
   extraResources:
-    - from: staging/darwin-arm64
+    - from: staging/darwin-${arch}
       to: mtg-library
-    - from: staging/darwin-arm64/node_modules
+    - from: staging/darwin-${arch}/node_modules
       to: mtg-library/node_modules
-    - from: vendor/node/darwin-arm64/node
+    - from: vendor/node/darwin-${arch}/node
       to: node/node
-    - from: vendor/node/darwin-arm64/LICENSE
+    - from: vendor/node/darwin-${arch}/LICENSE
       to: node/LICENSE
 
 win:

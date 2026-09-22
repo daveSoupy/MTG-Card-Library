@@ -10,7 +10,7 @@
     "desktop"
   ],
   "engines": {
-    "node": ">=22.6"
+    "node": ">=20"
   },
   "scripts": {
     "dev": "npm run dev --workspace=server",
