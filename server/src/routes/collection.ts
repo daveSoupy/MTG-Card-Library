@@ -400,7 +400,9 @@ export function registerCollectionRoutes(
 
   app.get('/api/v1/collection/sets', async (request) => {
     const q = request.query as Record<string, unknown>;
-    return { sets: collection.setCompletion(Math.min(asInt(q.limit) ?? 60, 300), q.all !== 'true') };
+    // Up to every set there is: rows are small, and a cap below the number of
+    // sets a large collection touches silently hid the rest of the tab.
+    return { sets: collection.setCompletion(Math.min(asInt(q.limit) ?? 60, 2000), q.all !== 'true') };
   });
 
   app.get('/api/v1/collection/sets/:setCode', async (request) => {

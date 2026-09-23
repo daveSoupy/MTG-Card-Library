@@ -98,6 +98,7 @@ export function CardDetailPane({
   }
 
   const printing = card?.printings.find((p) => p.id === selectedPrinting) ?? card?.printings[0];
+  const ownedPrintings = card?.printings.filter((p) => p.ownedQuantity > 0).length ?? 0;
   // Face images belong to the default printing, so only use them when that is
   // the printing on screen; otherwise fall back to the chosen printing's art.
   const showFaces = card && card.faces.length > 1 && selectedPrinting === card.printingId;
@@ -259,7 +260,10 @@ export function CardDetailPane({
           )}
 
           <div className="fgroup">
-            <h3>Printings ({card.printings.length})</h3>
+            <h3>
+              Printings ({card.printings.length})
+              {ownedPrintings > 0 && <span className="count"> · {ownedPrintings} owned, listed first</span>}
+            </h3>
             {selectedPrinting && selectedPrinting !== card.printingId && (
               <button
                 className="btn secondary small art-pin"
@@ -318,7 +322,11 @@ export function CardDetailPane({
               </button>
             )}
             <div className="printings">
-              {card.printings.map((p) => (
+              {/* Owned first, each part in the server's order (newest first):
+                  141 printings of Sol Ring with your four scattered through
+                  them was a hunt. */}
+              {[...card.printings.filter((p) => p.ownedQuantity > 0),
+                ...card.printings.filter((p) => !(p.ownedQuantity > 0))].map((p) => (
                 <button
                   key={p.id}
                   className="printing"

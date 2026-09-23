@@ -14,7 +14,8 @@ import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import type { Density, DensityPage } from '../density.ts';
 import { useNarrow } from '../viewport.ts';
-import { money } from '../format.ts';
+import { count, money } from '../format.ts';
+import { nameMatches, sortWants, WANT_SORTS, WANT_SORT_LABEL, type WantSort } from '../listSort.ts';
 
 const PRIORITY = ['—', 'Low', 'Medium', 'High'];
 
@@ -141,8 +142,19 @@ export function WantListsPage({
     loadLists();
   };
 
-  const active = list?.items.filter((i) => i.status === 'active') ?? [];
+  const active = useMemo(() => list?.items.filter((i) => i.status === 'active') ?? [], [list]);
   const fulfilled = list?.items.filter((i) => i.status === 'fulfilled') ?? [];
+
+  // Find and order. Both are views over the rows already here; the drag
+  // handles only exist in the list's own order with nothing filtered out,
+  // since dragging a row among a subset has no honest meaning for the rest.
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<WantSort>('manual');
+  const reorderable = sort === 'manual' && query.trim() === '';
+  const shown = useMemo(
+    () => sortWants(active.filter((item) => nameMatches(item.name, query)), sort),
+    [active, query, sort],
+  );
 
   /**
    * Persists a new order of the active rows. The server gets the whole list
@@ -191,6 +203,7 @@ export function WantListsPage({
   const dragMeta = useRef<DragMeta | null>(null);
 
   const displayItems = useMemo(() => {
+    if (!reorderable) return shown;
     if (!drag) return active;
     const dragged = active.find((i) => i.id === drag.id);
     if (!dragged) return active;
@@ -198,7 +211,7 @@ export function WantListsPage({
     const targetIndex = Math.min(rest.length, Math.max(0, drag.startIndex + drag.shift));
     rest.splice(targetIndex, 0, dragged);
     return rest;
-  }, [active, drag]);
+  }, [active, drag, reorderable, shown]);
 
   const trackDrag = (meta: DragMeta, clientY: number) => {
     if (!meta.lift) return;
@@ -322,14 +335,47 @@ export function WantListsPage({
             </div>
           )}
 
+          {active.length > 0 && (
+            <div className="list-tools">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find in this list"
+                aria-label="Find a card in this want list"
+              />
+              <label className="list-sort">
+                <span>Sort</span>
+                <select value={sort} onChange={(e) => setSort(e.target.value as WantSort)}>
+                  {WANT_SORTS.map((key) => <option key={key} value={key}>{WANT_SORT_LABEL[key]}</option>)}
+                </select>
+              </label>
+              {/* The server's figures over the whole list, whatever is
+                  filtered — the rows are the parts, this is their sum. */}
+              {list.totals && (
+                <span className="count list-totals" title="Active wants, each at the price shown on its row × the quantity wanted">
+                  {query.trim() && `${count(shown.length)} of `}
+                  {count(list.totals.activeCount)} {list.totals.activeCount === 1 ? 'want' : 'wants'}
+                  {' · '}{count(list.totals.activeCopies)} {list.totals.activeCopies === 1 ? 'copy' : 'copies'}
+                  {' · '}{money(list.totals.valueUsd)}
+                  {list.totals.unpricedCount > 0 && ` + ${count(list.totals.unpricedCount)} unpriced`}
+                </span>
+              )}
+            </div>
+          )}
+          {!reorderable && active.length > 1 && (
+            <p className="note">Drag to reorder in <strong>Your order</strong> with the search cleared.</p>
+          )}
+
           {active.length === 0 && <p className="empty">No active wants. Add a card, or send a deck's missing cards here.</p>}
+          {active.length > 0 && shown.length === 0 && <p className="empty">No wants match “{query.trim()}”.</p>}
 
           <div className="want-rows">
             {displayItems.map((item) => {
               const index = active.findIndex((a) => a.id === item.id);
               const isDragging = drag?.id === item.id;
               const targetOpen = openTarget.has(item.id);
-              const dragHandle = (
+              const dragHandle = !reorderable ? null : (
                 <button
                   type="button"
                   className="want-drag"

@@ -194,7 +194,7 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
                   value={locationId ?? ''}
                   onChange={(e) => setLocationId(Number(e.target.value))}
                 >
-                  {locations.map((location) => (
+                  {locations.filter((l) => !l.is_archived || l.id === locationId).map((location) => (
                     <option key={location.id} value={location.id}>{location.name}</option>
                   ))}
                 </select>

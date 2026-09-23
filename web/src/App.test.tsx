@@ -64,7 +64,7 @@ vi.mock('./api.ts', async (importOriginal) => ({
     bulkTypes: {},
   })),
   searchCards: (params: SearchParams) => searchCards(params),
-  fetchTrades: vi.fn(async () => TRADES),
+  fetchTrades: vi.fn(async () => ({ trades: TRADES, totals: { count: TRADES.length, completedCount: 0, valueOutUsd: 0, valueInUsd: 0, unvaluedCount: 0 } })),
   // A 404 with the server's wording, so the page's own "No trade with that
   // id." line — not the message — is what the test looks for.
   fetchTrade: vi.fn(async (id: number): Promise<Trade> => {

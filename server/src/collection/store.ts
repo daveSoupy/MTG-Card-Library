@@ -914,11 +914,16 @@ export class CollectionStore {
   // -- set completion --------------------------------------------------------
 
   setCompletion(limit = 60, ownedOnly = true) {
+    // The set's type and date ride along so the tab can filter by kind of set
+    // (a collection touching 90 sets is mostly promos and tokens) and say
+    // which printing of a name it is.
     return this.db.prepare(`
-      SELECT set_code, set_name, total_cards, owned_printings, percent_complete
-      FROM v_set_completion
-      ${ownedOnly ? 'WHERE owned_printings > 0' : ''}
-      ORDER BY percent_complete DESC, set_name
+      SELECT v.set_code, v.set_name, v.total_cards, v.owned_printings, v.percent_complete,
+             s.set_type, s.released_at
+      FROM v_set_completion v
+      JOIN sets s ON s.code = v.set_code
+      ${ownedOnly ? 'WHERE v.owned_printings > 0' : ''}
+      ORDER BY v.percent_complete DESC, v.set_name
       LIMIT ?`).all(limit) as any[];
   }
 

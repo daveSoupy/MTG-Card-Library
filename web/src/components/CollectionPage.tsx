@@ -1,14 +1,14 @@
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import {
-  addCollectionLot, addTradeListItem, createLocation, deleteLocation, fetchCollection,
+  addCollectionLot, addTradeListItem, deleteLocation, fetchCollection,
   restoreLocation,
   fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets,
   fetchTradeList, fetchTradeLists, removeCollectionLot, removeTradeListItem, updateCollectionLot,
   updateTradeListItem, DECK_STATUS_HINT, type NamedList,
   type CollectionCard, type CollectionCardDetail, type CollectionLot, type CollectionValue,
-  type LocationRestore, type SetRecord, type StorageLocation,
+  type LocationRestore, type SetCompletion, type SetRecord, type StorageLocation,
 } from '../api.ts';
-import { LocationDeleteConfirm } from './LocationDeleteConfirm.tsx';
+import { LocationList } from './LocationList.tsx';
 import { ListForTradeForm } from './ListForTradeForm.tsx';
 import { useUndoShortcuts, useUndoStack, type UndoEntry } from '../undo.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
@@ -24,12 +24,26 @@ import { groupByField, type GroupBy } from '../deckView.ts';
 import type { Density, DensityPage } from '../density.ts';
 import { COLLECTION_TABS, type CollectionTab } from '../router.ts';
 import { count, money } from '../format.ts';
+import { nameMatches } from '../listSort.ts';
+
+/** "draft_innovation" → "Draft innovation". */
+const setTypeLabel = (type: string) => {
+  const words = type.replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
 
 const TAB_LABEL: Record<CollectionTab, string> = {
   browse: 'Cards', add: 'Add by set', sets: 'Set Completion', value: 'Value',
   wants: 'Wants', tradelists: 'For trade',
 };
 
+
+/** Rows fetched per page, and per request when a whole span is re-read. The
+ *  route allows up to 300; a page stays small so the first paint is quick. */
+export const COLLECTION_PAGE = 120;
+const SPAN_CHUNK = 300;
+
+const cardKey = (card: CollectionCard) => `${card.printingId ?? card.oracleId}:${card.finish}`;
 
 const COLLECTION_SORTS = [
   ['name', 'Name'],
@@ -299,7 +313,10 @@ function CardLots({
                 }}
                 aria-label="Move to another location"
               >
-                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                {/* Archived ones stay — a lot may be in one — and say so. */}
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>{l.name}{l.is_archived ? ' (archived)' : ''}</option>
+                ))}
               </select>
               <span className="lot-paid">
                 paid $
@@ -410,7 +427,21 @@ export function CollectionPage({
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [sets, setSets] = useState<SetRecord[]>([]);
   const [value, setValue] = useState<CollectionValue | null>(null);
-  const [setStats, setSetStats] = useState<Awaited<ReturnType<typeof fetchSetCompletion>>>([]);
+  const [setStats, setSetStats] = useState<SetCompletion[]>([]);
+  // Set Completion's filters, and the set "Add by set" should open on when
+  // reached from a row there.
+  const [setType, setSetType] = useState<string>('all');
+  const [setSearch, setSetSearch] = useState('');
+  const [addSet, setAddSet] = useState<string | undefined>();
+  const setTypes = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of setStats) counts.set(s.set_type ?? 'other', (counts.get(s.set_type ?? 'other') ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [setStats]);
+  const shownSets = useMemo(() => setStats.filter((s) =>
+    (setType === 'all' || (s.set_type ?? 'other') === setType)
+    && (nameMatches(s.set_name, setSearch) || s.set_code.toLowerCase() === setSearch.trim().toLowerCase())),
+  [setStats, setType, setSearch]);
 
   const [cards, setCards] = useState<CollectionCard[]>([]);
   const [totals, setTotals] = useState({ distinctCards: 0, totalCards: 0, totalValue: 0 });
@@ -427,7 +458,6 @@ export function CollectionPage({
   );
   const [selected, setSelected] = useState<OwnedGridSelection | null>(null);
   const [adding, setAdding] = useState<{ oracleId: string; printingId?: string | null } | null>(null);
-  const [newLocation, setNewLocation] = useState('');
   const [error, setError] = useState<string | null>(null);
   // A failed load, kept apart from `error` (which an action sets and the
   // next action clears) because it decides what the page is allowed to say:
@@ -442,10 +472,6 @@ export function CollectionPage({
   // buttons — the header has enough in it already.
   const undoStack = useUndoStack();
   useUndoShortcuts(undoStack);
-  // The location whose delete confirm is open, and whether a delete is
-  // running — while one is, every other × holds still.
-  const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
-  const [deletingLocation, setDeletingLocation] = useState(false);
 
   const reloadLocations = useCallback(() => {
     fetchLocations().then(setLocations).catch((e) => setLoadError(e.message));
@@ -470,21 +496,123 @@ export function CollectionPage({
       .catch((e) => { setSetStatsFailed(true); setLoadError(e.message); });
   }, [tab]);
 
+  /**
+   * The grid is paged: the first 120 rows, then 120 more each time the end
+   * comes into view (or "Load more" is pressed). Three kinds of load:
+   *
+   * - a new filter, search or sort starts again from row 0;
+   * - `loadMore` appends the next page at `offset = rows loaded`;
+   * - `refreshLoaded`, after an edit, re-reads every row already loaded, so a
+   *   lot changed at row 3,000 does not snap the grid back to the first page.
+   *
+   * `generation` ties each response to the query that asked for it: a page
+   * that lands after the filter has changed is dropped, not appended to rows
+   * it was never part of.
+   */
+  const generation = useRef(0);
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The page request in flight, if any. A second call while one is running
+  // waits on it rather than returning at once — "Load all" loops on this, and
+  // an immediate answer would spin without ever letting the fetch land.
+  const inFlight = useRef<Promise<boolean> | null>(null);
+  const filterParams = useMemo(
+    () => ({ location: locationFilter, q: query || undefined, sort }),
+    [locationFilter, query, sort],
+  );
+  const exhausted = cards.length >= totals.distinctCards;
+
+  const applyTotals = (result: Awaited<ReturnType<typeof fetchCollection>>) => setTotals({
+    distinctCards: result.distinctCards,
+    totalCards: result.totalCards,
+    totalValue: result.totalValue,
+  });
+
   const reloadCards = useCallback(() => {
+    const mine = ++generation.current;
     setLoading(true);
-    fetchCollection({ location: locationFilter, q: query || undefined, sort, limit: 120 })
+    inFlight.current = null;
+    setLoadingMore(false);
+    fetchCollection({ ...filterParams, limit: COLLECTION_PAGE })
       .then((result) => {
+        if (mine !== generation.current) return;
         setCards(result.cards);
-        setTotals({
-          distinctCards: result.distinctCards,
-          totalCards: result.totalCards,
-          totalValue: result.totalValue,
-        });
+        applyTotals(result);
         setLoadError(null);
       })
-      .catch((e) => { setCards([]); setLoadError(e.message); })
-      .finally(() => setLoading(false));
-  }, [locationFilter, query, sort]);
+      .catch((e) => {
+        if (mine !== generation.current) return;
+        setCards([]); setLoadError(e.message);
+      })
+      .finally(() => { if (mine === generation.current) setLoading(false); });
+  }, [filterParams]);
+
+  /** Appends the next `size` rows. Returns whether more remain. */
+  const loadMore = useCallback((size = COLLECTION_PAGE): Promise<boolean> => {
+    if (inFlight.current) return inFlight.current;
+    const mine = generation.current;
+    const offset = cardsRef.current.length;
+    setLoadingMore(true);
+    const page = async () => {
+      try {
+        const result = await fetchCollection({ ...filterParams, limit: size, offset });
+        if (mine !== generation.current) return false;
+        // An edit between pages can shift a row across the boundary; one that
+        // is already here is not shown twice.
+        const seen = new Set(cardsRef.current.map(cardKey));
+        const next = [...cardsRef.current, ...result.cards.filter((card) => !seen.has(cardKey(card)))];
+        cardsRef.current = next;
+        setCards(next);
+        applyTotals(result);
+        return result.cards.length > 0 && next.length < result.distinctCards;
+      } catch (e) {
+        if (mine === generation.current) setError(e instanceof Error ? e.message : String(e));
+        return false;
+      } finally {
+        if (mine === generation.current) setLoadingMore(false);
+      }
+    };
+    const request: Promise<boolean> = page().finally(() => {
+      if (inFlight.current === request) inFlight.current = null;
+    });
+    inFlight.current = request;
+    return request;
+  }, [filterParams]);
+
+  /** Everything, for grouping over the whole collection rather than a page of it. */
+  const [loadingAll, setLoadingAll] = useState(false);
+  const loadAll = async () => {
+    setLoadingAll(true);
+    try { while (await loadMore(SPAN_CHUNK)); } finally { setLoadingAll(false); }
+  };
+
+  /** Re-reads the rows already loaded, in route-sized chunks, and swaps them in at once. */
+  const refreshLoaded = useCallback(() => {
+    const span = Math.max(cardsRef.current.length, COLLECTION_PAGE);
+    const mine = ++generation.current;
+    inFlight.current = null;
+    setLoadingMore(false);
+    const offsets = Array.from({ length: Math.ceil(span / SPAN_CHUNK) }, (_, i) => i * SPAN_CHUNK);
+    Promise.all(offsets.map((offset) => fetchCollection({
+      ...filterParams, offset, limit: Math.min(SPAN_CHUNK, span - offset),
+    })))
+      .then((pages) => {
+        if (mine !== generation.current) return;
+        const seen = new Set<string>();
+        const next = pages.flatMap((page) => page.cards).filter((card) => {
+          const key = cardKey(card);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        cardsRef.current = next;
+        setCards(next);
+        applyTotals(pages[pages.length - 1]);
+        setLoadError(null);
+      })
+      .catch((e) => { if (mine === generation.current) setLoadError(e.message); });
+  }, [filterParams]);
 
   useEffect(() => {
     if (tab !== 'browse') return;
@@ -492,7 +620,21 @@ export function CollectionPage({
     return () => clearTimeout(timer);
   }, [tab, reloadCards]);
 
-  const refreshAll = () => { reloadCards(); reloadLocations(); reloadValue(); };
+  // The end of the grid coming into view loads the next page. The button
+  // beside it does the same for a keyboard, and where there is no observer.
+  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || typeof IntersectionObserver === 'undefined' || loading || exhausted) return;
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries.some((entry) => entry.isIntersecting)) loadMore(); },
+      { rootMargin: '800px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loadMore, loading, exhausted, cards.length]);
+
+  const refreshAll = () => { refreshLoaded(); reloadLocations(); reloadValue(); };
 
   /**
    * After the confirm's delete: the undo goes on the collection stack with the
@@ -501,7 +643,6 @@ export function CollectionPage({
    * fresh record, since the location may have come back under a new id.
    */
   const locationDeleted = (name: string, result: { locations: StorageLocation[]; restore: LocationRestore }) => {
-    setConfirmingDelete(null);
     setLocations(result.locations);
     if (locationFilter === result.restore.location.id) setLocationFilter(undefined);
     refreshAll();
@@ -560,64 +701,16 @@ export function CollectionPage({
       {tab === 'browse' && (
         <div className="panes">
           <aside className="filters">
-            <div className="fgroup">
-              <h3>Locations</h3>
-              <button
-                className={`loc${locationFilter === undefined ? ' on' : ''}`}
-                onClick={() => setLocationFilter(undefined)}
-              >
-                <span>Everywhere</span>
-                <span className="count">{value ? count(value.value.total_cards ?? 0) : '—'}</span>
-              </button>
-              {locations.map((location) => (
-                <div className="loc-row" key={location.id}>
-                  <button
-                    className={`loc${locationFilter === location.id ? ' on' : ''}`}
-                    onClick={() => setLocationFilter(location.id)}
-                  >
-                    <span>{location.name}</span>
-                    <span className="count">{location.card_count}</span>
-                  </button>
-                  {!location.is_default && (
-                    <button className="loc-del"
-                            onClick={() => setConfirmingDelete(location.id)}
-                            disabled={deletingLocation}
-                            aria-expanded={confirmingDelete === location.id}
-                            aria-label={`Delete ${location.name}`}>×</button>
-                  )}
-                  {confirmingDelete === location.id && (
-                    <LocationDeleteConfirm
-                      location={location}
-                      locations={locations}
-                      onCancel={() => setConfirmingDelete(null)}
-                      onBusy={setDeletingLocation}
-                      onDeleted={(result) => locationDeleted(location.name, result)}
-                    />
-                  )}
-                </div>
-              ))}
-              <div className="preset-save" style={{ marginTop: 8 }}>
-                <input
-                  value={newLocation}
-                  placeholder="New location"
-                  onChange={(e) => setNewLocation(e.target.value)}
-                  onKeyDown={async (e) => {
-                    if (e.key !== 'Enter' || !newLocation.trim()) return;
-                    try {
-                      setLocations(await createLocation(newLocation.trim(), 'binder'));
-                      setNewLocation('');
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : String(err));
-                    }
-                  }}
-                />
-                <p className="note">
-                  Deleting a location moves its cards to another one rather than
-                  discarding them, and can be undone.
-                </p>
-              </div>
-            </div>
-
+            <LocationList
+              locations={locations}
+              selected={locationFilter}
+              onSelect={setLocationFilter}
+              everywhereCount={value ? value.value.total_cards ?? 0 : null}
+              onLocations={setLocations}
+              onDeleted={locationDeleted}
+              record={undoStack.record}
+              onError={setError}
+            />
           </aside>
 
           <main className="results">
@@ -636,7 +729,7 @@ export function CollectionPage({
                   ? 'Loading…'
                   : loadError
                     ? 'Not loaded'
-                    : `${count(totals.distinctCards)} printings · ${count(totals.totalCards)} copies · ${money(totals.totalValue)}`}
+                    : `${exhausted ? '' : `Showing ${count(cards.length)} of `}${count(totals.distinctCards)} printings · ${count(totals.totalCards)} copies · ${money(totals.totalValue)}`}
               </span>
               <CustomizeView
                 page={page}
@@ -661,9 +754,18 @@ export function CollectionPage({
               </p>
             )}
 
-            {/* The collection browses one capped page (120 rows) with no
-                "Load more", so grouping is over what came back — the counts
-                say "loaded" whenever that is short of the real total. */}
+            {/* Grouping is over the rows loaded so far. While that is short of
+                the whole, it says so, the counts say "loaded", and one press
+                loads the rest so the groups are the collection's own. */}
+            {groupBy !== 'none' && !exhausted && !loading && (
+              <p className="note group-partial">
+                Grouped over the {count(cards.length)} loaded of {count(totals.distinctCards)} printings,
+                so the groups grow as you scroll.{' '}
+                <button className="linkish" onClick={loadAll} disabled={loadingAll}>
+                  {loadingAll ? 'Loading…' : `Load all ${count(totals.distinctCards)} to group everything`}
+                </button>
+              </p>
+            )}
             {cardGroups.map((group) => (
               <div key={group.key}>
                 {group.key !== 'all' && (
@@ -682,6 +784,18 @@ export function CollectionPage({
                 />
               </div>
             ))}
+            {!loading && !loadError && !exhausted && (
+              <div className="load-more" ref={sentinel}>
+                <button className="btn secondary" onClick={() => loadMore()} disabled={loadingMore}>
+                  {loadingMore
+                    ? 'Loading…'
+                    : `Load ${count(Math.min(COLLECTION_PAGE, totals.distinctCards - cards.length))} more`}
+                </button>
+                <span className="count">
+                  {count(cards.length)} of {count(totals.distinctCards)} shown
+                </span>
+              </div>
+            )}
             <BackToTop label="Back to the top of the collection" />
           </main>
 
@@ -712,6 +826,7 @@ export function CollectionPage({
       {tab === 'add' && (
         <div className="results">
           <AddBySetTab
+            initialSet={addSet}
             sets={sets}
             locations={locations}
             onChanged={refreshAll}
@@ -728,15 +843,57 @@ export function CollectionPage({
           {setStats.length === 0 && !setStatsFailed && (
             <p className="empty">Add some cards to see set progress.</p>
           )}
-          {setStats.map((s) => (
-            <div className="setrow" key={s.set_code}>
-              <span className="setrow-name">{s.set_name}</span>
-              <div className="colorbar-track">
-                <div className="colorbar-fill cG" style={{ width: `${s.percent_complete ?? 0}%` }} />
-              </div>
-              <span className="count">{count(s.owned_printings)} of {count(s.total_cards)} printings · {s.percent_complete ?? 0}%</span>
+          {setStats.length > 0 && (
+            <div className="list-tools">
+              <input
+                type="search"
+                value={setSearch}
+                onChange={(e) => setSetSearch(e.target.value)}
+                placeholder="Find a set by name or code"
+                aria-label="Find a set"
+              />
+              <label className="list-sort">
+                <span>Type</span>
+                <select value={setType} onChange={(e) => setSetType(e.target.value)} aria-label="Set type">
+                  <option value="all">All types ({count(setStats.length)})</option>
+                  {setTypes.map(([type, n]) => (
+                    <option key={type} value={type}>{setTypeLabel(type)} ({count(n)})</option>
+                  ))}
+                </select>
+              </label>
+              <span className="count list-totals">
+                {shownSets.length === setStats.length
+                  ? `${count(setStats.length)} sets`
+                  : `${count(shownSets.length)} of ${count(setStats.length)} sets`}
+              </span>
             </div>
-          ))}
+          )}
+          {/* One grid of fixed columns, so every bar starts at the same x
+              whatever the length of the set's name or its count. */}
+          <div className="setgrid">
+            {shownSets.map((s) => (
+              <div className="setrow" key={s.set_code}>
+                <span className="setrow-code" title={s.set_type ? setTypeLabel(s.set_type) : undefined}>
+                  {s.set_code.toUpperCase()}
+                </span>
+                <span className="setrow-name" title={`${s.set_name}${s.released_at ? ` · ${s.released_at.slice(0, 4)}` : ''}`}>
+                  {s.set_name}
+                </span>
+                <div className="colorbar-track">
+                  <div className="colorbar-fill cG" style={{ width: `${s.percent_complete ?? 0}%` }} />
+                </div>
+                <span className="setrow-pct">{s.percent_complete ?? 0}%</span>
+                <span className="count setrow-of">{count(s.owned_printings)} of {count(s.total_cards)}</span>
+                <button
+                  className="linkish"
+                  onClick={() => { setAddSet(s.set_code); onTabChange('add'); }}
+                  title={`Open ${s.set_name} in Add by set`}
+                >
+                  Add by set
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

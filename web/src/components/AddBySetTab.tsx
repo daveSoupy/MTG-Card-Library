@@ -16,12 +16,15 @@ import { useCoarsePointer } from '../viewport.ts';
  * filling a page is one click per card rather than a fresh search each time.
  */
 export function AddBySetTab({
+  initialSet,
   sets,
   locations,
   onChanged,
   density = 'full',
   onDensity,
 }: {
+  /** The set to open on — Set Completion's "Add by set" passes its row's. */
+  initialSet?: string;
   sets: SetRecord[];
   locations: StorageLocation[];
   onChanged: () => void;
@@ -30,7 +33,7 @@ export function AddBySetTab({
   onDensity?: (density: Density) => void;
 }) {
   const coarse = useCoarsePointer();
-  const [setCode, setSetCode] = useState('');
+  const [setCode, setSetCode] = useState(initialSet ?? '');
   const [cards, setCards] = useState<Awaited<ReturnType<typeof fetchSetChecklist>>>([]);
   const [loading, setLoading] = useState(false);
   const [locationId, setLocationId] = useState(locations.find((l) => l.is_default)?.id ?? locations[0]?.id ?? 0);
@@ -172,7 +175,9 @@ export function AddBySetTab({
         <label>
           <span>Into</span>
           <select value={locationId} onChange={(e) => setLocationId(Number(e.target.value))}>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {locations.filter((l) => !l.is_archived || l.id === locationId).map((l) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
           </select>
         </label>
         <label>

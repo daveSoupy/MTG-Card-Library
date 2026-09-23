@@ -199,7 +199,8 @@ export function AddCardsDialog({
                 <label style={{ flex: 1 }}>
                   <span>Where</span>
                   <select value={locationId} onChange={(e) => setLocationId(Number(e.target.value))}>
-                    {locations.map((l) => (
+                    {/* Somewhere on the shelf: an archived location is out of use. */}
+                    {locations.filter((l) => !l.is_archived || l.id === locationId).map((l) => (
                       <option key={l.id} value={l.id}>{l.name}</option>
                     ))}
                   </select>

@@ -205,3 +205,19 @@ test('deck-driven basic-land wants follow the exemption; one you added yourself 
   assert.equal(reconcileWants(db, alerts, 'plains').length, 1);
   db.close();
 });
+
+test('a want list totals its active wants at the prices on the rows, and dates each one', () => {
+  const { db, wants } = fixture();
+  const list = wants.createList('Totals');
+  wants.addItem(list, 'bolt', { quantity: 3 });
+  const goyf = wants.addItem(list, 'goyf', { quantity: 2 });
+  const snap = wants.addItem(list, 'snap');
+  // An unpriced want is counted, not summed as $0; a fulfilled one is out.
+  db.prepare(`UPDATE card_printings SET price_usd = NULL WHERE id = 'p3'`).run();
+  wants.updateItem(goyf, { status: 'fulfilled' });
+
+  const read = wants.get(list)!;
+  assert.deepEqual(read.totals, { activeCount: 2, activeCopies: 4, valueUsd: 15, unpricedCount: 1 });
+  assert.match(read.items.find((i) => i.id === snap)!.addedAt, /^\d{4}-\d\d-\d\dT/);
+  db.close();
+});

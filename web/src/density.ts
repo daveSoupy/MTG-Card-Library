@@ -60,8 +60,19 @@ export function coerceDensity(density: Density, page: DensityPage): Density {
 export interface DensityPrefs {
   /** The topbar toggle's value — what a page with no override of its own uses. */
   global: Density;
+  /** Whether `global` was ever chosen on this device, rather than defaulted.
+   *  Until it is, a phone gets `PHONE_DEFAULT` where one is set. */
+  globalChosen?: boolean;
   overrides: Partial<Record<DensityPage, Density>>;
 }
+
+/**
+ * What a page starts at on a phone before anything was chosen. The deck
+ * builder at Full is one card per screen — a 100-card deck was ~18,000px of
+ * scrolling — so it starts at Compact there. Any choice, the topbar's or the
+ * page's own, replaces it.
+ */
+export const PHONE_DEFAULT: Partial<Record<DensityPage, Density>> = { deck: 'compact' };
 
 const GLOBAL_KEY = 'mtg.density';
 const PAGE_KEY: Record<DensityPage, string> = {
@@ -88,9 +99,9 @@ export function loadDensity(): DensityPrefs {
       const stored = localStorage.getItem(PAGE_KEY[page]);
       if (isDensity(stored) && densityAllowed(stored, page)) overrides[page] = stored;
     }
-    return { global: isDensity(global) ? global : 'full', overrides };
+    return { global: isDensity(global) ? global : 'full', globalChosen: isDensity(global), overrides };
   } catch {
-    return { global: 'full', overrides: {} };
+    return { global: 'full', globalChosen: false, overrides: {} };
   }
 }
 
@@ -113,9 +124,12 @@ export function savePageDensity(page: DensityPage, density: Density | null): voi
  * `page` is null on the views with no card grid at all (the deck list, trades,
  * data), where the global default is all there is to report.
  */
-export function effectiveDensity(prefs: DensityPrefs, page: DensityPage | null): Density {
+export function effectiveDensity(prefs: DensityPrefs, page: DensityPage | null, phone = false): Density {
   if (page === null) return prefs.global;
-  return coerceDensity(prefs.overrides[page] ?? prefs.global, page);
+  const override = prefs.overrides[page];
+  if (override) return coerceDensity(override, page);
+  const phoneDefault = phone && !prefs.globalChosen ? PHONE_DEFAULT[page] : undefined;
+  return coerceDensity(phoneDefault ?? prefs.global, page);
 }
 
 /** The topbar toggle cycles rather than opening a menu, the way the theme

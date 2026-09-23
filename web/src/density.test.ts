@@ -87,7 +87,7 @@ test('nothing here throws when storage does', () => {
   } as unknown as Storage;
   globalThis.localStorage = throwing;
 
-  assert.deepEqual(loadDensity(), { global: 'full', overrides: {} });
+  assert.deepEqual(loadDensity(), { global: 'full', globalChosen: false, overrides: {} });
   saveGlobalDensity('ultra');
   savePageDensity('deck', 'lined');
   savePageDensity('deck', null);
@@ -120,4 +120,15 @@ test('a level the page cannot reach still cycles somewhere it can', () => {
   // cycle must not be stuck on a value that is not in Browse's list.
   const next = nextDensity('lined', 'browse');
   assert.ok(densityAllowed(next, 'browse'), `${next} is not one of Browse's levels`);
+});
+
+test('a phone starts the deck builder at Compact until a density is chosen', () => {
+  const fresh = { global: 'full' as Density, globalChosen: false, overrides: {} };
+  assert.equal(effectiveDensity(fresh, 'deck', true), 'compact');
+  assert.equal(effectiveDensity(fresh, 'deck', false), 'full', 'a desktop is unchanged');
+  assert.equal(effectiveDensity(fresh, 'browse', true), 'full', 'only the deck builder has a phone default');
+
+  // The topbar's choice, or the page's own, wins over the phone default.
+  assert.equal(effectiveDensity({ ...fresh, globalChosen: true }, 'deck', true), 'full');
+  assert.equal(effectiveDensity({ ...fresh, overrides: { deck: 'ultra' as Density } }, 'deck', true), 'ultra');
 });

@@ -71,3 +71,20 @@ test('checkPriceTargets raises at/below target and re-arms above it', () => {
   assert.ok(item > 0);
   db.close();
 });
+
+test('a trade list totals copies, asks and market value, counting the rows without one', () => {
+  const { db, collection, lists, lot } = fixture();
+  const def = lists.lists().find((l) => l.is_default)!.id;
+  lists.addItem(def, lot, { quantity: 2, askingPriceUsd: 28 });
+  // A second, unpriced printing with no ask.
+  db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,rarity,price_usd)
+              VALUES ('p-goyf2','goyf','mh2','999','mythic',NULL)`).run();
+  const loc = (db.prepare('SELECT id FROM storage_locations LIMIT 1').get() as { id: number }).id;
+  const other = collection.addLot({ printingId: 'p-goyf2', locationId: loc, quantity: 3, condition: 'LP' });
+  lists.addItem(def, other, { quantity: 3 });
+
+  assert.deepEqual(lists.get(def)!.totals, {
+    listings: 2, copies: 5, askingUsd: 56, unaskedCount: 1, marketUsd: 60, unpricedCount: 1,
+  });
+  db.close();
+});

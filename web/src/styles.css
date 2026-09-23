@@ -691,6 +691,38 @@ input[type='date'] {
 .new-deck select { width: 170px; }
 
 .deck-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.deck-tools .pills { margin-left: auto; }
+/* The compact deck list: one line per deck. The name column takes the room;
+   status and format drop out first on a phone. */
+.deck-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.deck-table th {
+  text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-3); padding: 6px 8px; border-bottom: 1px solid var(--line);
+}
+.deck-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.deck-table tbody tr { cursor: pointer; }
+.deck-table tbody tr:hover { background: var(--panel-2); }
+.deck-table .num { text-align: right; font-family: var(--mono); font-size: 12px; }
+.deck-table .dt-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.deck-table .dt-name > * { vertical-align: middle; }
+.deck-table .dt-name .linkish {
+  font-weight: 600; color: var(--text); max-width: calc(100% - 70px);
+  overflow: hidden; text-overflow: ellipsis; display: inline-block; text-align: left;
+}
+.deck-table .dt-name .status-dot { margin: 0 6px 0 0; }
+.deck-table .dt-name .pips { margin-left: 6px; }
+.deck-table .dt-name .pips { display: inline-flex; }
+.deck-table .good { color: var(--good); }
+@media (max-width: 620px) {
+  /* The name is what a phone reads: status and format go, the colour pips go
+     (the status dot stays), and the headers wrap rather than the numbers. */
+  .deck-table .dt-status, .deck-table .dt-format, .deck-table .dt-name .pips { display: none; }
+  .deck-table td, .deck-table th { padding: 7px 4px; }
+  .deck-table th { white-space: normal; }
+  .deck-table .dt-name .linkish { max-width: calc(100% - 14px); }
+  .list-tools.deck-tools input[type="search"] { flex: 1 1 0; }
+  .deck-tools .pills { margin-left: 0; flex-wrap: nowrap; }
+}
 .deck-card {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; overflow: hidden;
@@ -1408,15 +1440,6 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .loc:hover { background: var(--panel-2); color: var(--text); }
 .loc.on { background: var(--accent-dim); color: var(--text); }
 .loc > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.loc-del { background: none; border: 0; color: var(--text-3); padding: 0 5px; font-size: 14px; }
-.loc-del:hover { color: var(--bad); }
-/* Phase 41A: the × shows on the row being pointed at or focused, not on all
-   forty rows at once — except on a touch screen, which has no hover. */
-@media (hover: hover) {
-  .loc-row .loc-del { opacity: 0; }
-  .loc-row:hover .loc-del, .loc-del:focus-visible, .loc-del[aria-expanded="true"] { opacity: 1; }
-}
-.loc-del:disabled { cursor: default; color: var(--text-3); }
 .loc-row { flex-wrap: wrap; }
 .loc-confirm {
   flex-basis: 100%; margin: 4px 0 8px; padding: 8px; font-size: 12px;
@@ -1425,6 +1448,38 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .loc-confirm p { margin: 0 0 6px; }
 .loc-confirm select { width: 100%; margin-bottom: 6px; }
 .loc-confirm .btnrow { margin-top: 4px; }
+/* Phase 41D: forty-odd locations. One quiet ⋯ per row (shown on hover where
+   there is hover) in place of the old ×, the "+" beside the heading so a new
+   location is never below the fold, and kind headings between groups. */
+.loc-list-head { display: flex; align-items: center; justify-content: space-between; }
+.loc-list-head h3 { margin: 0; }
+.loc-add-toggle {
+  background: none; border: 1px solid var(--line-strong); color: var(--text-2);
+  border-radius: 6px; width: 26px; height: 24px; padding: 0; font-size: 15px; line-height: 1;
+}
+.loc-add-toggle:hover, .loc-add-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--text); }
+.loc-new, .loc-editor { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; width: 100%; }
+.loc-new input, .loc-editor input:not([type="checkbox"]) { flex: 1 1 100%; min-width: 0; }
+.loc-new select, .loc-editor select { flex: 1 1 auto; width: auto; }
+.loc-editor { padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.loc-editor .check { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
+.loc-editor .btnrow { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; }
+.loc-editor .btnrow .danger { margin-left: auto; }
+.loc-filter { width: 100%; margin: 6px 0; }
+.loc-group { margin-top: 4px; }
+.loc-kind {
+  margin: 8px 0 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.loc-kind .count { font-weight: 400; margin-left: 4px; }
+.loc-archived > summary { cursor: pointer; }
+.loc-edit { background: none; border: 0; color: var(--text-3); padding: 0 6px; font-size: 14px; line-height: 1; }
+.loc-edit:hover, .loc-edit[aria-expanded="true"] { color: var(--text); }
+@media (hover: hover) {
+  .loc-row .loc-edit { opacity: 0; }
+  .loc-row:hover .loc-edit, .loc-edit:focus-visible, .loc-edit[aria-expanded="true"] { opacity: 1; }
+}
+.loc { min-width: 0; }
 
 .card .cvalue { margin-left: 5px; font-size: 11px; color: var(--text-3); font-family: var(--mono); }
 .split-badge {
@@ -1541,10 +1596,22 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
   font-family: var(--mono); font-size: 11px; color: var(--text-3); margin-top: 6px;
 }
 .setrow {
-  display: grid; grid-template-columns: minmax(0, 1fr) 180px auto;
+  /* Fixed columns either side of the name, so every bar starts at one x. */
+  display: grid; grid-template-columns: 52px minmax(0, 1fr) 180px 48px 110px 84px;
   gap: 12px; align-items: center; padding: 5px 0;
 }
+.setrow-code { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
 .setrow-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setrow-pct { font-family: var(--mono); font-size: 12px; text-align: right; }
+.setrow-of { white-space: nowrap; }
+.setrow .linkish { justify-self: end; font-size: 12px; }
+@media (max-width: 620px) {
+  .setrow { grid-template-columns: 44px minmax(0, 1fr) 44px; row-gap: 4px; }
+  .setrow .colorbar-track { grid-column: 2 / 3; grid-row: 2; }
+  .setrow-pct { grid-row: 1; grid-column: 3; }
+  .setrow-of { grid-row: 2; grid-column: 3; font-size: 10.5px; text-align: right; }
+  .setrow .linkish { grid-row: 3; grid-column: 2 / 4; justify-self: start; }
+}
 
 /* ---------- add dialog ---------- */
 .add-card-dialog {
@@ -1983,6 +2050,18 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .list-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .list-head h2 { margin: 0; font-size: 18px; flex: 1; min-width: 0; }
 .section-label { margin: 8px 0 0; font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; }
+/* Find / sort / totals above a long list (wants, trade lists, trades, sets,
+   decks). The totals line takes what room is left and wraps under on a phone. */
+.list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; }
+.list-tools input[type="search"] { flex: 0 1 260px; min-width: 0; }
+.list-sort { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
+.list-sort select { width: auto; }
+.list-totals { flex: 1 1 auto; text-align: right; }
+@media (max-width: 620px) {
+  .list-tools input[type="search"] { flex: 1 1 100%; }
+  .list-totals { flex-basis: 100%; text-align: left; }
+}
+.group-partial { margin: 0 0 8px; }
 .add-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; background: var(--panel); }
 
 .card-picker { position: relative; }
@@ -2176,6 +2255,14 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .conflict-panel { padding: 12px; border: 1px solid var(--warn); border-radius: var(--radius); background: rgba(216, 167, 66, .16); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
 .conflict-panel ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
 .conflict-flag { font-size: 11px; color: var(--warn); }
+/* Trade lists. The name opens nothing, so it keeps its colour under the
+   pointer. The ask fits "1234.56"; empty, it shows the market price as an
+   italic "mkt" hint, and a typed ask is bold with an accent edge — the two
+   used to be the same grey. */
+.tl-name, .tl-name:hover { color: var(--text); cursor: default; }
+.tl-ask input { width: 7.5em; }
+.tl-ask input::placeholder { font-style: italic; color: var(--text-3); opacity: 1; }
+.tl-ask.has-ask input { font-weight: 600; color: var(--text); border-color: var(--accent); }
 
 .alerts-bell { position: relative; }
 .alert-count {

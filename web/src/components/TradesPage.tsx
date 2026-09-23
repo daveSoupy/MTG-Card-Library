@@ -2,14 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   addTradeItem, completeTrade, createTrade, deleteTrade, fetchCollectionCard,
   fetchLocations, fetchTrade, fetchTrades, removeTradeItem, updateTrade, updateTradeItem,
-  ApiError, type CompleteTradeResult, type StorageLocation, type Trade, type TradeSummary,
+  ApiError, type CompleteTradeResult, type StorageLocation, type Trade, type TradeSort,
+  type TradeStatus, type TradeSummary, type TradeTotals,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
 import { TradeItemDialog } from './TradeItemDialog.tsx';
 import { BackToTop } from './BackToTop.tsx';
 import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
-import { money } from '../format.ts';
+import { count, money } from '../format.ts';
+
+const TRADE_SORT_LABEL: Record<TradeSort, string> = {
+  date: 'Newest first', oldest: 'Oldest first', person: 'Person A–Z',
+};
+/** The status filter; "all" leaves drafts at the top, as they are the open ones. */
+const STATUS_FILTERS: Array<[TradeStatus | 'all', string]> = [
+  ['all', 'All'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['draft', 'Drafts'],
+];
 
 /** The priced total of one side, and how many of its lines carry no price —
  *  an unpriced line is unknown, not free, so it is counted rather than summed as $0. */
@@ -48,15 +57,31 @@ export function TradesPage({ openId, onOpen, onAlertsChanged }: {
   onAlertsChanged?: () => void;
 }) {
   const [trades, setTrades] = useState<TradeSummary[]>([]);
+  const [totals, setTotals] = useState<TradeTotals | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  // Search, filter and order all go to the server, so the totals line is over
+  // exactly the trades showing — "with Alex" totals what went to and from Alex.
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState<TradeStatus | 'all'>('all');
+  const [sort, setSort] = useState<TradeSort>('date');
+  const filtered = query.trim() !== '' || status !== 'all';
 
-  const load = useCallback(() => {
-    fetchTrades().then(setTrades).catch((e) => setError(e.message));
-  }, []);
+  const load = useCallback((signal?: AbortSignal) => {
+    fetchTrades({ q: query, status: status === 'all' ? undefined : status, sort }, signal)
+      .then((result) => { setTrades(result.trades); setTotals(result.totals); setLoaded(true); })
+      .catch((e) => { if (e?.name !== 'AbortError') setError(e.message); });
+  }, [query, status, sort]);
   // Fetched each time the list comes into view — on mount at /trades, and on
   // the way back from a trade, whether by the back arrow or the browser's
-  // Back — since the editor may have completed, renamed or deleted it.
-  useEffect(() => { if (openId === null) load(); }, [load, openId]);
+  // Back — since the editor may have completed, renamed or deleted it — and
+  // again, debounced, as the search is typed.
+  useEffect(() => {
+    if (openId !== null) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => load(controller.signal), 150);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [load, openId]);
 
   const start = async () => {
     const name = prompt('Who are you trading with?');
@@ -86,6 +111,46 @@ export function TradesPage({ openId, onOpen, onAlertsChanged }: {
         <button className="btn" onClick={start}>New trade</button>
       </div>
 
+      {(trades.length > 0 || filtered) && (
+        <div className="list-tools">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Find by person"
+            aria-label="Find trades by person"
+          />
+          <label className="list-sort">
+            <span>Show</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value as TradeStatus | 'all')}>
+              {STATUS_FILTERS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </label>
+          <label className="list-sort">
+            <span>Sort</span>
+            <select value={sort} onChange={(e) => setSort(e.target.value as TradeSort)}>
+              {(Object.keys(TRADE_SORT_LABEL) as TradeSort[]).map((key) => (
+                <option key={key} value={key}>{TRADE_SORT_LABEL[key]}</option>
+              ))}
+            </select>
+          </label>
+          {totals && totals.count > 0 && (
+            <span className="count list-totals"
+                  title="Over the completed trades showing, at the values each trade recorded when it completed">
+              {count(totals.count)} {totals.count === 1 ? 'trade' : 'trades'}
+              {totals.completedCount > 0 && (
+                <>
+                  {' · '}{count(totals.completedCount)} completed
+                  {' · gave '}{money(totals.valueOutUsd)}
+                  {' · got '}{money(totals.valueInUsd)}
+                  {totals.unvaluedCount > 0 && ` (${count(totals.unvaluedCount)} without a value)`}
+                </>
+              )}
+            </span>
+          )}
+        </div>
+      )}
+
       {drafts.length > 0 && <h3 className="section-label">Drafts</h3>}
       {drafts.map((t) => (
         <button key={t.id} className="trade-row draft" onClick={() => onOpen(t.id)}>
@@ -104,7 +169,11 @@ export function TradesPage({ openId, onOpen, onAlertsChanged }: {
           )}
         </button>
       ))}
-      {trades.length === 0 && <p className="empty">No trades yet. Start one when you're at the table.</p>}
+      {loaded && trades.length === 0 && (
+        <p className="empty">
+          {filtered ? 'No trades match that search.' : "No trades yet. Start one when you're at the table."}
+        </p>
+      )}
 
       <BackToTop label="Back to the top of the trades" />
     </div>
@@ -340,7 +409,9 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                 <select className="trade-item-dest" value={item.destinationLocationId ?? ''} aria-label="Put it in"
                   onChange={async (e) => setTrade(await updateTradeItem(tradeId, item.id, { destinationLocationId: e.target.value ? Number(e.target.value) : null }))}>
                   <option value="">Unsorted</option>
-                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  {locations.filter((l) => !l.is_archived || l.id === item.destinationLocationId).map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
                 </select>
               )}
               <span className="trade-value">{money(item.unitValueUsd == null ? null : item.unitValueUsd * item.quantity)}</span>

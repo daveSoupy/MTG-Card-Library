@@ -7,6 +7,7 @@ const item = (id: number, name: string, status: 'active' | 'fulfilled' = 'active
   id, oracleId: `O${id}`, name, manaCost: null, colorIdentity: '', quantity: 1,
   targetPriceUsd: null, priority: 0, status, notes: null, priceUsd: 1,
   printingId: null, imageSmall: null, ownedQuantity: 0, neededFor: [],
+  addedAt: `2026-01-0${id}T00:00:00Z`,
 });
 
 // A fulfilled row that sorts *before* the active ones — the shape that made
@@ -131,5 +132,46 @@ describe('WantListsPage reorder', () => {
     expect(api.reorderWantItems).not.toHaveBeenCalled();
     expect(document.querySelector('.want-row.dragging')).toBeNull();
     expect(rowOrder()).toEqual(['Alpha', 'Beta', 'Gamma']);
+  });
+});
+
+describe('WantListsPage find and sort', () => {
+  const priced: WantList = {
+    id: 7, name: 'Wants',
+    items: [
+      { ...item(2, 'Alpha'), priceUsd: 3, priority: 1 },
+      { ...item(3, 'Beta'), priceUsd: 40, priority: 3 },
+      { ...item(4, 'Gamma'), priceUsd: 0.5, priority: 2 },
+    ],
+    totals: { activeCount: 3, activeCopies: 3, valueUsd: 43.5, unpricedCount: 0 },
+  };
+  beforeEach(() => {
+    api.fetchWantLists.mockResolvedValue([{ id: 7, name: 'Wants', is_default: 1, active_count: 3 }]);
+    api.fetchWantList.mockResolvedValue(priced);
+  });
+  afterEach(() => { vi.clearAllMocks(); });
+
+  it('sorts by price and priority, and takes the drag handles away while it does', async () => {
+    await renderPage();
+    expect(screen.getByText(/3 wants · 3 copies · \$43\.50/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'price' } });
+    expect(rowOrder()).toEqual(['Beta', 'Alpha', 'Gamma']);
+    expect(screen.queryByRole('button', { name: /Reorder/ })).toBeNull();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'priority' } });
+    expect(rowOrder()).toEqual(['Beta', 'Gamma', 'Alpha']);
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sort' }), { target: { value: 'manual' } });
+    expect(rowOrder()).toEqual(['Alpha', 'Beta', 'Gamma']);
+    expect(handleFor('Alpha')).toBeInTheDocument();
+  });
+
+  it('finds by name and says how many of the list are showing', async () => {
+    await renderPage();
+    fireEvent.change(screen.getByRole('searchbox', { name: /Find a card/ }), { target: { value: 'amm' } });
+    expect(rowOrder()).toEqual(['Gamma']);
+    expect(screen.getByText(/1 of 3 wants/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reorder/ })).toBeNull();
   });
 });

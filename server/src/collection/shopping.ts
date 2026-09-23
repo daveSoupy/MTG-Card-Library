@@ -203,7 +203,15 @@ export function pushEntriesToWantList(
   })();
 }
 
-/** What a want list currently holds, with each entry's per-deck needs. */
+/**
+ * What a want list currently holds, with each entry's per-deck needs.
+ *
+ * `totals` is over the active wants only — a fulfilled one is no longer
+ * something you are shopping for — and prices each at the same per-copy price
+ * its row shows, so the line above the list is the rows added up and nothing
+ * else. A want with no price is counted in `unpricedCount` rather than summed
+ * as $0: unknown is not free.
+ */
 export function wantList(db: Database.Database, wantListId?: number) {
   const list = wantListId
     ? db.prepare('SELECT id, name FROM want_lists WHERE id = ?').get(wantListId)
@@ -213,8 +221,8 @@ export function wantList(db: Database.Database, wantListId?: number) {
 
   const items = db.prepare(`
     SELECT w.id, w.oracle_id, w.quantity, w.target_price_usd, w.priority, w.status, w.notes,
-           w.sort_order, o.name, o.mana_cost, o.color_identity,
-           COALESCE(dp.price_usd, 0) AS price_usd,
+           w.sort_order, w.created_at, o.name, o.mana_cost, o.color_identity,
+           dp.price_usd,
            ${artUrlSql('dp', 'ff', 'small')} AS image_small,
            dp.id AS printing_id,
            COALESCE(owned.qty, 0) AS owned_qty
@@ -244,9 +252,18 @@ export function wantList(db: Database.Database, wantListId?: number) {
     byItem.set(need.want_list_item_id, list);
   }
 
+  const active = items.filter((row) => row.status === 'active');
+  const priced = active.filter((row) => row.price_usd != null);
+
   return {
     id: target.id,
     name: target.name,
+    totals: {
+      activeCount: active.length,
+      activeCopies: active.reduce((sum, row) => sum + row.quantity, 0),
+      valueUsd: priced.reduce((sum, row) => sum + row.quantity * row.price_usd, 0),
+      unpricedCount: active.length - priced.length,
+    },
     items: items.map((row) => ({
       id: row.id,
       oracleId: row.oracle_id,
@@ -258,10 +275,13 @@ export function wantList(db: Database.Database, wantListId?: number) {
       priority: row.priority,
       status: row.status,
       notes: row.notes,
+      // Null when the card has no price — the row says "—", matching the
+      // totals line's "unpriced", rather than a $0.00 it never cost.
       priceUsd: row.price_usd,
       printingId: row.printing_id,
       imageSmall: row.image_small,
       ownedQuantity: row.owned_qty,
+      addedAt: row.created_at,
       // "needed for: Deck A ×2" — shown as a field, not a tooltip.
       neededFor: byItem.get(row.id) ?? [],
     })),

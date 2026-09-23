@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
-  TradeStore, TradeNotFoundError, TradeNotDraftError, TradeShortfallError,
+  TRADE_SORTS, TradeStore, TradeNotFoundError, TradeNotDraftError, TradeShortfallError,
   type Direction, type TradeItemUpdate, type TradeUpdate,
 } from '../trades/store.ts';
 import { CONDITIONS, FINISHES } from '../collection/store.ts';
@@ -53,9 +53,13 @@ export function registerTradeRoutes(app: FastifyInstance, trades: TradeStore): v
     }
   };
 
+  // Query strings stay hand-parsed, as in the collection routes: anything
+  // unrecognised is ignored rather than refused.
   app.get('/api/v1/trades', async (request) => {
-    const status = (request.query as any)?.status;
-    return { trades: trades.list(status ? { status } : {}) };
+    const q = (request.query ?? {}) as Record<string, unknown>;
+    const status = (['draft', 'completed', 'cancelled'] as const).find((s) => s === q.status);
+    const sort = TRADE_SORTS.find((s) => s === q.sort);
+    return trades.list({ status, sort, query: typeof q.q === 'string' ? q.q : undefined });
   });
 
   app.post<{ Body: TradeUpdate & { counterpartyName: string } }>(

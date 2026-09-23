@@ -1323,8 +1323,10 @@ export interface CollectionValue {
 export interface WantListItem {
   id: number; oracleId: string; name: string; manaCost: string | null;
   colorIdentity: string; quantity: number; targetPriceUsd: number | null;
-  priority: number; status: string; notes: string | null; priceUsd: number;
+  priority: number; status: string; notes: string | null; priceUsd: number | null;
   printingId: string | null; imageSmall: string | null; ownedQuantity: number;
+  /** When it went on the list — the "Recently added" sort. */
+  addedAt: string;
   neededFor: Array<{ deckId: number; deckName: string; quantity: number }>;
 }
 
@@ -1393,6 +1395,27 @@ export const fetchLocations = (signal?: AbortSignal) =>
 export const createLocation = (name: string, kind: string) =>
   send<{ locations: StorageLocation[] }>('/api/v1/locations', 'POST', { name, kind })
     .then((r) => r.locations);
+
+/** The kinds a location can be, in the order the sidebar groups them. */
+export const LOCATION_KINDS = ['binder', 'box', 'deck_box', 'shoebox', 'shelf', 'other'] as const;
+export type LocationKind = typeof LOCATION_KINDS[number];
+export const LOCATION_KIND_LABEL: Record<LocationKind, string> = {
+  binder: 'Binder', box: 'Box', deck_box: 'Deck box', shoebox: 'Shoebox', shelf: 'Shelf', other: 'Other',
+};
+export const LOCATION_KIND_PLURAL: Record<LocationKind, string> = {
+  binder: 'Binders', box: 'Boxes', deck_box: 'Deck boxes', shoebox: 'Shoeboxes', shelf: 'Shelves', other: 'Other',
+};
+
+/**
+ * Rename, re-kind or archive a location. Archiving takes its cards out of
+ * "owned" for decks (allocation reads unarchived locations only) without
+ * moving or deleting anything; unarchiving puts them back.
+ */
+export const updateLocation = (
+  id: number,
+  changes: { name?: string; kind?: LocationKind; notes?: string | null; isArchived?: boolean },
+) => send<{ locations: StorageLocation[] }>(`/api/v1/locations/${id}`, 'PATCH', changes)
+  .then((r) => r.locations);
 
 /**
  * What a location delete hands back: the record that undoes it. Opaque to the
@@ -1468,9 +1491,14 @@ export const decrementCollectionCopy = (input: {
 export const fetchCollectionValue = (signal?: AbortSignal) =>
   getJson<CollectionValue>('/api/v1/collection/value', signal);
 
+export interface SetCompletion {
+  set_code: string; set_name: string; total_cards: number; owned_printings: number;
+  percent_complete: number | null; set_type: string | null; released_at: string | null;
+}
+
+/** Every set you own a card from — no cap short of the whole catalogue. */
 export const fetchSetCompletion = (signal?: AbortSignal) =>
-  getJson<{ sets: Array<{ set_code: string; set_name: string; total_cards: number; owned_printings: number; percent_complete: number | null }> }>(
-    '/api/v1/collection/sets', signal).then((r) => r.sets);
+  getJson<{ sets: SetCompletion[] }>('/api/v1/collection/sets?limit=2000', signal).then((r) => r.sets);
 
 export const fetchSetChecklist = (setCode: string, signal?: AbortSignal) =>
   getJson<{ cards: Array<{
@@ -1480,7 +1508,7 @@ export const fetchSetChecklist = (setCode: string, signal?: AbortSignal) =>
   }> }>(`/api/v1/collection/sets/${encodeURIComponent(setCode)}`, signal).then((r) => r.cards);
 
 export const fetchWantList = (id: number, signal?: AbortSignal) =>
-  getJson<{ id: number; name: string; items: WantListItem[] }>(`/api/v1/want-lists/${id}`, signal);
+  getJson<WantList>(`/api/v1/want-lists/${id}`, signal);
 
 // -- Phase 5: import, export and backup ---------------------------------------
 
@@ -1739,8 +1767,27 @@ export interface CompleteTradeResult {
   fulfilledWants?: Array<{ name: string }>; clampedTradeListItems?: number; resolvedConflicts?: TradeConflict[];
 }
 
-export const fetchTrades = (status?: TradeStatus, signal?: AbortSignal) =>
-  getJson<{ trades: TradeSummary[] }>(`/api/v1/trades${status ? `?status=${status}` : ''}`, signal).then((r) => r.trades);
+export type TradeSort = 'date' | 'oldest' | 'person';
+
+/** Over exactly the trades a query returned, computed by the server. */
+export interface TradeTotals {
+  count: number; completedCount: number;
+  valueOutUsd: number; valueInUsd: number;
+  /** Completed trades missing a value on either side — counted, not summed as $0. */
+  unvaluedCount: number;
+}
+
+export function fetchTrades(
+  params: { status?: TradeStatus; q?: string; sort?: TradeSort } = {},
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', params.status);
+  if (params.q?.trim()) query.set('q', params.q.trim());
+  if (params.sort) query.set('sort', params.sort);
+  const qs = query.toString();
+  return getJson<{ trades: TradeSummary[]; totals: TradeTotals }>(`/api/v1/trades${qs ? `?${qs}` : ''}`, signal);
+}
 export const fetchTrade = (id: number, signal?: AbortSignal) =>
   getJson<{ trade: Trade }>(`/api/v1/trades/${id}`, signal).then((r) => r.trade);
 export const createTrade = (input: { counterpartyName: string; counterpartyContact?: string | null; tradeDate?: string | null; locationNote?: string | null; notes?: string | null }) =>
@@ -1758,7 +1805,9 @@ export const completeTrade = (id: number, force = false) =>
   send<{ result: CompleteTradeResult; trade: Trade }>(`/api/v1/trades/${id}/complete`, 'POST', { force });
 
 export interface NamedList { id: number; name: string; description: string | null; is_default: number; sort_order: number; active_count?: number; item_count?: number; }
-export interface WantList { id: number; name: string; items: WantListItem[]; }
+/** Over the list's active wants, at the per-copy price each row shows. */
+export interface WantListTotals { activeCount: number; activeCopies: number; valueUsd: number; unpricedCount: number; }
+export interface WantList { id: number; name: string; items: WantListItem[]; totals?: WantListTotals; }
 
 export const fetchWantLists = (signal?: AbortSignal) =>
   getJson<{ lists: NamedList[] }>('/api/v1/want-lists', signal).then((r) => r.lists);
@@ -1788,8 +1837,14 @@ export interface TradeListItem {
   locationName: string | null; quantity: number; askingPriceUsd: number | null; marketUsd: number | null;
   imageSmall: string | null; notes: string | null; ownedQuantity: number; availableOverall: number;
   exceedsOwned: boolean; conflictsWithDeck: boolean;
+  addedAt?: string;
 }
-export interface TradeList { id: number; name: string; items: TradeListItem[]; }
+export interface TradeListTotals {
+  listings: number; copies: number;
+  askingUsd: number; unaskedCount: number;
+  marketUsd: number; unpricedCount: number;
+}
+export interface TradeList { id: number; name: string; items: TradeListItem[]; totals?: TradeListTotals; }
 
 export const fetchTradeLists = (signal?: AbortSignal) =>
   getJson<{ lists: NamedList[] }>('/api/v1/trade-lists', signal).then((r) => r.lists);

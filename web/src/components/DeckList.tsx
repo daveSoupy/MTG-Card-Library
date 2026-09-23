@@ -11,6 +11,21 @@ import { BackToTop } from './BackToTop.tsx';
 import { BuildabilityBar } from './Buildability.tsx';
 import { ContentionPanel } from './ContentionPanel.tsx';
 import { WhatIfDialog } from './WhatIfDialog.tsx';
+import { money, percent } from '../buildability.ts';
+import { nameMatches } from '../listSort.ts';
+import { useNarrow } from '../viewport.ts';
+
+type DeckView = 'cards' | 'list';
+const VIEW_KEY = 'mtg.decks.view';
+
+/** Per device, like density: a phone reads the list, a desktop may want art. */
+function loadView(phone: boolean): DeckView {
+  try {
+    const stored = localStorage.getItem(VIEW_KEY);
+    if (stored === 'cards' || stored === 'list') return stored;
+  } catch { /* private mode */ }
+  return phone ? 'list' : 'cards';
+}
 
 const COLOR_PIP: Record<string, string> = { W: 'W', U: 'U', B: 'B', R: 'R', G: 'G' };
 
@@ -31,6 +46,17 @@ export function DeckList({
   formats: FormatRecord[];
   onOpen: (id: number) => void;
 }) {
+  const phone = useNarrow(620);
+  const [view, setViewState] = useState<DeckView>(() => loadView(phone));
+  const setView = (next: DeckView) => {
+    setViewState(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* private mode */ }
+  };
+  // Name, or a commander's name — what you remember a deck by.
+  const [search, setSearch] = useState('');
+  // On a phone the create form waits behind a button, so the first screen is
+  // decks rather than an input, a select and two buttons.
+  const [creating, setCreating] = useState(false);
   const [decks, setDecks] = useState<DeckSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The list itself failing to load, apart from `error` for an action: while
@@ -73,8 +99,9 @@ export function DeckList({
   // the other way round — the chips are the set of statuses shown.
   const shown = useMemo(
     () => (decks ?? []).filter((deck) => statuses.includes(deck.status)
-      && activeTags.every((tag) => deck.tags.includes(tag))),
-    [decks, activeTags, statuses],
+      && activeTags.every((tag) => deck.tags.includes(tag))
+      && (nameMatches(deck.name, search) || deck.commanderNames.some((c) => nameMatches(c, search)))),
+    [decks, activeTags, statuses, search],
   );
   const [name, setName] = useState('');
   const [formatCode, setFormatCode] = useState('commander');
@@ -126,6 +153,10 @@ export function DeckList({
       )}
       <div className="decks-head">
         <h1>Decks</h1>
+        {phone && !creating && (
+          <button className="btn" onClick={() => setCreating(true)}>New deck</button>
+        )}
+        {(!phone || creating) && (
         <div className="new-deck">
           <input
             value={name}
@@ -142,8 +173,26 @@ export function DeckList({
           </select>
           <button className="btn" onClick={create} disabled={!name.trim()}>Create</button>
           <button className="btn secondary" onClick={() => setImporting(true)}>Paste a list</button>
+          {phone && <button className="btn secondary" onClick={() => setCreating(false)}>Cancel</button>}
         </div>
+        )}
       </div>
+
+      {decks !== null && decks.length > 0 && (
+        <div className="list-tools deck-tools">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Find a deck (${decks.length})`}
+            aria-label="Find a deck by name or commander"
+          />
+          <div className="pills" role="group" aria-label="Deck view">
+            <button className="pill" aria-pressed={view === 'cards'} onClick={() => setView('cards')}>Cards</button>
+            <button className="pill" aria-pressed={view === 'list'} onClick={() => setView('list')}>List</button>
+          </div>
+        </div>
+      )}
 
       {loadError && <div className="error">{loadError}</div>}
       {error && error !== loadError && <div className="error">{error}</div>}
@@ -226,8 +275,10 @@ export function DeckList({
         </div>
       )}
 
+      {view === 'list' && shown.length > 0 && <DeckTable decks={shown} onOpen={onOpen} />}
+
       <div className="deck-cards">
-        {shown?.map((deck) => (
+        {view === 'cards' && shown.map((deck) => (
           <div className="deck-card" key={deck.id}>
             <button className="deck-card-open" onClick={() => onOpen(deck.id)}>
               {deck.coverPrintingId && (
@@ -342,5 +393,59 @@ export function DeckList({
 
       <BackToTop label="Back to the top of the deck list" />
     </main>
+  );
+}
+
+/**
+ * The compact view: one line per deck with the figures you compare decks by.
+ * Every number is the server's buildability, rendered as the bar renders it;
+ * the order is the page's sort. Actions (tag, duplicate, delete) stay on the
+ * Cards view — this one is for finding and opening.
+ */
+function DeckTable({ decks, onOpen }: { decks: DeckSummary[]; onOpen: (id: number) => void }) {
+  return (
+    <table className="deck-table">
+      <thead>
+        <tr>
+          <th>Deck</th>
+          <th className="dt-status">Status</th>
+          <th className="dt-format">Format</th>
+          <th className="num">Buildable</th>
+          <th className="num">Missing</th>
+          <th className="num">To finish</th>
+        </tr>
+      </thead>
+      <tbody>
+        {decks.map((deck) => {
+          const b = deck.buildability;
+          return (
+            <tr key={deck.id} onClick={() => onOpen(deck.id)}>
+              <td className="dt-name">
+                {/* Ahead of the name, so a long name cut short never takes it with it. */}
+                <span className="status-dot" data-status={deck.status} title={DECK_STATUS_HINT[deck.status]} />
+                <button className="linkish" onClick={(e) => { e.stopPropagation(); onOpen(deck.id); }}
+                        title={deck.commanderNames.length > 0 ? deck.commanderNames.join(' & ') : deck.name}>
+                  {deck.name}
+                </button>
+                <span className="pips">
+                  {[...deck.colorIdentity].map((c) => (
+                    <span key={c} className={`pip ${COLOR_PIP[c] ?? ''}`}>{c}</span>
+                  ))}
+                </span>
+              </td>
+              <td className="dt-status">{DECK_STATUS_LABEL[deck.status]}</td>
+              <td className="dt-format">{deck.formatName ?? '—'}</td>
+              <td className="num">{b?.buildablePct == null ? '—' : percent(b.buildablePct)}</td>
+              <td className="num">{b ? b.missingCards : '—'}</td>
+              <td className="num">
+                {!b || b.buildablePct == null ? '—'
+                  : b.missingCards === 0 ? <span className="good">ready</span>
+                    : `${money(b.costToCompleteUsd)}${b.unpricedCount > 0 ? ` + ${b.unpricedCount}` : ''}`}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }

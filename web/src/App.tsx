@@ -34,6 +34,7 @@ import {
   DEFAULT_ROUTE, isUnknownPath, onRouteChange, pushRoute, readRoute, replaceRoute, type Route,
 } from './router.ts';
 import { money } from './format.ts';
+import { useNarrow } from './viewport.ts';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -210,12 +211,14 @@ export default function App() {
   // carries — Full and Compact are pure CSS off that attribute, while
   // Ultra-compact and Lined-up also change what each grid renders.
   const densityPage = densityPageFor(view);
-  const density = effectiveDensity(densityPrefs, densityPage);
+  // Mirrors the 620px phone breakpoint; only picks a page's starting density.
+  const phone = useNarrow(620);
+  const density = effectiveDensity(densityPrefs, densityPage, phone);
 
   /** Everything a page's Customize View panel needs to override the default. */
   const densityControlsFor = (page: DensityPage) => ({
     page,
-    density: effectiveDensity(densityPrefs, page),
+    density: effectiveDensity(densityPrefs, page, phone),
     densityOverridden: densityPrefs.overrides[page] !== undefined,
     onDensity: (next: Density) => {
       savePageDensity(page, next);
@@ -538,7 +541,7 @@ export default function App() {
             setDensityPrefs((current) => {
               const overrides = { ...current.overrides };
               if (densityPage) delete overrides[densityPage];
-              return { global: next, overrides };
+              return { global: next, globalChosen: true, overrides };
             });
           }}
         >

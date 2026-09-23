@@ -421,3 +421,38 @@ test('an item drafted from a lot describes that lot, not a default', () => {
   assert.equal(item.ownedQuantity, 3, 'still reaches the chosen lot through the id, whatever its condition');
   db.close();
 });
+
+test('the trade log searches by person, sorts, and totals exactly what it returns', () => {
+  const { db, trades } = fixture();
+  const make = (name: string, date: string, status: string, out: number | null, inn: number | null) => {
+    const id = trades.create({ counterpartyName: name, tradeDate: date });
+    db.prepare(`UPDATE trades SET status = ?, value_out_usd = ?, value_in_usd = ?,
+                completed_at = CASE WHEN ? = 'completed' THEN ? END WHERE id = ?`)
+      .run(status, out, inn, status, date, id);
+    return id;
+  };
+  make('Alex', '2026-01-01', 'completed', 10, 12);
+  make('alexandra', '2026-03-01', 'completed', 5, null);
+  make('Bo', '2026-02-01', 'completed', 100, 90);
+  make('Alex', '2026-04-01', 'cancelled', null, null);
+  make('50%_off', '2026-05-01', 'draft', null, null);
+
+  // Case-insensitive substring; the totals are over the matches only.
+  const alex = trades.list({ query: 'ALEX' });
+  assert.deepEqual(alex.trades.map((t) => t.counterpartyName), ['Alex', 'alexandra', 'Alex']);
+  assert.deepEqual(alex.totals, {
+    count: 3, completedCount: 2, valueOutUsd: 15, valueInUsd: 12, unvaluedCount: 1,
+  });
+
+  // LIKE's wildcards in the query are literal: "%" does not match everything.
+  assert.deepEqual(trades.list({ query: '%_' }).trades.map((t) => t.counterpartyName), ['50%_off']);
+
+  // Drafts lead the date orders when no status is chosen.
+  assert.deepEqual(trades.list().trades.map((t) => t.tradeDate),
+    ['2026-05-01', '2026-04-01', '2026-03-01', '2026-02-01', '2026-01-01']);
+  assert.deepEqual(trades.list({ sort: 'oldest' }).trades.map((t) => t.tradeDate),
+    ['2026-05-01', '2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01']);
+  assert.deepEqual(trades.list({ status: 'completed', sort: 'person' }).trades.map((t) => t.counterpartyName),
+    ['Alex', 'alexandra', 'Bo']);
+  db.close();
+});

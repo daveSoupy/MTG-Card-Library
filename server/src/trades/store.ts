@@ -20,6 +20,8 @@ import { prepared } from '../db/index.ts';
  */
 
 export type TradeStatus = 'draft' | 'completed' | 'cancelled';
+export const TRADE_SORTS = ['date', 'oldest', 'person'] as const;
+export type TradeSort = typeof TRADE_SORTS[number];
 export type Direction = 'out' | 'in';
 
 export class TradeNotFoundError extends Error {
@@ -382,16 +384,51 @@ export class TradeStore {
 
   // -- reads -----------------------------------------------------------------
 
-  list(options: { status?: TradeStatus } = {}) {
-    const rows = options.status
-      ? this.db.prepare(`
-          SELECT * FROM trades WHERE status = ?
-          ORDER BY COALESCE(completed_at, trade_date, created_at) DESC, id DESC`).all(options.status)
-      : this.db.prepare(`
-          SELECT * FROM trades
-          ORDER BY (status = 'draft') DESC,
-                   COALESCE(completed_at, trade_date, created_at) DESC, id DESC`).all();
-    return (rows as any[]).map((t) => this.summarise(t));
+  /**
+   * The trade log, optionally narrowed to one status and to counterparties
+   * whose name contains `query`, in one of three orders. Drafts lead the
+   * date orders when no status is asked for — they are the ones still open.
+   *
+   * `totals` is over exactly the trades returned, so "trades with Alex" says
+   * what went back and forth with Alex. Values are the ones each trade froze
+   * when it completed; a completed trade with no value on a side is counted,
+   * not summed as $0.
+   */
+  list(options: { status?: TradeStatus; query?: string; sort?: TradeSort } = {}) {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (options.status) { where.push('status = ?'); params.push(options.status); }
+    const query = options.query?.trim();
+    if (query) {
+      // LIKE's own wildcards in a name are matched literally.
+      where.push("counterparty_name LIKE ? ESCAPE '\\'");
+      params.push(`%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+    }
+    const when = 'COALESCE(completed_at, trade_date, created_at)';
+    const drafts = options.status ? '' : "(status = 'draft') DESC, ";
+    const order = options.sort === 'person'
+      ? `${drafts}counterparty_name COLLATE NOCASE, ${when} DESC, id DESC`
+      : options.sort === 'oldest'
+        ? `${drafts}${when} ASC, id ASC`
+        : `${drafts}${when} DESC, id DESC`;
+    const rows = this.db.prepare(`
+      SELECT * FROM trades
+      ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY ${order}`).all(...params) as any[];
+
+    const completed = rows.filter((t) => t.status === 'completed');
+    const sum = (key: 'value_out_usd' | 'value_in_usd') =>
+      completed.reduce((total, t) => total + (t[key] ?? 0), 0);
+    return {
+      trades: rows.map((t) => this.summarise(t)),
+      totals: {
+        count: rows.length,
+        completedCount: completed.length,
+        valueOutUsd: sum('value_out_usd'),
+        valueInUsd: sum('value_in_usd'),
+        unvaluedCount: completed.filter((t) => t.value_out_usd == null || t.value_in_usd == null).length,
+      },
+    };
   }
 
   get(id: number) {

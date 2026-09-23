@@ -42,6 +42,7 @@ export class TradeListStore {
 
     const items = this.db.prepare(`
       SELECT ti.id, ti.collection_item_id, ti.quantity, ti.asking_price_usd, ti.notes, ti.sort_order,
+             ti.created_at,
              o.oracle_id, o.name, p.id AS printing_id, p.set_code, p.collector_number,
              ci.finish, ci.condition,
              sl.name AS location_name,
@@ -66,9 +67,24 @@ export class TradeListStore {
     // conflict with itself.
     const allocation = allocationForMany(this.db, items.map((row) => row.oracle_id));
 
+    // The line above the list: what is on it, what you are asking, and what
+    // the market says it is worth — each over the rows that carry that
+    // figure, with the rest counted rather than summed as $0.
+    const asked = items.filter((row) => row.asking_price_usd != null);
+    const priced = items.filter((row) => row.market_usd != null);
+    const totals = {
+      listings: items.length,
+      copies: items.reduce((sum, row) => sum + row.quantity, 0),
+      askingUsd: asked.reduce((sum, row) => sum + row.quantity * row.asking_price_usd, 0),
+      unaskedCount: items.length - asked.length,
+      marketUsd: priced.reduce((sum, row) => sum + row.quantity * row.market_usd, 0),
+      unpricedCount: items.length - priced.length,
+    };
+
     return {
       id: target.id,
       name: target.name,
+      totals,
       items: items.map((row) => ({
         id: row.id,
         collectionItemId: row.collection_item_id,
@@ -83,6 +99,7 @@ export class TradeListStore {
         quantity: row.quantity,
         askingPriceUsd: row.asking_price_usd,
         marketUsd: row.market_usd,
+        addedAt: row.created_at,
         imageSmall: row.image_small,
         notes: row.notes,
         ownedQuantity: row.owned_qty_this_row,

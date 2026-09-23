@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   addTradeListItem, createTradeList, deleteTradeList, fetchCollectionCard, fetchTradeList,
   fetchTradeLists, imageUrl, removeTradeListItem, renameTradeList, tradeListExportUrl,
@@ -9,7 +9,10 @@ import { CardPicker } from './CardPicker.tsx';
 import { BackToTop } from './BackToTop.tsx';
 import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
-import { money } from '../format.ts';
+import { count, money } from '../format.ts';
+import {
+  nameMatches, sortListings, TRADE_LIST_SORTS, TRADE_LIST_SORT_LABEL, type TradeListSort,
+} from '../listSort.ts';
 
 
 /**
@@ -29,6 +32,12 @@ export function TradeListsPage() {
   const [adding, setAdding] = useState(false);
   const [lots, setLots] = useState<{ name: string; lots: CollectionLot[] } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<TradeListSort>('manual');
+  const shown = useMemo(
+    () => sortListings((list?.items ?? []).filter((item) => nameMatches(item.name, query)), sort),
+    [list, query, sort],
+  );
 
   const loadLists = useCallback(() => {
     fetchTradeLists().then((ls) => {
@@ -162,10 +171,44 @@ export function TradeListsPage() {
             </div>
           )}
 
+          {list.items.length > 0 && (
+            <div className="list-tools">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Find in this list"
+                aria-label="Find a card on this trade list"
+              />
+              <label className="list-sort">
+                <span>Sort</span>
+                <select value={sort} onChange={(e) => setSort(e.target.value as TradeListSort)}>
+                  {TRADE_LIST_SORTS.map((key) => <option key={key} value={key}>{TRADE_LIST_SORT_LABEL[key]}</option>)}
+                </select>
+              </label>
+              {list.totals && (
+                <span className="count list-totals">
+                  {query.trim() && `${count(shown.length)} of `}
+                  {count(list.totals.listings)} {list.totals.listings === 1 ? 'listing' : 'listings'}
+                  {' · '}{count(list.totals.copies)} {list.totals.copies === 1 ? 'copy' : 'copies'}
+                  <span title="Your asking prices × quantity, over the rows that have one">
+                    {' · asking '}{money(list.totals.askingUsd)}
+                    {list.totals.unaskedCount > 0 && ` (${count(list.totals.unaskedCount)} with no ask)`}
+                  </span>
+                  <span title="Market price × quantity, over the rows that have one">
+                    {' · market '}{money(list.totals.marketUsd)}
+                    {list.totals.unpricedCount > 0 && ` + ${count(list.totals.unpricedCount)} unpriced`}
+                  </span>
+                </span>
+              )}
+            </div>
+          )}
+
           {list.items.length === 0 && <p className="empty">Nothing listed. Add an owned card you're happy to trade away.</p>}
+          {list.items.length > 0 && shown.length === 0 && <p className="empty">Nothing on this list matches “{query.trim()}”.</p>}
 
           <div className="want-rows">
-            {list.items.map((item) => (
+            {shown.map((item) => (
               <div className={`want-row${item.conflictsWithDeck || item.exceedsOwned ? ' warn' : ''}`} key={item.id}>
                 {/* Through the server's cache, like every other card image
                     in the app. imageSmall is the "has art" answer; the URL to
@@ -175,7 +218,9 @@ export function TradeListsPage() {
                   ? <img className="want-thumb" src={imageUrl(item.printingId, 'small')} alt="" loading="lazy" decoding="async" />
                   : <div className="want-thumb placeholder" />}
                 <div className="want-main">
-                  <div className="want-name">
+                  {/* Not a button, unlike the want list's name: nothing opens
+                      from here, so it does not light up under the pointer. */}
+                  <div className="want-name tl-name">
                     {item.name}
                     <span className="dim"> {String(item.setCode).toUpperCase()} #{item.collectorNumber}{item.finish !== 'nonfoil' ? ` · ${item.finish}` : ''} · {item.condition}</span>
                   </div>
@@ -188,9 +233,18 @@ export function TradeListsPage() {
                   <input type="number" min="1" value={item.quantity}
                     onChange={async (e) => { if (activeId != null) setList(await updateTradeListItem(activeId, item.id, { quantity: Math.max(1, Number(e.target.value) || 1) })); }} />
                 </label>
-                <label className="want-field" title="Asking price">
-                  <span>ask</span>
-                  <input type="number" step="0.01" placeholder={money(item.marketUsd)} value={item.askingPriceUsd ?? ''}
+                {/* The market price shows as a hint in the empty field — italic,
+                    prefixed "mkt" — and an ask you typed is set in bold with an
+                    accent edge, so the two never read as the same thing. */}
+                <label className={`want-field tl-ask${item.askingPriceUsd != null ? ' has-ask' : ''}`}
+                       title={item.askingPriceUsd != null
+                         ? `Your ask. Market is ${money(item.marketUsd)}.`
+                         : `No ask yet — market is ${money(item.marketUsd)}.`}>
+                  <span>ask $</span>
+                  <input type="number" step="0.01" min="0" inputMode="decimal"
+                    placeholder={item.marketUsd != null ? `mkt ${item.marketUsd.toFixed(2)}` : 'none'}
+                    aria-label={`Asking price for ${item.name}`}
+                    value={item.askingPriceUsd ?? ''}
                     onChange={async (e) => { if (activeId != null) setList(await updateTradeListItem(activeId, item.id, { askingPriceUsd: e.target.value === '' ? null : Number(e.target.value) })); }} />
                 </label>
                 <button className="row-remove" onClick={() => removeItem(item)}
