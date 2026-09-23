@@ -214,7 +214,7 @@ function CardLots({
                 ? 'Every copy is either in a deck or promised on a trade list.'
                 : detail.availability.trade_listed_qty > 0
                   ? 'Every copy is promised on a trade list.'
-                  : 'Every copy is in a deck that is building or assembled.'}
+                  : 'Every copy is claimed by a deck that is building or assembled.'}
             </p>
           )}
           {!detail.availability.is_tracked && (
@@ -235,12 +235,27 @@ function CardLots({
                 <span className="status-dot" data-status={deck.deck_status}
                       title={DECK_STATUS_HINT[deck.deck_status]} />
               </span>
+              {/* A claim and a place are different facts. "×2 · Deck box" read
+                  as two copies sitting in the deck box while the only lot said
+                  Bulk Box E — so the claim is worded as a claim, and the home
+                  as where the deck lives. */}
               <span>
-                ×{deck.qty_from_collection}
-                {deck.deck_home_location && ` · ${deck.deck_home_location}`}
+                {!detail.availability?.is_tracked
+                  ? 'not tracked'
+                  : deck.holds_copies
+                    ? `claims ${deck.qty_from_collection}`
+                    : 'holds none'}
+                {deck.qty_proxied > 0 && ` · ${deck.qty_proxied} proxied`}
+                {deck.holds_copies && deck.deck_home_location && ` · deck lives in ${deck.deck_home_location}`}
               </span>
             </div>
           ))}
+          {detail.decks.some((deck) => deck.holds_copies) && !detail.copies_move_with_deck && (
+            <p className="hint">
+              A claim is a count, not a move: claimed copies are still filed where their
+              lots below say until you take them out.
+            </p>
+          )}
         </div>
       )}
 

@@ -66,8 +66,7 @@ function deckWith(cards: DeckCard[]): Deck {
     stats: {
       totalCards: cards.length, mainCount: cards.length, sideboardCount: 0, commandCount: 0,
       uniqueCards: cards.length, averageManaValue: 1, manaCurve: [], colorDistribution: [],
-      colorIdentity: '', typeDistribution: [], estimatedValueUsd: 0, ownedCount: 0,
-      needToBuyCount: 0,
+      colorIdentity: '', typeDistribution: [], estimatedValueUsd: 0,
     },
     manaBase: {
       requirements: [], totalPips: 0, totalSources: 0, landCount: 0,

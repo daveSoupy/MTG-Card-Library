@@ -33,7 +33,7 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
   syntax: SYNTAX_HELP,
 
   allocation: {
-    title: 'From your collection, or need to buy',
+    title: 'Covered by your collection, or missing',
     intro: 'A physical card can only be in one deck at a time, so the app tracks '
       + 'not just how many you own but how many are already spoken for.',
     columns: 1,
@@ -43,11 +43,12 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
         body: (
           <>
             <P>
-              <strong>From your collection</strong> is how many copies in this deck the cards
-              you own can cover. <strong>Need to buy</strong> is what is left once those and any
-              proxies are counted. Basic lands are left out of both — they are never claimed,
-              never missing, and never on a shopping list — unless you switch that off in
-              Data → Settings.
+              <strong>Covered</strong> is how many copies in this deck the cards you own can
+              supply, after what other built decks hold and what is on a trade list.{' '}
+              <strong>Missing</strong> is what is left once those and any proxies are counted —
+              the same number, and the same list, as the deck header's "N missing". Basic lands
+              are left out of both — never claimed, never missing, never on a want list — unless
+              you switch that off in Data → Settings.
             </P>
           </>
         ),
@@ -61,8 +62,8 @@ export const HELP_TOPICS: Record<HelpTopicId, HelpTopic> = {
               minus any copies flagged on a trade list. If <em>Atraxa</em> already holds your only
               copy, this deck sees zero available, and its row says <code>Atraxa has 1</code> rather
               than <code>Buy 1</code> — because that is a decision about which deck gets the card,
-              not a purchase. The Contention panel in the deck header lists every card two decks are
-              fighting over and can hand copies from one to the other.
+              not a purchase. The deck header's "contested" opens the cards this deck and another
+              built deck are both after, and can hand copies from one to the other.
             </P>
           </>
         ),

@@ -6,7 +6,7 @@ import type { Deck, TemplateProgress } from '../api.ts';
 const stats = {
   totalCards: 40, mainCount: 40, sideboardCount: 0, commandCount: 0, uniqueCards: 20,
   averageManaValue: 2.3, manaCurve: [], colorDistribution: [], colorIdentity: 'WR',
-  typeDistribution: [], estimatedValueUsd: 0, ownedCount: 0, needToBuyCount: 0,
+  typeDistribution: [], estimatedValueUsd: 0,
 } as unknown as Deck['stats'];
 
 const validation = {

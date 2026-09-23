@@ -1,5 +1,4 @@
 import { COLORS, COLOR_NAMES, colorsFromMask } from '../model/mtg.ts';
-import { copiesToBuy } from './allocation.ts';
 import type { DeckCard, DeckStats, ManaCurveBucket } from './types.ts';
 
 /** Curve buckets top out at 7, since 7+ drops are all "expensive" in practice. */
@@ -31,12 +30,11 @@ export function deckStats(cards: DeckCard[]): DeckStats {
     colorIdentity: deckColorIdentity(counted),
     typeDistribution: typeDistribution(counted),
     estimatedValueUsd: estimatedValue(counted),
-    ownedCount: counted.reduce((total, c) => total + c.quantityFromCollection, 0),
+    // What the collection supplies and what is left to buy are not here: they
+    // are coverage, and coverage is `buildability.ts`'s. Summing the stored
+    // claim instead read an inert brew or basic-land claim as a real one — one
+    // deck said "From your collection 99" beside a header reading 87%.
     proxiedCount: counted.reduce((total, c) => total + c.quantityProxied, 0),
-    // Not `quantity - fromCollection`: a proxied copy needs no buying, and a
-    // basic land is outside allocation entirely while the exemption is on, so
-    // a Commander deck stops reporting its 38 Islands as 38 missing cards.
-    needToBuyCount: counted.reduce((total, c) => total + copiesToBuy(c), 0),
   };
 }
 

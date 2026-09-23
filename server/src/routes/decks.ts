@@ -6,9 +6,8 @@ import {
 import { DECK_STATUSES, SlotOverfilledError, type DeckStatus } from '../decks/allocation.ts';
 import {
   buildabilityDetail, buildabilityForDecks, compareBuildability, isBuildabilitySort,
-  missingForWantList,
 } from '../decks/buildability.ts';
-import { pushEntriesToWantList } from '../collection/shopping.ts';
+import { pushToWantList } from '../collection/shopping.ts';
 import { BOARDS, type Board, type CommanderRole } from '../decks/types.ts';
 import {
   takeSnapshot, listSnapshots, diffSnapshot, restoreSnapshot, deleteSnapshot,
@@ -103,17 +102,22 @@ export function registerDeckRoutes(
    * ticked "need to buy". Basics are already absent and proxied copies already
    * count as covered, so neither reaches the list.
    */
-  app.post<{ Params: { id: number }; Body: { wantListId?: number } }>(
+  app.post<{ Params: { id: number }; Body: { wantListId?: number; oracleIds?: string[] } }>(
     '/api/v1/decks/:id/buildability/want',
-    { schema: { params: idParams('id'), body: body({ wantListId: ID }) } },
+    {
+      schema: {
+        params: idParams('id'),
+        body: body({ wantListId: ID, oracleIds: { type: 'array', items: NAME } }),
+      },
+    },
     async (request, reply) => {
       const { id } = request.params;
       if (!decks.get(id)) return reply.status(404).send({ error: 'No deck with that id.' });
       try {
-        const result = pushEntriesToWantList(
-          db, id, missingForWantList(db, id), request.body?.wantListId,
-        );
-        return result;
+        // Every missing card, or only the ones named — one row's "Want".
+        return pushToWantList(db, id, {
+          wantListId: request.body?.wantListId, oracleIds: request.body?.oracleIds,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return reply.status(400).send({ error: 'Could not add to the want list.', detail: message });

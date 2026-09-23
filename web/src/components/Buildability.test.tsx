@@ -13,6 +13,7 @@ const figures = (over: Partial<DeckBuildability> = {}): DeckBuildability => ({
   costToCompleteUsd: 23,
   unpricedCount: 0,
   contestedCount: 0,
+  exemptBasicCards: 0,
   ...over,
 });
 
@@ -28,7 +29,7 @@ const card: DeckCard = {
 
 const coverage: BuildabilityRow = {
   oracleId: 'ORACLE-1', name: 'Sol Ring', required: 3, owned: 1, available: 1,
-  tradeListed: 0, proxied: 0, covered: 1, missing: 2, unitPriceUsd: 2, extendedUsd: 4,
+  tradeListed: 0, proxied: 0, covered: 1, missing: 2, unitPriceUsd: 2, pricePrintingId: null, extendedUsd: 4,
   contested: true,
   holdingDecks: [{ deckId: 2, deckName: 'Atraxa', status: 'assembled', quantity: 1 }],
 };

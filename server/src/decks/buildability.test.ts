@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { SCHEMA_PATH, setSetting } from '../db/index.ts';
 import { CollectionStore } from '../collection/store.ts';
 import { TradeListStore } from '../tradelists/store.ts';
-import { pushEntriesToWantList } from '../collection/shopping.ts';
+import { pushEntriesToWantList, shoppingList } from '../collection/shopping.ts';
 import { DeckStore } from './store.ts';
 import {
   ALLOCATION_IGNORES_BASICS, TRADELIST_REDUCES_AVAILABLE,
@@ -146,8 +146,14 @@ test('another reserving deck lowers coverage; demoting it to a brew restores it'
   assert.equal(contested.coveredCards, 0);
   assert.equal(contested.missingCards, 1);
   assert.equal(contested.buildablePct, 0);
-  assert.equal(contested.contestedCount, 1, 'short, and someone else is holding it');
+  // Short, and someone else is holding it — but a brew claims nothing, so it
+  // is not in a fight. Its row still names the holder.
+  assert.equal(contested.contestedCount, 0, 'a brew is short, not contested');
 
+  decks.update(mine, { status: 'building' });
+  assert.equal(summaryFor(db, mine).contestedCount, 1, 'two built decks after one copy');
+
+  decks.update(mine, { status: 'brew' });
   decks.update(theirs, { status: 'brew' });
   assert.equal(summaryFor(db, mine).coveredCards, 1, 'the copy comes back');
 });
@@ -508,4 +514,90 @@ test('twenty-five decks and a full-ish collection stay well inside the budget', 
   // The budget is ~100ms. A per-deck N+1 pattern lands an order of magnitude
   // past that on this fixture, which is the point of asserting it at all.
   assert.ok(elapsed < 100, `buildability for 25 decks took ${elapsed.toFixed(1)}ms`);
+});
+
+// ------------------------------------------------ one answer per figure (41C)
+
+test('the shopping list and the header agree on cost to finish: pinned, unpinned, unpriced', () => {
+  const { db, decks } = fixture([
+    { id: 'o-hoof', name: 'Craterhoof Behemoth', price: 28.33 },
+    { id: 'o-brass', name: 'City of Brass', price: 15.19 },
+    { id: 'o-promo', name: 'Unpriced Promo', price: null },
+  ]);
+  // A cheaper printing of each priced card. The default printings are the
+  // dearer ones — the shopping list used to price those.
+  db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,price_usd)
+              VALUES ('p-hoof-cheap','o-hoof','tst','90',21.49),
+                     ('p-brass-cheap','o-brass','tst','91',9.53)`).run();
+
+  const deckId = decks.create({ name: 'Hoof', formatCode: 'modern' });
+  decks.addCard(deckId, 'o-hoof', { board: 'main', quantity: 1 });
+  decks.addCard(deckId, 'o-brass', { board: 'main', quantity: 2 });
+  decks.addCard(deckId, 'o-promo', { board: 'main', quantity: 1 });
+  // City of Brass is pinned to the dearer printing: a pin says which copy you
+  // mean to buy, so it wins over cheapest.
+  db.prepare(`UPDATE deck_cards SET preferred_printing_id = 'p-o-brass'
+               WHERE deck_id = ? AND oracle_id = 'o-brass'`).run(deckId);
+
+  const summary = summaryFor(db, deckId);
+  assert.equal(summary.costToCompleteUsd, 21.49 + 2 * 15.19, 'cheapest hoof, pinned brass');
+  assert.equal(summary.unpricedCount, 1);
+
+  const list = shoppingList(db, deckId)!;
+  assert.equal(list.totalUsd, summary.costToCompleteUsd);
+  assert.equal(list.totalCards, summary.missingCards);
+  assert.equal(list.unpricedCards, summary.unpricedCount);
+
+  const entry = (oracleId: string) => list.entries.find((e) => e.oracleId === oracleId)!;
+  assert.equal(entry('o-hoof').unitPriceUsd, 21.49);
+  assert.equal(entry('o-hoof').printingId, 'p-hoof-cheap', 'names the printing it priced');
+  assert.equal(entry('o-brass').printingId, 'p-o-brass');
+  assert.equal(entry('o-brass').estimatedUsd, 30.38);
+  assert.equal(entry('o-promo').estimatedUsd, null, 'unknown, not free');
+});
+
+test('a brew\'s leftover claim does not hide a card from its shopping list', () => {
+  // The audit's "9 missing" beside "Shopping list (7)": a brew keeps the claim
+  // it was reconciled to while the card was free, and a built deck that adds
+  // the card later takes the copy without the brew being touched.
+  const { db, decks, collection, locationId } = fixture([
+    { id: 'o-brass', name: 'City of Brass', price: 9.53 },
+  ]);
+  own(collection, locationId, 'o-brass', 1);
+
+  const brew = decks.create({ name: 'Idea', formatCode: 'modern' });
+  decks.addCard(brew, 'o-brass', { board: 'main', quantity: 1 });
+  const built = decks.create({ name: 'The Swarmlord', formatCode: 'modern' });
+  decks.update(built, { status: 'building' });
+  decks.addCard(built, 'o-brass', { board: 'main', quantity: 1 });
+
+  const summary = summaryFor(db, brew);
+  assert.equal(summary.missingCards, 1, 'The Swarmlord has the only copy');
+  assert.equal(summary.contestedCount, 0, 'a brew is short, not in a fight');
+
+  const list = shoppingList(db, brew)!;
+  assert.equal(list.totalCards, 1);
+  assert.deepEqual(list.entries[0].holdingDecks.map((d) => d.deckName), ['The Swarmlord']);
+  assert.deepEqual(
+    decks.get(brew)!.validation.issues.filter((issue) => issue.oracleId === 'o-brass'), [],
+    'not a legality problem either',
+  );
+});
+
+test('the summary reports the basics it left out, so 99 cards reading as 63 is explained', () => {
+  const { db, decks } = fixture([
+    { id: 'o-ring', name: 'Sol Ring', price: 2 },
+    { id: 'o-island', name: 'Island', price: 0.1, basic: true },
+  ]);
+  const deckId = decks.create({ name: 'Mono U', formatCode: 'modern' });
+  decks.addCard(deckId, 'o-ring', { board: 'main', quantity: 1 });
+  decks.addCard(deckId, 'o-island', { board: 'main', quantity: 20 });
+
+  const summary = summaryFor(db, deckId);
+  assert.equal(summary.requiredCards, 1);
+  assert.equal(summary.exemptBasicCards, 20);
+
+  setSetting(db, ALLOCATION_IGNORES_BASICS, '0');
+  assert.equal(summaryFor(db, deckId).exemptBasicCards, 0);
+  assert.equal(summaryFor(db, deckId).requiredCards, 21);
 });

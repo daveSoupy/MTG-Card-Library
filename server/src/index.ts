@@ -36,6 +36,7 @@ import { advertiseDecision, startAdvertisement, type Advertisement } from './dis
 import { errorHandler } from './routes/errorHandler.ts';
 import { ImageDownloadManager } from './images/downloadManager.ts';
 import { AlertStore } from './alerts/store.ts';
+import { settleBasicWants } from './collection/wants.ts';
 import { TradeStore } from './trades/store.ts';
 import { WantStore } from './collection/wants.ts';
 import { TradeListStore } from './tradelists/store.ts';
@@ -52,6 +53,9 @@ const decks = new DeckStore(library.db);
 const templates = new TemplateStore(library.db);
 const collection = new CollectionStore(library.db);
 const alerts = new AlertStore(library.db);
+// Deck-driven wants for basic lands left over from before the exemption was on.
+// Idempotent and one query when there is nothing to do.
+settleBasicWants(library.db, alerts);
 const trades = new TradeStore(library.db, collection, alerts);
 const wants = new WantStore(library.db);
 const tradeLists = new TradeListStore(library.db);

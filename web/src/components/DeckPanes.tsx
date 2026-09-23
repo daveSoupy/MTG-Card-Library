@@ -4,7 +4,7 @@ import {
 } from 'react';
 import {
   addDeckCard, imageUrl, removeDeckCard, setDeckCover, updateDeckCard,
-  type Board, type BuildabilityRow, type CardSummary, type Deck, type DeckCard,
+  type Board, type BuildabilityRow, type CardSummary, type Deck, type DeckBuildability, type DeckCard,
   type FormatRecord, type SetRecord,
 } from '../api.ts';
 import { BackToTop } from './BackToTop.tsx';
@@ -131,6 +131,8 @@ export function DeckPanes({
   setCardSort,
   categoryLabels,
   coverage = NO_COVERAGE,
+  buildability = null,
+  onShowMissing,
   density,
   onDensity,
   listRef,
@@ -169,6 +171,11 @@ export function DeckPanes({
   /** Phase 24's per-card coverage, keyed by oracle id. Omitted while the deck's
    *  figures are in flight, which simply means no shortfall chips yet. */
   coverage?: Map<string, BuildabilityRow>;
+  /** The same figures summed — the header strip's, handed to the stats pane so
+   *  its Collection section says the same thing. */
+  buildability?: DeckBuildability | null;
+  /** Opens the one missing-cards list. */
+  onShowMissing?: () => void;
   /** Phase 27: opens the substitutes sheet for a card the deck is short of.
    *  Never offered for the command zone — a commander is the deck, not a slot. */
   onSwap?: (card: DeckCard) => void;
@@ -534,6 +541,9 @@ export function DeckPanes({
         onOpenDetail={openDetail}
         stats={deck.stats}
         validation={deck.validation}
+        buildability={buildability}
+        coverage={coverage}
+        onShowMissing={onShowMissing}
         manaBase={deck.manaBase}
         templateProgress={deck.templateProgress}
         showTemplates={showTemplates}

@@ -4,7 +4,7 @@ import {
   type HoldingDeck, type ReassignResult, type ShortDeck,
 } from '../api.ts';
 import { money } from '../buildability.ts';
-import { contestedFigures, contestedReason, figuresLine } from '../contention.ts';
+import { cardsInScope, contestedFigures, contestedReason, figuresLine } from '../contention.ts';
 
 /**
  * Which decks are fighting over which copies.
@@ -16,12 +16,16 @@ import { contestedFigures, contestedReason, figuresLine } from '../contention.ts
  * copy is not free: the loser drops, and you should see by how much before
  * you do it.
  */
-export function ContentionPanel({ onClose, onChanged }: {
+export function ContentionPanel({ onClose, onChanged, scope }: {
   onClose: () => void;
   /** Something moved; whoever opened this should reload their figures. */
   onChanged?: () => void;
+  /** Opened from a deck: show only the fights that deck is in, with a way out
+   *  to the whole collection's. */
+  scope?: { deckId: number; deckName: string };
 }) {
   const [cards, setCards] = useState<ContestedCard[] | null>(null);
+  const [showAll, setShowAll] = useState(!scope);
   // Every deck's current figures, so the confirmation can show where each
   // side stands before the copy moves. The result shows where they landed.
   const [figures, setFigures] = useState<Map<number, DeckBuildability>>(new Map());
@@ -75,11 +79,14 @@ export function ContentionPanel({ onClose, onChanged }: {
     }
   };
 
+  const scoped = scope && !showAll;
+  const shown = cards && scoped ? cardsInScope(cards, scope.deckId) : cards;
+
   return (
     <div className="sync-overlay" onClick={onClose}>
       <div className="playtest-card contention-card" onClick={(e) => e.stopPropagation()}>
         <div className="syntax-head">
-          <h2>Contested cards</h2>
+          <h2>{scoped ? `Contested in ${scope.deckName}` : 'Contested cards'}</h2>
           <button className="btn secondary" onClick={onClose}>Close</button>
         </div>
 
@@ -88,6 +95,24 @@ export function ContentionPanel({ onClose, onChanged }: {
           whichever deck took it first; give it to the other, buy another, or take a
           deck apart.
         </p>
+
+        {scope && cards && (
+          <p className="hint">
+            {scoped ? (
+              <>
+                Showing {shown!.length} of {cards.length} contested — the ones{' '}
+                {scope.deckName} holds or is short of.{' '}
+                {cards.length > shown!.length && (
+                  <button className="linkish" onClick={() => setShowAll(true)}>Show all</button>
+                )}
+              </>
+            ) : (
+              <button className="linkish" onClick={() => setShowAll(false)}>
+                Only {scope.deckName}'s
+              </button>
+            )}
+          </p>
+        )}
 
         {error && <div className="error">{error}</div>}
         {done && (
@@ -98,12 +123,16 @@ export function ContentionPanel({ onClose, onChanged }: {
         )}
 
         {cards === null && <p className="loading">Loading…</p>}
-        {cards?.length === 0 && (
-          <p className="empty">Nothing contested — no two built decks are after the same copy.</p>
+        {shown?.length === 0 && (
+          <p className="empty">
+            {scoped
+              ? `Nothing ${scope.deckName} holds or needs is contested.`
+              : 'Nothing contested — no two built decks are after the same copy.'}
+          </p>
         )}
 
         <div className="contention-rows">
-          {cards?.map((card) => (
+          {shown?.map((card) => (
             <div className="contention-row" key={card.oracleId}>
               <div className="contention-card-head">
                 <strong>{card.name}</strong>

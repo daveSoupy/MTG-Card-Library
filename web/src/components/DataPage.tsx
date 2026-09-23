@@ -444,6 +444,8 @@ export function DataPage({
         <p className="hint">
           On, a basic land is never claimed by a deck, never short, and never lands on a
           want list — so a Commander deck with 38 Islands reports 0 missing rather than 38.
+          Basics a deck put on a want list earlier are marked fulfilled; a basic you added
+          to a list yourself stays.
           Off, basics are counted like every other card, and two decks playing the same
           Islands will read as fighting over them.
         </p>

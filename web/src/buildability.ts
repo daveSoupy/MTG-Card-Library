@@ -97,3 +97,63 @@ export function summarySegments(figures: DeckBuildability): SummarySegment[] {
 export function missingRows(rows: BuildabilityRow[]): BuildabilityRow[] {
   return rows.filter((row) => row.missing > 0);
 }
+
+/**
+ * One missing card's story in want / free terms — `wants 1, 0 free — The
+ * Swarmlord holds it`.
+ *
+ * Not "claims 1 … 0 are free", which is how the Legality section used to put
+ * it: the claim is derived, so a deck short of a card claims none of it, and
+ * the sentence contradicted the number it was about.
+ */
+export function shortfallLine(row: BuildabilityRow): string {
+  const proxied = row.proxied > 0 ? `, ${row.proxied} proxied` : '';
+  const head = `wants ${row.required}${proxied}, ${row.available} free`;
+
+  const reasons: string[] = [];
+  // "holds it" only when "it" can mean one thing: the single copy a
+  // one-of deck wants.
+  if (row.required === 1 && row.holdingDecks.length === 1 && row.holdingDecks[0].quantity === 1) {
+    reasons.push(`${row.holdingDecks[0].deckName} holds it`);
+  } else if (row.holdingDecks.length > 0) {
+    reasons.push(row.holdingDecks.map((deck) => `${deck.deckName} holds ${deck.quantity}`).join(', '));
+  }
+  if (row.tradeListed > 0) reasons.push(`${row.tradeListed} on a trade list`);
+  if (reasons.length === 0) reasons.push(row.owned === 0 ? 'you own none' : `you own ${row.owned}`);
+
+  return `${head} — ${reasons.join(' · ')}`;
+}
+
+export type MissingGroupKey = 'buy' | 'held' | 'listed';
+
+export interface MissingGroup {
+  key: MissingGroupKey;
+  title: string;
+  rows: BuildabilityRow[];
+}
+
+const GROUP_TITLE: Record<MissingGroupKey, string> = {
+  buy: 'Buy',
+  held: 'Held by another deck — reassign or buy',
+  listed: 'On a trade list — take it off, or buy',
+};
+
+/**
+ * The missing rows, sorted by what you would do about each: buy it, win it back
+ * from another deck, or take it off a trade list. A row lands under its first
+ * applicable reason; its line says the rest. Every row in every group is part
+ * of the one missing count and the one cost to finish — the groups divide the
+ * list, they do not re-count it.
+ */
+export function missingGroups(rows: BuildabilityRow[]): MissingGroup[] {
+  const groups: Record<MissingGroupKey, BuildabilityRow[]> = { buy: [], held: [], listed: [] };
+  for (const row of missingRows(rows)) {
+    const key: MissingGroupKey = row.holdingDecks.length > 0
+      ? 'held'
+      : row.tradeListed > 0 ? 'listed' : 'buy';
+    groups[key].push(row);
+  }
+  return (['buy', 'held', 'listed'] as const)
+    .filter((key) => groups[key].length > 0)
+    .map((key) => ({ key, title: GROUP_TITLE[key], rows: groups[key] }));
+}

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { BuildabilityRow, DeckBuildability } from './api.ts';
-import { money, percent, summarySegments } from './buildability.ts';
+import { missingGroups, money, percent, shortfallLine, summarySegments } from './buildability.ts';
 
 const figures = (over: Partial<DeckBuildability> = {}): DeckBuildability => ({
   deckId: 1,
@@ -12,6 +12,7 @@ const figures = (over: Partial<DeckBuildability> = {}): DeckBuildability => ({
   costToCompleteUsd: 23,
   unpricedCount: 0,
   contestedCount: 0,
+  exemptBasicCards: 0,
   ...over,
 });
 
@@ -26,6 +27,7 @@ const row = (over: Partial<BuildabilityRow> = {}): BuildabilityRow => ({
   covered: 0,
   missing: 3,
   unitPriceUsd: 2,
+  pricePrintingId: null,
   extendedUsd: 6,
   contested: false,
   holdingDecks: [],
@@ -78,3 +80,30 @@ test('contested only appears when something is actually contested', () => {
   assert.equal(segments.at(-1)!.text, '2 contested');
 });
 
+
+test('a shortfall reads as want / free, and names who has the rest', () => {
+  const held = row({
+    name: 'City of Brass', required: 1, owned: 1, available: 0, missing: 1,
+    holdingDecks: [{ deckId: 7, deckName: 'The Swarmlord', status: 'building', quantity: 1 }],
+  });
+  assert.equal(shortfallLine(held), 'wants 1, 0 free — The Swarmlord holds it');
+  assert.equal(
+    shortfallLine(row({ required: 4, owned: 3, available: 1, tradeListed: 1, missing: 3,
+      holdingDecks: [{ deckId: 2, deckName: 'Atraxa', status: 'assembled', quantity: 1 }] })),
+    'wants 4, 1 free — Atraxa holds 1 · 1 on a trade list',
+  );
+  assert.equal(shortfallLine(row()), 'wants 3, 0 free — you own none');
+});
+
+test('missing cards group by what you would do, and the groups divide one count', () => {
+  const rows = [
+    row({ oracleId: 'a', missing: 2 }),
+    row({ oracleId: 'b', missing: 1, holdingDecks: [{ deckId: 2, deckName: 'X', status: 'building', quantity: 1 }] }),
+    row({ oracleId: 'c', missing: 1, tradeListed: 1 }),
+    row({ oracleId: 'd', missing: 0, covered: 3 }),
+  ];
+  const groups = missingGroups(rows);
+  assert.deepEqual(groups.map((g) => g.key), ['buy', 'held', 'listed']);
+  const total = groups.flatMap((g) => g.rows).reduce((sum, r) => sum + r.missing, 0);
+  assert.equal(total, 4, 'every missing copy once, nothing covered');
+});

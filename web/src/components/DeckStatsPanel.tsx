@@ -1,4 +1,9 @@
-import { imageUrl, type DeckStats, type DeckValidation, type ManaBase, type TemplateProgress } from '../api.ts';
+import {
+  imageUrl, type BuildabilityRow, type DeckBuildability, type DeckStats, type DeckValidation,
+  type ManaBase, type TemplateProgress,
+} from '../api.ts';
+import { missingRows, shortfallLine } from '../buildability.ts';
+import { legalityVerdict } from '../legality.ts';
 import { HelpButton } from './helpTopics.tsx';
 import { money } from '../format.ts';
 
@@ -159,6 +164,9 @@ function TemplatePanel({
   );
 }
 
+/** Short cards named in the pane before it hands over to the Missing list. */
+const SHORT_LIMIT = 8;
+
 export function DeckStatsPanel({
   stats,
   validation,
@@ -172,9 +180,17 @@ export function DeckStatsPanel({
   onClose,
   preview,
   onOpenPreview,
+  buildability = null,
+  coverage,
+  onShowMissing,
 }: {
   stats: DeckStats;
   validation: DeckValidation;
+  /** The deck header's figures — covered, missing, basics left out. */
+  buildability?: DeckBuildability | null;
+  /** Per-card coverage, for naming what is short and why. */
+  coverage?: Map<string, BuildabilityRow>;
+  onShowMissing?: () => void;
   manaBase: ManaBase;
   templateProgress: TemplateProgress | null;
   /** The showDeckTemplates global setting — off hides the section entirely. */
@@ -193,8 +209,8 @@ export function DeckStatsPanel({
   /** Clicking the card opens its details. */
   onOpenPreview?: () => void;
 }) {
-  const errors = validation.issues.filter((i) => i.severity === 'error');
-  const warnings = validation.issues.filter((i) => i.severity === 'warning');
+  const verdict = legalityVerdict(validation);
+  const short = coverage ? missingRows([...coverage.values()]) : [];
   const maxColor = Math.max(1, ...stats.colorDistribution.map((c) => c.count));
 
   return (
@@ -244,17 +260,14 @@ export function DeckStatsPanel({
 
       <div className="fgroup">
         <h3>Legality</h3>
-        {errors.length === 0 && warnings.length === 0 ? (
+        {verdict.errors.length === 0 && verdict.notes.length === 0 ? (
           <div className="verdict ok">Legal in {validation.formatName}</div>
         ) : (
           <>
-            {errors.length > 0 && (
-              <div className="verdict bad">
-                {errors.length} problem{errors.length === 1 ? '' : 's'} to fix
-              </div>
-            )}
+            {/* The header chip's words exactly — both come from legalityVerdict. */}
+            <div className={`verdict ${verdict.ok ? 'ok' : 'bad'}`}>{verdict.text}</div>
             <ul className="issues">
-              {[...errors, ...warnings].map((issue, index) => (
+              {[...verdict.errors, ...verdict.notes].map((issue, index) => (
                 <li key={`${issue.code}-${issue.oracleId ?? index}`} className={issue.severity}>
                   {issue.oracleId ? (
                     <button className="linkish" onClick={() => onJumpToCard(issue.oracleId!)}>
@@ -325,14 +338,56 @@ export function DeckStatsPanel({
       </div>
 
       <div className="fgroup">
-        <h3>Collection <HelpButton topic="allocation" /></h3>
-        <div className="kv"><span>From your collection</span><span>{stats.ownedCount}</span></div>
-        {stats.proxiedCount > 0 && (
-          <div className="kv"><span>Proxied</span><span>{stats.proxiedCount}</span></div>
+        {/* Not a legality question, so not in the Legality section: whether
+            your collection can supply the deck is buildability's, and every
+            figure here is the deck header's. */}
+        <h3>From your collection <HelpButton topic="allocation" /></h3>
+        {buildability && buildability.buildablePct !== null ? (
+          <>
+            <div className="kv">
+              <span>Covered</span>
+              <span>{buildability.coveredCards} of {buildability.requiredCards}</span>
+            </div>
+            {stats.proxiedCount > 0 && (
+              <div className="kv"><span>Proxied</span><span>{stats.proxiedCount}</span></div>
+            )}
+            <div className="kv">
+              <span>Missing</span>
+              {buildability.missingCards > 0 && onShowMissing ? (
+                <button className="linkish" onClick={onShowMissing}>{buildability.missingCards}</button>
+              ) : (
+                <span>{buildability.missingCards}</span>
+              )}
+            </div>
+            {buildability.exemptBasicCards > 0 && (
+              <div className="kv" title="Basic lands are left out of allocation — never claimed, never short.">
+                <span>Basic lands, not counted</span><span>{buildability.exemptBasicCards}</span>
+              </div>
+            )}
+            {short.length > 0 && (
+              <ul className="issues">
+                {short.slice(0, SHORT_LIMIT).map((row) => (
+                  <li key={row.oracleId} className="warning">
+                    <button className="linkish" onClick={() => onJumpToCard(row.oracleId)}>
+                      {row.name}: {shortfallLine(row)}
+                    </button>
+                  </li>
+                ))}
+                {short.length > SHORT_LIMIT && onShowMissing && (
+                  <li>
+                    <button className="linkish" onClick={onShowMissing}>
+                      and {short.length - SHORT_LIMIT} more
+                    </button>
+                  </li>
+                )}
+              </ul>
+            )}
+          </>
+        ) : buildability ? (
+          <p className="note">No cards to count yet.</p>
+        ) : (
+          <p className="note">Working it out…</p>
         )}
-        {/* Owned + proxied + to-buy, not quantity − owned: a proxy fills a slot
-            without anyone buying anything, and basics are not counted at all. */}
-        <div className="kv"><span>Need to buy</span><span>{stats.needToBuyCount}</span></div>
         <div className="kv"><span>Estimated value</span><span>{money(stats.estimatedValueUsd)}</span></div>
       </div>
     </aside>

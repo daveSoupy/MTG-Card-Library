@@ -9,6 +9,12 @@ import type { DeckCard, DeckIssue, DeckValidation, FormatRules } from './types.t
  *
  * Nothing here blocks editing — a deck is always saveable. Errors mean "this
  * would not be legal at a table"; warnings mean "you should know about this".
+ *
+ * Only the format's rules. Whether your collection can supply the deck is a
+ * different question with its own answer — `buildability.ts` — and it used to
+ * be asked here too, as "claims 1 from your collection but only 0 are free"
+ * warnings listed among the format errors. That read the stored claim, which
+ * is inert on a brew, and put four messages under a verdict that counted two.
  */
 export function validateDeck(cards: DeckCard[], rules: FormatRules | null): DeckValidation {
   const issues: DeckIssue[] = [];
@@ -50,7 +56,6 @@ export function validateDeck(cards: DeckCard[], rules: FormatRules | null): Deck
   checkLegality(issues, rules, cards);
   checkCommander(issues, rules, command, commandCount);
   const commanderIdentity = checkColorIdentity(issues, rules, cards, command);
-  checkAllocation(issues, cards);
 
   return {
     formatCode: rules.code,
@@ -396,37 +401,6 @@ function checkSignatureSpell(issues: DeckIssue[], rules: FormatRules, command: D
       oracleId: spell.oracleId,
       cardName: spell.name,
     });
-  }
-}
-
-/**
- * Warns when other decks already claim copies this one wants.
- *
- * CLAUDE.md is explicit that this must flag rather than block: you may be
- * planning decks you never intend to assemble at the same time.
- */
-function checkAllocation(issues: DeckIssue[], cards: DeckCard[]): void {
-  for (const card of cards) {
-    if (card.board === 'maybe' || card.quantityFromCollection === 0) continue;
-    // An exempt basic land has no reservation to be short of — see
-    // allocation.ts. Warning about one would be noise on every Commander deck.
-    if (!card.allocationTracked) continue;
-    if (card.quantityFromCollection > card.availableQuantity) {
-      const short = card.quantityFromCollection - card.availableQuantity;
-      // `availableQuantity` is floored at 0, so owning none and owning one that
-      // another deck holds both arrive here as "0 free". Blaming other decks in
-      // the first case sends you looking for a culprit that does not exist.
-      const because = card.ownedQuantity === 0
-        ? 'You do not own any.'
-        : 'Other decks are using the rest.';
-      issues.push({
-        severity: 'warning',
-        code: 'over_allocated',
-        message: `${card.name}: this deck claims ${card.quantityFromCollection} from your collection but only ${card.availableQuantity} ${card.availableQuantity === 1 ? 'is' : 'are'} free — ${short} short. ${because}`,
-        oracleId: card.oracleId,
-        cardName: card.name,
-      });
-    }
   }
 }
 

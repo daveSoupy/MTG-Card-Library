@@ -137,7 +137,6 @@ export interface DeckIssue {
     | 'not_legal'
     | 'missing_commander'
     | 'too_many_commanders'
-    | 'over_allocated'
     | 'color_identity'
     | 'invalid_pairing'
     | 'no_format';
@@ -162,7 +161,7 @@ export interface DeckValidation {
   requiredMinSize: number | null;
   sideboardLimit: number | null;
   issues: DeckIssue[];
-  /** No errors. Warnings (like over-allocation) do not make a deck illegal. */
+  /** No errors. Warnings (like a missing format) do not make a deck illegal. */
   isLegal: boolean;
 }
 
@@ -186,8 +185,6 @@ export interface DeckStats {
   colorIdentity: string;
   typeDistribution: Array<{ type: string; count: number }>;
   estimatedValueUsd: number | null;
-  ownedCount: number;
   /** Slots filled by a proxy — owned by nobody, and bought by nobody. */
   proxiedCount: number;
-  needToBuyCount: number;
 }

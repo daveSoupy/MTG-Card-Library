@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CardHolders, ContestedCard, DeckBuildability, WhatIfResult } from './api.ts';
 import {
-  contestedFigures, contestedReason, figuresLine, holdersLine, whatIfSentence,
+  cardsInScope, contestedFigures, contestedReason, figuresLine, holdersLine, whatIfSentence,
 } from './contention.ts';
 
 /**
@@ -13,7 +13,7 @@ import {
 
 const figures = (over: Partial<DeckBuildability> = {}): DeckBuildability => ({
   deckId: 1, buildablePct: 0.96, requiredCards: 50, coveredCards: 48, missingCards: 2,
-  costToCompleteUsd: 8, unpricedCount: 0, contestedCount: 1, ...over,
+  costToCompleteUsd: 8, unpricedCount: 0, contestedCount: 1, exemptBasicCards: 0, ...over,
 });
 
 const holders = (over: Partial<CardHolders> = {}): CardHolders => ({
@@ -99,4 +99,18 @@ test('the confirmation line carries the same three figures as the header', () =>
   assert.equal(figuresLine(figures()), '96% · 2 missing · $8');
   assert.equal(figuresLine(figures({ missingCards: 0, buildablePct: 1 })), '100% · complete');
   assert.equal(figuresLine(figures({ buildablePct: null })), 'empty');
+});
+
+test('a deck\'s scope is the fights it holds a copy in or is short in', () => {
+  const holder = { deckId: 1, deckName: 'Eric', status: 'building' as const, quantity: 1 };
+  const short = {
+    deckId: 1, deckName: 'Eric', status: 'building' as const, required: 1, covered: 0, missing: 1,
+  };
+  const cards = [
+    contested({ oracleId: 'holds', holders: [holder], shortDecks: [] }),
+    contested({ oracleId: 'short', holders: [], shortDecks: [short] }),
+    contested({ oracleId: 'other', holders: [], shortDecks: [] }),
+  ];
+  assert.deepEqual(cardsInScope(cards, 1).map((c) => c.oracleId), ['holds', 'short']);
+  assert.deepEqual(cardsInScope(cards, 99), []);
 });

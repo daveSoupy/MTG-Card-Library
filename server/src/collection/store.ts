@@ -5,7 +5,8 @@ import { imageUrlSql } from '../images/url.ts';
  *  collection queries have no room for another join. */
 const FACE_ART = (column: string) =>
   `(SELECT ff.${column} FROM card_faces ff WHERE ff.printing_id = p.id AND ff.face_index = 0)`;
-import { allocationFor } from '../decks/allocation.ts';
+import { allocationFor, allocationSettings, reserves, type DeckStatus } from '../decks/allocation.ts';
+import { assemblyMovesLots } from '../decks/assembly.ts';
 import { getSetting, setSetting } from '../db/index.ts';
 import {
   reconcileAllDecks, reconcileDecksHolding, reconcileDecksHoldingMany,
@@ -414,15 +415,31 @@ export class CollectionStore {
 
     // "Deck A ×2 (home: Blue Tackle Box), Binder 3 ×2 available" — the exact
     // breakdown CLAUDE.md asks for, from the views built in Phase 1.
-    const decks = this.db.prepare(`
-      SELECT deck_id, deck_name, board, qty_from_collection, deck_home_location
-      FROM v_card_deck_usage WHERE oracle_id = ? ORDER BY deck_name`).all(oracleId) as any[];
+    const allocation = allocationFor(this.db, oracleId);
+    const settings = allocationSettings(this.db);
+    const decks = (this.db.prepare(`
+      SELECT deck_id, deck_name, board, qty_from_collection, qty_proxied, deck_status,
+             deck_home_location
+      FROM v_card_deck_usage WHERE oracle_id = ? ORDER BY deck_name`).all(oracleId) as Array<{
+        deck_id: number; deck_name: string; board: string; qty_from_collection: number;
+        qty_proxied: number; deck_status: DeckStatus; deck_home_location: string | null;
+      }>).map((row) => ({
+        ...row,
+        // Whether the stored claim is holding anything. It is inert on a deck
+        // that does not reserve and on an exempt basic, and a pane that shows
+        // it as "×2" either way reads a brew's leftover number as two copies
+        // sitting in that deck.
+        holds_copies: allocation.tracked && reserves(row.deck_status, settings),
+      }))
+      // Only decks that hold a copy (or proxy one). The view lists any slot
+      // whose stored claim is non-zero, which let a brew appear or not
+      // depending on a leftover number it does not act on.
+      .filter((row) => row.holds_copies || row.qty_proxied > 0);
 
     // Same keys the client has always read, now correct: only reserving decks
     // count towards allocated, archived locations are off the shelf, and a copy
     // promised on a trade list is not a copy you can build with. trade_listed
     // is new, so the UI can say "1 owned · on trade list" rather than a bare 0.
-    const allocation = allocationFor(this.db, oracleId);
     const availability = {
       owned_qty: allocation.owned,
       allocated_qty: allocation.reserved,
@@ -432,7 +449,10 @@ export class CollectionStore {
       is_over_allocated: allocation.isOverAllocated,
     };
 
-    return { printings, lots, decks, availability };
+    // Claimed copies stay filed in their lot's location unless assembly moves
+    // lots, so a deck's home is only where the copies are when this is on —
+    // the pane says which rather than letting the home read as the location.
+    return { printings, lots, decks, availability, copies_move_with_deck: assemblyMovesLots(this.db) };
   }
 
   // -- editing ---------------------------------------------------------------
@@ -840,7 +860,14 @@ export class CollectionStore {
   value() {
     const totals = this.db.prepare('SELECT * FROM v_collection_value').get() as any;
     const pnl = this.db.prepare('SELECT * FROM v_collection_pnl').get() as any;
-    return { ...totals, ...pnl };
+    // What the copies with a known cost are worth now — the figure "what you
+    // paid" and "unrealised" are actually measured against. Beside the whole
+    // collection's market value the two read as not adding up, because they
+    // cover only a third of it.
+    const costKnownValue = totals?.total_cost_basis_usd == null || totals?.unrealized_gain_usd == null
+      ? null
+      : Math.round((totals.total_cost_basis_usd + totals.unrealized_gain_usd) * 100) / 100;
+    return { ...totals, ...pnl, cost_known_value_usd: costKnownValue };
   }
 
   history(limit = 180) {

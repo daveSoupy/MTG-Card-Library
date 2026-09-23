@@ -295,22 +295,10 @@ test('two commanders are allowed here; three are not', () => {
   assert.ok(codes(three.issues).includes('too_many_commanders'));
 });
 
-test('an over-allocation you *do* own names the decks holding the rest', () => {
-  const result = validateDeck(
-    [
-      card({
-        name: 'Sol Ring', quantity: 1, quantityFromCollection: 1,
-        availableQuantity: 0, ownedQuantity: 1,
-      }),
-      ...filler(59),
-    ],
-    MODERN,
-  );
-  const issue = result.issues.find((i) => i.code === 'over_allocated');
-  assert.match(issue!.message, /Other decks are using the rest/);
-});
-
-test('over-allocation warns but never makes a deck illegal', () => {
+test('legality is only the format: a claim the collection cannot honour is not an issue', () => {
+  // Whether the collection can supply the deck is buildability's question. It
+  // used to be asked here too, as warnings listed among the format errors under
+  // a verdict that only counted the errors.
   const result = validateDeck(
     [
       card({ name: 'Sol Ring', quantity: 1, quantityFromCollection: 1, availableQuantity: 0 }),
@@ -318,13 +306,7 @@ test('over-allocation warns but never makes a deck illegal', () => {
     ],
     MODERN,
   );
-  const issue = result.issues.find((i) => i.code === 'over_allocated');
-  assert.ok(issue, 'expected an over-allocation warning');
-  assert.equal(issue!.severity, 'warning');
-  // This card is owned zero times, so blaming other decks would send you
-  // hunting for a culprit that does not exist.
-  assert.match(issue!.message, /You do not own any/);
-  // CLAUDE.md is explicit: flag it, do not block it.
+  assert.deepEqual(result.issues, []);
   assert.equal(result.isLegal, true);
 });
 
@@ -370,14 +352,13 @@ test('colour distribution counts a gold card under each of its colours', () => {
   assert.equal(stats.colorIdentity, 'WU');
 });
 
-test('stats split owned from need-to-buy', () => {
+test('stats value the deck; what it still needs is buildability\'s', () => {
   const stats = deckStats([
     card({ quantity: 4, quantityFromCollection: 3, priceUsd: 2 }),
     card({ quantity: 2, quantityFromCollection: 0, priceUsd: 0.5 }),
   ]);
-  assert.equal(stats.ownedCount, 3);
-  assert.equal(stats.needToBuyCount, 3);
   assert.equal(stats.estimatedValueUsd, 9);
+  assert.ok(!('needToBuyCount' in stats), 'coverage lives in buildability.ts, not here');
 });
 
 test('type distribution groups an artifact creature under Creature', () => {

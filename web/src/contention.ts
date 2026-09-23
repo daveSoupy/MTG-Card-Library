@@ -122,3 +122,17 @@ export function figuresLine(figures: DeckBuildability): string {
   }
   return parts.join(' · ');
 }
+
+/**
+ * The contested cards one deck is in — holding a copy another built deck is
+ * short of, or short of one another built deck holds.
+ *
+ * The deck header's "1 contested" used to open every contested card in the
+ * collection (~125 in the audit) with this deck's first. Selection only: the
+ * set itself is the server's.
+ */
+export function cardsInScope(cards: ContestedCard[], deckId: number): ContestedCard[] {
+  return cards.filter((card) =>
+    card.holders.some((deck) => deck.deckId === deckId)
+    || card.shortDecks.some((deck) => deck.deckId === deckId));
+}

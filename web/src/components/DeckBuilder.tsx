@@ -16,7 +16,6 @@ import { DeckExportDialog } from './DeckExportDialog.tsx';
 import { DeckHistoryPanel } from './DeckHistoryPanel.tsx';
 import { DeckImportDialog } from './DeckImportDialog.tsx';
 import { PlaytestPanel } from './PlaytestPanel.tsx';
-import { ShoppingListPanel } from './ShoppingListPanel.tsx';
 import { BuildabilityStrip } from './Buildability.tsx';
 import { AssemblyPanel } from './AssemblyPanel.tsx';
 import { ContentionPanel } from './ContentionPanel.tsx';
@@ -33,6 +32,7 @@ import {
 } from '../deckView.ts';
 import { restoreSnapshot, snapshotDeck } from '../deckHistory.ts';
 import { notFoundNotice } from '../assembly.ts';
+import { legalityVerdict } from '../legality.ts';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import { useNarrow } from '../viewport.ts';
 import { type Density } from '../density.ts';
@@ -109,7 +109,6 @@ export function pickerSearchParams(input: {
  * entirely on a metered connection, where speculative downloads are exactly
  * what the browser is asking us not to do.
  */
-const problemCount = (n: number) => `${n} problem${n === 1 ? '' : 's'}`;
 
 const WARM_ART_COUNT = 8;
 
@@ -166,7 +165,6 @@ export function DeckBuilder({
   const [artFor, setArtFor] = useState<DeckCard | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
-  const [shopping, setShopping] = useState(false);
   const [buildability, setBuildability] = useState<BuildabilityDetail | null>(null);
   const [missing, setMissing] = useState(false);
   // Phase 27. The card a "Swap for something I own" sheet is open for, and the
@@ -652,9 +650,10 @@ export function DeckBuilder({
                 {record && record.games > 0 && <span className="record-chip">{formatRecord(record)}</span>}
               </button>
             )}
-            <button className="btn secondary" onClick={() => setShopping(true)}>
-              Shopping list
-              {deck.stats.needToBuyCount > 0 && ` (${deck.stats.needToBuyCount})`}
+            {/* The same list, and the same count, as the header's "N missing". */}
+            <button className="btn secondary" onClick={() => setMissing(true)} disabled={!buildability}>
+              Missing
+              {(buildability?.summary.missingCards ?? 0) > 0 && ` (${buildability!.summary.missingCards})`}
             </button>
             <button className="btn secondary" onClick={() => setHistory(true)}>History</button>
             <button className="btn secondary" onClick={() => setExporting(true)}>Export</button>
@@ -707,10 +706,9 @@ export function DeckBuilder({
             onChange={(status) => apply(() => updateDeck(deck.id, { status })).then(loadRuns)}
           />
         );
+        const verdictOf = legalityVerdict(deck.validation);
         const verdict = (
-          <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
-            {deck.validation.isLegal ? 'Legal' : problemCount(deck.validation.issues.filter((i) => i.severity === 'error').length)}
-          </span>
+          <span className={`verdict-chip ${verdictOf.ok ? 'ok' : 'bad'}`}>{verdictOf.text}</span>
         );
         // Whether the deck is legal and whether you can physically build it
         // are different questions; they sit side by side because you need
@@ -848,13 +846,13 @@ export function DeckBuilder({
           onImported={() => { setImporting(false); load(); }}
         />
       )}
-      {shopping && <ShoppingListPanel deckId={deck.id} onClose={() => { setShopping(false); load(); }} />}
       {missing && buildability && (
         <MissingCardsPanel
           detail={buildability}
           onClose={() => { setMissing(false); load(); }}
           onSwap={(row) => setSwapFor({ oracleId: row.oracleId, name: row.name })}
           swappable={(row) => hasSwappableSlot(deck, row.oracleId)}
+          onReassign={() => { setMissing(false); setContention(true); }}
         />
       )}
       {swapFor && (
@@ -883,7 +881,11 @@ export function DeckBuilder({
         />
       )}
       {contention && (
-        <ContentionPanel onClose={() => { setContention(false); load(); }} onChanged={load} />
+        <ContentionPanel
+          scope={{ deckId: deck.id, deckName: deck.name }}
+          onClose={() => { setContention(false); load(); }}
+          onChanged={load}
+        />
       )}
       {sheet && (
         <AssemblyPanel
@@ -921,6 +923,8 @@ export function DeckBuilder({
         setCardSort={setCardSort}
         categoryLabels={categoryLabels}
         coverage={coverage}
+        buildability={buildability?.summary ?? null}
+        onShowMissing={() => setMissing(true)}
         onSwap={(card) => setSwapFor({ oracleId: card.oracleId, name: card.name, board: card.board })}
         density={density}
         onDensity={onDensity}

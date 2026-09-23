@@ -11,6 +11,8 @@ import {
 } from '../decks/allocation.ts';
 import { ASSEMBLY_MOVES_LOTS, ASSEMBLY_MOVES_LOTS_DEFAULT } from '../decks/assembly.ts';
 import { reconcileAllAlerts } from '../decks/contention.ts';
+import { settleBasicWants } from '../collection/wants.ts';
+import { AlertStore } from '../alerts/store.ts';
 import {
   SUBSTITUTE_SUGGESTION_COUNT, SUBSTITUTE_SUGGESTION_COUNT_DEFAULT,
 } from '../decks/substitutes.ts';
@@ -161,6 +163,9 @@ export function registerSettingsRoutes(app: FastifyInstance, db: Database.Databa
       // to reconcile on their next write — a settings flip is not a reason to
       // reorder who holds what — but the alerts must not go stale.
       if (allocationChanged) reconcileAllAlerts(db);
+      // Switching the basics exemption on retires the deck-driven basic wants
+      // it makes meaningless; a no-op while it is off.
+      if (allocationChanged) settleBasicWants(db, new AlertStore(db));
 
       return { settings: readSettings(db) };
     },

@@ -1,20 +1,18 @@
 import type Database from 'better-sqlite3';
 import { artUrlSql, imageUrlSql } from '../images/url.ts';
-import { allocationForMany, allocationSettings, copiesToBuy } from '../decks/allocation.ts';
+import { buildabilityDetail, missingForWantList, type BuildabilityRow } from '../decks/buildability.ts';
 
 /**
  * A deck's shopping list, and pushing it onto a want list.
  *
- * CLAUDE.md is explicit that this "falls out naturally from allocation tracking
- * rather than being a separate feature" — a slot's shortfall is what allocation
- * already maintains. There is no separate shopping-list table, and nothing to
- * keep in sync.
- *
- * Phase 22 moved the shortfall itself into `decks/allocation.ts`: it is
- * `quantity - from_collection - proxied`, and it is zero for a basic land while
- * `allocation_ignores_basics` is on. Nothing here re-derives it, which is why
- * the v_deck_shopping_list view is gone — 38 Islands are not 38 missing cards,
- * and a view could not know that.
+ * The shopping list is buildability's missing set with pictures on it, and
+ * nothing more. It used to be its own computation — the *stored* claim
+ * subtracted per slot, priced at the preferred-or-default printing — and it
+ * disagreed with the deck header on both counts: the stored claim is inert on
+ * a brew and on an exempt basic, so one deck read "9 missing" beside
+ * "Shopping list (7)", and the two priced the same Craterhoof at $21.49 and
+ * $28.33. Now the rows, the count, the unit price and the total all come from
+ * `decks/buildability.ts`, so they cannot drift apart again.
  */
 
 export interface ShoppingListEntry {
@@ -22,12 +20,16 @@ export interface ShoppingListEntry {
   name: string;
   needed: number;
   unitPriceUsd: number | null;
+  /** `needed × unitPrice`, or null when the card has no price. */
   estimatedUsd: number | null;
+  /** The printing the price is for — the one you would be buying. */
   printingId: string | null;
   imageSmall: string | null;
   setCode: string | null;
-  /** Copies free elsewhere in the collection that this deck has not claimed. */
-  availableElsewhere: number;
+  /** Reserving decks holding copies this deck would otherwise have. */
+  holdingDecks: BuildabilityRow['holdingDecks'];
+  /** Copies you own but have promised on a trade list. */
+  tradeListed: number;
 }
 
 export interface ShoppingList {
@@ -41,71 +43,60 @@ export interface ShoppingList {
 }
 
 export function shoppingList(db: Database.Database, deckId: number): ShoppingList | null {
-  const deck = db.prepare('SELECT id, name FROM decks WHERE id = ?').get(deckId) as
-    | { id: number; name: string } | undefined;
-  if (!deck) return null;
+  const detail = buildabilityDetail(db, deckId);
+  if (!detail) return null;
 
-  const settings = allocationSettings(db);
+  const missing = detail.rows.filter((row) => row.missing > 0);
 
-  const slots = db.prepare(`
-    SELECT dc.oracle_id, dc.quantity, dc.quantity_from_collection, dc.quantity_proxied,
-           o.name AS card_name,
-           COALESCE(dc.preferred_printing_id, o.default_printing_id) AS price_printing_id,
-           COALESCE(pp.price_usd, dp.price_usd) AS unit_price_usd,
-           ${imageUrlSql({
-               id: 'COALESCE(pp.id, dp.id)',
-               ts: 'COALESCE(pp.image_ts, ffp.image_ts, dp.image_ts, ffd.image_ts)',
-               override: 'COALESCE(pp.image_url_override, ffp.image_url_override, dp.image_url_override, ffd.image_url_override)',
-               size: 'small',
-             })} AS image_small,
-           COALESCE(pp.set_code, dp.set_code) AS set_code
-    FROM deck_cards dc
-    JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
-    LEFT JOIN card_printings pp ON pp.id = dc.preferred_printing_id
-    LEFT JOIN card_printings dp ON dp.id = o.default_printing_id
-    LEFT JOIN card_faces ffp ON ffp.printing_id = pp.id AND ffp.face_index = 0
-    LEFT JOIN card_faces ffd ON ffd.printing_id = dp.id AND ffd.face_index = 0
-    WHERE dc.deck_id = ? AND dc.board IN ('main','side','command')`).all(deckId) as any[];
+  // Pictures and set codes for the printings buildability priced — the only
+  // thing this module adds to what buildability already said.
+  const printingIds = [...new Set(
+    missing.map((row) => row.pricePrintingId).filter((id): id is string => id !== null),
+  )];
+  const pictures = new Map<string, { image_small: string | null; set_code: string }>();
+  if (printingIds.length > 0) {
+    const rows = db.prepare(`
+      SELECT p.id, p.set_code,
+             ${imageUrlSql({
+                 id: 'p.id',
+                 ts: 'COALESCE(p.image_ts, ff.image_ts)',
+                 override: 'COALESCE(p.image_url_override, ff.image_url_override)',
+                 size: 'small',
+               })} AS image_small
+        FROM card_printings p
+        LEFT JOIN card_faces ff ON ff.printing_id = p.id AND ff.face_index = 0
+       WHERE p.id IN (${printingIds.map(() => '?').join(',')})`).all(...printingIds) as Array<{
+         id: string; set_code: string; image_small: string | null;
+       }>;
+    for (const row of rows) pictures.set(row.id, row);
+  }
 
-  // Copies free elsewhere excludes this deck's own claim, so a row reading
-  // "2 free in your collection" means two you could claim without taking them
-  // off another deck.
-  const allocation = allocationForMany(
-    db, slots.map((row) => row.oracle_id), { excludeDeckId: deckId, settings },
-  );
-
-  const entries: ShoppingListEntry[] = slots
+  const entries: ShoppingListEntry[] = missing
     .map((row) => {
-      const needed = copiesToBuy({
-        quantity: row.quantity,
-        quantityFromCollection: row.quantity_from_collection,
-        quantityProxied: row.quantity_proxied,
-        allocationTracked: allocation.get(row.oracle_id)!.tracked,
-      });
-      const unitPriceUsd = row.unit_price_usd ?? null;
+      const picture = row.pricePrintingId ? pictures.get(row.pricePrintingId) : undefined;
       return {
-        oracleId: row.oracle_id,
-        name: row.card_name,
-        needed,
-        unitPriceUsd,
-        estimatedUsd: needed * (unitPriceUsd ?? 0),
-        printingId: row.price_printing_id,
-        imageSmall: row.image_small,
-        setCode: row.set_code,
-        availableElsewhere: allocation.get(row.oracle_id)!.available,
+        oracleId: row.oracleId,
+        name: row.name,
+        needed: row.missing,
+        unitPriceUsd: row.unitPriceUsd,
+        estimatedUsd: row.extendedUsd,
+        printingId: row.pricePrintingId,
+        imageSmall: picture?.image_small ?? null,
+        setCode: picture?.set_code ?? null,
+        holdingDecks: row.holdingDecks,
+        tradeListed: row.tradeListed,
       };
     })
-    .filter((entry) => entry.needed > 0)
     .sort((a, b) => (b.estimatedUsd ?? 0) - (a.estimatedUsd ?? 0)
       || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
   return {
-    deckId: deck.id,
-    deckName: deck.name,
+    deckId: detail.deckId,
+    deckName: detail.deckName,
     entries,
-    totalCards: entries.reduce((total, e) => total + e.needed, 0),
-    totalUsd: Math.round(entries.reduce((total, e) => total + (e.estimatedUsd ?? 0), 0) * 100) / 100,
-    unpricedCards: entries.filter((e) => e.unitPriceUsd == null).length,
+    totalCards: detail.summary.missingCards,
+    totalUsd: detail.summary.costToCompleteUsd,
+    unpricedCards: detail.summary.unpricedCount,
   };
 }
 
@@ -115,31 +106,27 @@ export interface WantPushResult {
   listName: string;
 }
 
-/** Pushes a deck's *declared* shortfall onto a want list, tagged with the deck. */
+/**
+ * Pushes a deck's missing cards onto a want list, tagged with the deck —
+ * all of them, or only `oracleIds`.
+ */
 export function pushToWantList(
   db: Database.Database,
   deckId: number,
   options: { wantListId?: number; oracleIds?: string[] } = {},
 ): WantPushResult {
-  const full = shoppingList(db, deckId);
-  if (!full) throw new Error(`No deck with id ${deckId}.`);
+  const deck = db.prepare('SELECT id FROM decks WHERE id = ?').get(deckId);
+  if (!deck) throw new Error(`No deck with id ${deckId}.`);
 
-  const wanted = options.oracleIds && options.oracleIds.length > 0
-    ? full.entries.filter((e) => options.oracleIds!.includes(e.oracleId))
-    : full.entries;
+  const missing = missingForWantList(db, deckId);
+  const only = options.oracleIds && options.oracleIds.length > 0 ? new Set(options.oracleIds) : null;
+  const wanted = only ? missing.filter((entry) => only.has(entry.oracleId)) : missing;
 
   return pushEntriesToWantList(db, deckId, wanted, options.wantListId);
 }
 
 /**
- * The push itself, over whatever set of shortfalls a caller worked out.
- *
- * Two callers now disagree about what "needed" means, and both are right. The
- * shopping list above reads the *declared* shortfall — the copies you marked as
- * "need to buy". Phase 24's buildability reads *computed coverage* — copies the
- * collection could not supply whether or not you marked anything. They are
- * different questions, so they are different callers; the consolidation rules
- * below are the same for both, so they are written once, here.
+ * The push itself, over a set of shortfalls.
  *
  * Phase 6 requires that consolidation: one row per card per list, summing the
  * quantity and listing each deck's need separately. `want_list_items` enforces

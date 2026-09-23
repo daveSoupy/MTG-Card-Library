@@ -322,7 +322,7 @@ export function WantListsPage({
             </div>
           )}
 
-          {active.length === 0 && <p className="empty">No active wants. Add a card, or push a deck's shopping list here.</p>}
+          {active.length === 0 && <p className="empty">No active wants. Add a card, or send a deck's missing cards here.</p>}
 
           <div className="want-rows">
             {displayItems.map((item) => {

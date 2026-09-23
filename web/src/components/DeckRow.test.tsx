@@ -39,7 +39,7 @@ function row(
 
 const short: BuildabilityRow = {
   oracleId: 'ORACLE-1', name: 'Sol Ring', required: 1, owned: 0, available: 0, tradeListed: 0,
-  proxied: 0, covered: 0, missing: 1, unitPriceUsd: 2, extendedUsd: 2, contested: false,
+  proxied: 0, covered: 0, missing: 1, unitPriceUsd: 2, pricePrintingId: null, extendedUsd: 2, contested: false,
   holdingDecks: [],
 };
 

@@ -24,6 +24,15 @@ const api = vi.hoisted(() => ({
   updateDeck: vi.fn(),
 }));
 
+// Stands in for the contention screen so a test can read what it was opened with.
+const contention = vi.hoisted(() => ({ props: null as null | Record<string, unknown> }));
+vi.mock('./ContentionPanel.tsx', () => ({
+  ContentionPanel: (props: Record<string, unknown>) => {
+    contention.props = props;
+    return <div>contention screen</div>;
+  },
+}));
+
 vi.mock('../api.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api.ts')>()),
   ...api,
@@ -43,8 +52,7 @@ function deckWith(status: DeckStatus): Deck {
     stats: {
       totalCards: 0, mainCount: 0, sideboardCount: 0, commandCount: 0, uniqueCards: 0,
       averageManaValue: 0, manaCurve: [], colorDistribution: [], colorIdentity: '',
-      typeDistribution: [], estimatedValueUsd: 0, ownedCount: 0, proxiedCount: 0,
-      needToBuyCount: 0,
+      typeDistribution: [], estimatedValueUsd: 0, proxiedCount: 0,
     },
     manaBase: {
       requirements: [], totalPips: 0, totalSources: 0, landCount: 0,
@@ -254,5 +262,52 @@ describe('DeckBuilder picker filters', () => {
     await waitFor(() => expect(screen.getByTitle('R')).toHaveAttribute('aria-pressed', 'true'));
     // …but off-identity, so the identity guard holds rather than offering red cards.
     expect(lastSearch()).toMatchObject({ colors: ['W', 'U', 'C'] });
+  });
+});
+
+describe('DeckBuilder: one answer per figure (41C)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    contention.props = null;
+    window.innerWidth = 1400;
+  });
+
+  it('the header verdict says what the Legality section lists', async () => {
+    const deck = deckWith('building');
+    deck.validation = {
+      ...deck.validation, formatCode: 'modern', formatName: 'Modern', isLegal: false,
+      issues: [
+        { severity: 'error', code: 'deck_size', message: 'Modern decks need at least 60 cards.' },
+        { severity: 'error', code: 'banned', message: 'Mox is banned.', oracleId: 'o-mox' },
+        { severity: 'warning', code: 'too_many_commanders', message: 'Modern has no command zone.' },
+      ],
+    };
+    api.fetchDeck.mockResolvedValue(deck);
+    api.fetchRunHistory.mockResolvedValue([]);
+    render(
+      <DeckBuilder
+        deckId={1} formats={[]} categoryLabels={{}} onBack={() => {}}
+        density="full" onDensity={() => {}}
+      />,
+    );
+    await screen.findByTitle(/click to rename/);
+    // One in the header chip, one heading the Legality section — same words.
+    expect(screen.getAllByText('2 problems')).toHaveLength(2);
+    expect(screen.getByText('Modern has no command zone.')).toBeTruthy();
+  });
+
+  it('"contested" opens the contention screen scoped to this deck', async () => {
+    api.fetchBuildability.mockResolvedValue({
+      deckId: 1, deckName: 'Eric',
+      summary: {
+        deckId: 1, buildablePct: 0.9, requiredCards: 10, coveredCards: 9, missingCards: 1,
+        costToCompleteUsd: 2, unpricedCount: 0, contestedCount: 1, exemptBasicCards: 0,
+      },
+      rows: [],
+    } as never);
+    await renderDeck('building', []);
+    fireEvent.click(await screen.findByRole('button', { name: '1 contested' }));
+    await screen.findByText('contention screen');
+    expect(contention.props?.scope).toEqual({ deckId: 1, deckName: 'Eric' });
   });
 });

@@ -51,8 +51,19 @@ export interface DeckBuildability {
    * unknown price to zero is how a deck that reads "$0 to finish" costs $80.
    */
   unpricedCount: number;
-  /** Distinct missing cards another reserving deck is holding copies of. */
+  /**
+   * Distinct missing cards another reserving deck is holding copies of, while
+   * this deck reserves too — a fight between two built decks, which is exactly
+   * the set Phase 26's contention screen lists. A brew short of a card someone
+   * else holds is not in a fight; its row says who holds it instead.
+   */
   contestedCount: number;
+  /**
+   * Copies of basic lands left out of every figure above while the exemption
+   * is on. Reported so a screen can say why the deck's 99 cards read as 63
+   * required rather than leaving the reader to reconcile the two.
+   */
+  exemptBasicCards: number;
 }
 
 /** One card's story, for the deck's own missing-card list. */
@@ -68,9 +79,11 @@ export interface BuildabilityRow {
   covered: number;
   missing: number;
   unitPriceUsd: number | null;
+  /** The printing `unitPriceUsd` is the price of — what you would be buying. */
+  pricePrintingId: string | null;
   /** `missing × unitPrice`, or null when the card has no price. */
   extendedUsd: number | null;
-  /** Another reserving deck holds copies and this deck is short. */
+  /** This deck reserves, is short, and another reserving deck holds copies. */
   contested: boolean;
   /** Who is holding the rest, and how many each. */
   holdingDecks: Array<{ deckId: number; deckName: string; status: DeckStatus; quantity: number }>;
@@ -164,8 +177,14 @@ function collectionRollup(db: Database.Database): Map<string, { owned: number; l
   return map;
 }
 
+/** What one missing copy costs, and which printing that is the price of. */
+export interface MissingCopyPrice {
+  priceUsd: number;
+  printingId: string;
+}
+
 /**
- * What one missing copy costs.
+ * What one missing copy costs — the one rule every "cost to finish" reads.
  *
  * The pinned printing first, because a slot pinned to a specific set is a
  * statement about which copy you intend to buy. Otherwise the cheapest
@@ -177,33 +196,39 @@ function collectionRollup(db: Database.Database): Map<string, { owned: number; l
  * oracle-level cheapest rather than reading as unpriced. The pin expresses art,
  * not budget, and "you pinned an unpriced promo, so this deck is free to
  * finish" is the same lie as rounding an unknown to zero.
+ *
+ * Exported so the shopping list prices through here too. It used to price the
+ * preferred-or-default printing on its own, and one deck read $1,346.76 to
+ * finish in the header and $1,363.54 on its shopping list.
  */
-function priceLookup(
+export function missingCopyPrices(
   db: Database.Database,
   oracleIds: string[],
   printingIds: string[],
-): (oracleId: string, preferredPrintingId: string | null) => number | null {
-  const cheapest = new Map<string, number>();
-  for (const chunk of inChunks(oracleIds, CHUNK)) {
-    const rows = db.prepare(`
-      SELECT oracle_id,
-             MIN(price_usd)      AS cheap_usd,
-             MIN(price_usd_foil) AS cheap_foil
-        FROM card_printings
-       WHERE is_digital = 0
-         AND oracle_id IN (${chunk.map(() => '?').join(',')})
-       GROUP BY oracle_id`).all(...chunk) as Array<{
-         oracle_id: string; cheap_usd: number | null; cheap_foil: number | null;
-       }>;
-    // MIN ignores NULLs, so `cheap_usd` is the cheapest *priced* printing and
-    // is itself NULL only when no printing has a non-foil price at all.
-    for (const row of rows) {
-      const price = row.cheap_usd ?? row.cheap_foil;
-      if (price != null) cheapest.set(row.oracle_id, price);
+): (oracleId: string, preferredPrintingId: string | null) => MissingCopyPrice | null {
+  const cheapest = new Map<string, MissingCopyPrice>();
+  // Two statements rather than one with two MINs: with a single aggregate,
+  // SQLite takes the bare `id` column from the row that produced the minimum,
+  // which is what lets the answer name the printing it priced.
+  const cheapestBy = (column: 'price_usd' | 'price_usd_foil', ids: string[]) => {
+    for (const chunk of inChunks(ids, CHUNK)) {
+      const rows = db.prepare(`
+        SELECT oracle_id, id, MIN(${column}) AS price
+          FROM card_printings
+         WHERE is_digital = 0
+           AND ${column} IS NOT NULL
+           AND oracle_id IN (${chunk.map(() => '?').join(',')})
+         GROUP BY oracle_id`).all(...chunk) as Array<{
+           oracle_id: string; id: string; price: number;
+         }>;
+      for (const row of rows) cheapest.set(row.oracle_id, { priceUsd: row.price, printingId: row.id });
     }
-  }
+  };
+  cheapestBy('price_usd', oracleIds);
+  // Only the cards no non-foil printing prices at all fall back to foil.
+  cheapestBy('price_usd_foil', oracleIds.filter((id) => !cheapest.has(id)));
 
-  const pinned = new Map<string, number>();
+  const pinned = new Map<string, MissingCopyPrice>();
   for (const chunk of inChunks(printingIds, CHUNK)) {
     const rows = db.prepare(`
       SELECT id, price_usd, price_usd_foil FROM card_printings
@@ -212,14 +237,14 @@ function priceLookup(
        }>;
     for (const row of rows) {
       const price = row.price_usd ?? row.price_usd_foil;
-      if (price != null) pinned.set(row.id, price);
+      if (price != null) pinned.set(row.id, { priceUsd: price, printingId: row.id });
     }
   }
 
   return (oracleId, preferredPrintingId) => {
     if (preferredPrintingId) {
       const pin = pinned.get(preferredPrintingId);
-      if (pin != null) return pin;
+      if (pin) return pin;
     }
     return cheapest.get(oracleId) ?? null;
   };
@@ -245,7 +270,9 @@ interface Engine {
   reservedByAll: Map<string, number>;
   collection: Map<string, { owned: number; listed: number }>;
   requirements: Map<number, Requirement[]>;
-  unitPrice: (oracleId: string, preferredPrintingId: string | null) => number | null;
+  /** Copies of exempt basic lands each deck lists, left out of `requirements`. */
+  exemptBasics: Map<number, number>;
+  unitPrice: (oracleId: string, preferredPrintingId: string | null) => MissingCopyPrice | null;
   effectiveStatus: (deckId: number) => DeckStatus;
 }
 
@@ -320,6 +347,7 @@ function gather(
     .all(...(scoped ? deckIds! : [])) as SlotRow[];
 
   const requirements = new Map<number, Requirement[]>();
+  const exemptBasics = new Map<number, number>();
   const byDeckAndOracle = new Map<number, Map<string, Requirement>>();
   for (const row of slotRows) {
     const deck = decks.get(row.deck_id);
@@ -331,7 +359,10 @@ function gather(
     // not missing, not shopped for. 38 Islands are not 38 missing cards, and
     // counting them as covered would flatter every land-heavy deck's percentage.
     const isBasic = Boolean(row.is_basic_land);
-    if (isBasic && settings.ignoreBasics) continue;
+    if (isBasic && settings.ignoreBasics) {
+      exemptBasics.set(row.deck_id, (exemptBasics.get(row.deck_id) ?? 0) + row.quantity);
+      continue;
+    }
 
     const forDeck = byDeckAndOracle.get(row.deck_id) ?? new Map<string, Requirement>();
     const existing = forDeck.get(row.oracle_id);
@@ -368,7 +399,8 @@ function gather(
     reservedByAll,
     collection: collectionRollup(db),
     requirements,
-    unitPrice: priceLookup(db, oracleIds, printingIds),
+    exemptBasics,
+    unitPrice: missingCopyPrices(db, oracleIds, printingIds),
     effectiveStatus,
   };
 }
@@ -400,7 +432,8 @@ function rowsFor(engine: Engine, deckId: number, withHolders: boolean): Buildabi
 
     const covered = Math.min(requirement.required, allocation.available + requirement.proxied);
     const missing = requirement.required - covered;
-    const unitPriceUsd = engine.unitPrice(oracleId, requirement.preferredPrintingId);
+    const price = engine.unitPrice(oracleId, requirement.preferredPrintingId);
+    const unitPriceUsd = price?.priceUsd ?? null;
 
     // Read from the inverted index rather than walking every deck's claim map.
     // Same answer, but the work is proportional to the number of decks that
@@ -434,8 +467,14 @@ function rowsFor(engine: Engine, deckId: number, withHolders: boolean): Buildabi
       covered,
       missing,
       unitPriceUsd,
+      pricePrintingId: price?.printingId ?? null,
       extendedUsd: unitPriceUsd == null ? null : round2(missing * unitPriceUsd),
-      contested: reservedByOthers > 0 && missing > 0,
+      // Only a deck that reserves can be in a fight: a brew short of a card a
+      // built deck holds is simply short, and its holder list already says who
+      // has it. Counting it here made the deck list's "Contested" filter match
+      // 46 of 48 decks, and sent a brew's "1 contested" to a screen that — by
+      // the same rule — could not list it.
+      contested: deckReserves && reservedByOthers > 0 && missing > 0,
       holdingDecks,
     };
   });
@@ -443,7 +482,7 @@ function rowsFor(engine: Engine, deckId: number, withHolders: boolean): Buildabi
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-function summarise(deckId: number, rows: BuildabilityRow[]): DeckBuildability {
+function summarise(deckId: number, rows: BuildabilityRow[], exemptBasicCards: number): DeckBuildability {
   let requiredCards = 0;
   let coveredCards = 0;
   let missingCards = 0;
@@ -473,6 +512,7 @@ function summarise(deckId: number, rows: BuildabilityRow[]): DeckBuildability {
     costToCompleteUsd: round2(cost),
     unpricedCount,
     contestedCount,
+    exemptBasicCards,
   };
 }
 
@@ -498,7 +538,9 @@ export function buildabilityForDecks(
     // A deck with no countable cards still gets an answer — an empty summary,
     // which reads as "empty" rather than as a missing key the client has to
     // guard on every row.
-    result.set(deckId, summarise(deckId, rowsFor(engine, deckId, false)));
+    result.set(deckId, summarise(
+      deckId, rowsFor(engine, deckId, false), engine.exemptBasics.get(deckId) ?? 0,
+    ));
   }
   return result;
 }
@@ -604,7 +646,7 @@ export function buildabilityDetail(
   return {
     deckId,
     deckName: meta.name,
-    summary: summarise(deckId, rows),
+    summary: summarise(deckId, rows, engine.exemptBasics.get(deckId) ?? 0),
     rows,
   };
 }

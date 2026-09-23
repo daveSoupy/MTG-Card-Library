@@ -1455,7 +1455,6 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .lot-trade label { display: inline-flex; align-items: center; gap: 4px; }
 .lot-trade input { width: 48px; padding: 2px 5px; font-size: 11.5px; }
 .lot-trade select { width: auto; padding: 2px 5px; font-size: 11.5px; }
-.note-inline { font-style: italic; color: var(--text-3); }
 
 /* ---------- set-scoped entry ---------- */
 .set-entry { display: flex; flex-direction: column; min-height: 0; }
@@ -1528,6 +1527,11 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .value-summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
 .gain-up { color: var(--good); }
 .gain-down { color: var(--bad); }
+.value-chart-frame { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+.value-axis {
+  display: flex; flex-direction: column; justify-content: space-between; text-align: right;
+  font-family: var(--mono); font-size: 11px; color: var(--text-3); padding: 0 0 2px;
+}
 .value-chart {
   width: 100%; height: auto; display: block;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -1564,15 +1568,8 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 
 /* ---------- shopping list ---------- */
 .shopping-rows { display: grid; gap: 4px; margin-bottom: 14px; }
-.shopping-row {
-  display: grid; grid-template-columns: 34px minmax(0, 1fr) 72px auto;
-  gap: 10px; align-items: center;
-  padding: 5px 8px; border-radius: 7px; background: var(--panel-2);
-}
-.shopping-row img { width: 34px; border-radius: 4px; display: block; }
 .shopping-name { display: flex; flex-direction: column; gap: 2px; font-size: 13px; min-width: 0; }
 .shopping-name > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shopping-name .note-inline { font-size: 11px; color: var(--warn); }
 .shopping-price { font-family: var(--mono); font-size: 12.5px; text-align: right; color: var(--text-2); }
 
 /* Summary tiles. Used by the collection value view; the class was previously
@@ -1590,6 +1587,7 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
   font-family: var(--mono); font-size: 10px;
   letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
 }
+.stat small { display: block; margin-top: 3px; font-size: 11px; color: var(--text-3); }
 
 /* -- Phase 5: import, export and backup ------------------------------------ */
 
@@ -3178,6 +3176,9 @@ button.build-seg:hover { text-decoration: underline; }
 
 /* The missing-cards list gained a Swap button per row. */
 .missing-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+.missing-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
+.missing-group h3 { font-size: 12.5px; margin: 12px 0 6px; color: var(--text-2); }
+.missing-group h3 .dim { font-weight: 400; margin-left: 4px; }
 
 .substitutes-card { width: min(980px, 100%); }
 .substitutes-context { margin: 4px 0 0; font-size: 13px; }

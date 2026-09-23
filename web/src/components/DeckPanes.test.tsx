@@ -51,8 +51,7 @@ const deck: Deck = {
   stats: {
     totalCards: 1, mainCount: 1, sideboardCount: 0, commandCount: 0, uniqueCards: 1,
     averageManaValue: 1, manaCurve: [], colorDistribution: [], colorIdentity: '',
-    typeDistribution: [], estimatedValueUsd: 2, ownedCount: 1, proxiedCount: 0,
-    needToBuyCount: 0,
+    typeDistribution: [], estimatedValueUsd: 2, proxiedCount: 0,
   },
   manaBase: {
     requirements: [], totalPips: 0, totalSources: 0, landCount: 0,

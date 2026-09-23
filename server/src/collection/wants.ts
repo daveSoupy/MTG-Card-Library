@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { AlertStore } from '../alerts/store.ts';
+import { allocationSettings } from '../decks/allocation.ts';
 import { wantList } from './shopping.ts';
 
 /**
@@ -42,7 +43,8 @@ export function reconcileWants(
       id: number; want_list_id: number; quantity: number; name: string; owned_qty: number;
     }>;
 
-  const fulfilled: FulfilledWant[] = [];
+  const fulfilled: FulfilledWant[] = settleBasicWants(db, alerts, [oracleId]);
+  const settled = new Set(fulfilled.map((want) => want.wantListItemId));
   const mark = db.prepare(`
     UPDATE want_list_items
        SET status = 'fulfilled',
@@ -51,7 +53,7 @@ export function reconcileWants(
      WHERE id = ?`);
 
   for (const row of candidates) {
-    if (row.owned_qty < row.quantity) continue;
+    if (settled.has(row.id) || row.owned_qty < row.quantity) continue;
     mark.run(options.tradeId ?? null, row.id);
     alerts.raise({
       kind: 'want_fulfilled',
@@ -70,6 +72,66 @@ export function reconcileWants(
     });
   }
   return fulfilled;
+}
+
+/**
+ * Deck-driven wants for basic lands, while basics are exempt from allocation.
+ *
+ * The exemption means no deck is ever short of a basic, so nothing pushes one
+ * onto a want list any more — but entries pushed before it was on (or while it
+ * was off) stayed, reading "Plains ×19, needed for: Eric" beside "own 154".
+ * Those are marked fulfilled, with an alert saying why. A basic you added to a
+ * list yourself — no deck behind it, say a particular foil — is left alone:
+ * the exemption is about decks, not about what you are allowed to want.
+ *
+ * Run at boot (the once-only cleanup of what is already there), when the
+ * exemption is switched on, and from `reconcileWants` for the card that moved.
+ * `oracleIds` narrows it; omitted means every basic want.
+ */
+export function settleBasicWants(
+  db: Database.Database,
+  alerts: AlertStore,
+  oracleIds?: string[],
+): FulfilledWant[] {
+  if (!allocationSettings(db).ignoreBasics) return [];
+  if (oracleIds && oracleIds.length === 0) return [];
+
+  const rows = db.prepare(`
+    SELECT w.id, w.want_list_id, w.oracle_id, w.quantity, o.name
+      FROM want_list_items w
+      JOIN oracle_cards o ON o.oracle_id = w.oracle_id
+     WHERE w.status = 'active'
+       AND o.is_basic_land = 1
+       AND EXISTS (SELECT 1 FROM want_list_item_decks wd WHERE wd.want_list_item_id = w.id)
+       ${oracleIds ? `AND w.oracle_id IN (${oracleIds.map(() => '?').join(',')})` : ''}`)
+    .all(...(oracleIds ?? [])) as Array<{
+      id: number; want_list_id: number; oracle_id: string; quantity: number; name: string;
+    }>;
+  if (rows.length === 0) return [];
+
+  const mark = db.prepare(`
+    UPDATE want_list_items
+       SET status = 'fulfilled',
+           fulfilled_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+     WHERE id = ?`);
+
+  return db.transaction(() => rows.map((row) => {
+    mark.run(row.id);
+    alerts.raise({
+      kind: 'want_fulfilled',
+      dedupeKey: `want_fulfilled:${row.id}`,
+      subjectType: 'want_list_item',
+      subjectId: row.id,
+      title: `Want fulfilled: ${row.name}`,
+      message: 'Marked fulfilled because basic lands are left out of allocation — '
+        + 'no deck is ever short of one while that setting is on.',
+      payload: { oracleId: row.oracle_id, wanted: row.quantity, reason: 'basic_land_exempt' },
+    });
+    return {
+      wantListItemId: row.id, wantListId: row.want_list_id,
+      oracleId: row.oracle_id, name: row.name, quantity: row.quantity,
+    };
+  }))();
 }
 
 /** A named-list rename that would collide with another list. */

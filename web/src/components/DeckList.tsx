@@ -179,7 +179,9 @@ export function DeckList({
             <button
               className="status-chip contested"
               onClick={() => setContention(true)}
-              title="Which decks are fighting over which copies"
+              // Counts built decks short of a card another built deck holds —
+              // brews are never in a fight, so they no longer inflate it.
+              title="Built decks short of a card another built deck holds. Tap to see who has what."
             >
               Contested
               <span className="dim">{contestedDecks}</span>

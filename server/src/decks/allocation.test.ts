@@ -7,7 +7,7 @@ import { CollectionStore } from '../collection/store.ts';
 import { TradeListStore } from '../tradelists/store.ts';
 import { shoppingList, pushToWantList } from '../collection/shopping.ts';
 import { DeckStore } from './store.ts';
-import { buildabilityDetail } from './buildability.ts';
+import { buildabilityDetail, buildabilityForDecks } from './buildability.ts';
 import {
   allocationFor, availableFor, RESERVING_STATUSES, SlotOverfilledError,
   ALLOCATION_IGNORES_BASICS, BREWS_RESERVE_COPIES, TRADELIST_REDUCES_AVAILABLE,
@@ -98,8 +98,7 @@ test('only a deck in a reserving status consumes copies', () => {
   assert.equal(cardIn(decks, brew, 'o-ring').quantityFromCollection, 0);
   assert.equal(buildabilityDetail(db, brew)!.rows[0].missing, 1);
   assert.equal(buildabilityDetail(db, real)!.rows[0].missing, 0);
-  assert.ok(!decks.get(brew)!.validation.issues.some((i) => i.code === 'over_allocated'));
-  assert.ok(!decks.get(real)!.validation.issues.some((i) => i.code === 'over_allocated'));
+  assert.equal(allocationFor(db, 'o-ring').isOverAllocated, false);
   db.close();
 });
 
@@ -200,7 +199,9 @@ test('a Commander deck of basics reports nothing missing and wants nothing', () 
 
   const island = cardIn(decks, deck, 'o-island');
   assert.equal(island.allocationTracked, false);
-  assert.equal(decks.get(deck)!.stats.needToBuyCount, 0, '38 Islands are not 38 missing cards');
+  const summary = buildabilityForDecks(db, [deck]).get(deck)!;
+  assert.equal(summary.missingCards, 0, '38 Islands are not 38 missing cards');
+  assert.equal(summary.exemptBasicCards, 38, 'and the header can say why they are not counted');
 
   const list = shoppingList(db, deck)!;
   assert.ok(!list.entries.some((e) => e.oracleId === 'o-island'));
@@ -227,13 +228,13 @@ test('basics reserve nothing, so two decks can both play the same Islands', () =
   assert.equal(allocation.tracked, false);
   assert.equal(allocation.reserved, 0);
   assert.equal(allocation.available, 10);
-  assert.ok(!decks.get(first)!.validation.issues.some((i) => i.code === 'over_allocated'));
+  assert.equal(allocation.isOverAllocated, false);
 
   // Turning the exemption off makes them ordinary cards again, and the 16
   // claims against 10 copies become the shortfall they always were.
   setSetting(db, ALLOCATION_IGNORES_BASICS, '0');
   assert.equal(allocationFor(db, 'o-island').reserved, 16);
-  assert.ok(decks.get(first)!.validation.issues.some((i) => i.code === 'over_allocated'));
+  assert.equal(allocationFor(db, 'o-island').isOverAllocated, true);
   db.close();
 });
 
@@ -252,7 +253,7 @@ test('a proxied copy satisfies a slot without being owned or bought', () => {
   const card = cardIn(decks, deck, 'o-bolt');
   assert.equal(card.quantityFromCollection, 1);
   assert.equal(card.quantityProxied, 2);
-  assert.equal(decks.get(deck)!.stats.needToBuyCount, 1, '4 - 1 owned - 2 proxied');
+  assert.equal(buildabilityForDecks(db, [deck]).get(deck)!.missingCards, 1, '4 - 1 owned - 2 proxied');
   assert.equal(decks.get(deck)!.stats.proxiedCount, 2);
 
   const list = shoppingList(db, deck)!;

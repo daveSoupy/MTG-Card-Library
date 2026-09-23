@@ -562,9 +562,9 @@ export interface DeckStats {
   colorIdentity: string;
   typeDistribution: Array<{ type: string; count: number }>;
   estimatedValueUsd: number | null;
-  ownedCount: number;
+  /** What the collection covers and what is missing are buildability's — see
+   *  `DeckBuildability` — not a sum of stored claims. */
   proxiedCount: number;
-  needToBuyCount: number;
 }
 
 export interface TemplateTargetRow {
@@ -666,8 +666,11 @@ export interface DeckBuildability {
   costToCompleteUsd: number;
   /** Missing cards with no price at all, so "$23 + 2 unpriced" can be said. */
   unpricedCount: number;
-  /** Missing cards another reserving deck is holding copies of. */
+  /** Missing cards another built deck holds, while this deck is built too —
+   *  exactly what the contention screen lists. */
   contestedCount: number;
+  /** Basic-land copies left out of every figure above while they are exempt. */
+  exemptBasicCards: number;
 }
 
 /** One card's story inside a deck's buildability breakdown. */
@@ -682,6 +685,8 @@ export interface BuildabilityRow {
   covered: number;
   missing: number;
   unitPriceUsd: number | null;
+  /** The printing the price is for — cheapest, unless the slot is pinned. */
+  pricePrintingId: string | null;
   extendedUsd: number | null;
   contested: boolean;
   holdingDecks: Array<{ deckId: number; deckName: string; status: DeckStatus; quantity: number }>;
@@ -736,10 +741,13 @@ export const fetchDecks = (
 export const fetchBuildability = (deckId: number, signal?: AbortSignal) =>
   getJson<BuildabilityDetail>(`/api/v1/decks/${deckId}/buildability`, signal);
 
-/** Everything the collection could not cover, onto a want list. */
-export const pushMissingToWantList = (deckId: number, wantListId?: number) =>
+/** Everything the collection could not cover — or only `oracleIds` — onto a want list. */
+export const pushMissingToWantList = (
+  deckId: number,
+  options: { wantListId?: number; oracleIds?: string[] } = {},
+) =>
   send<{ added: number; updated: number; listName: string }>(
-    `/api/v1/decks/${deckId}/buildability/want`, 'POST', { wantListId });
+    `/api/v1/decks/${deckId}/buildability/want`, 'POST', options);
 
 
 // -- assembly runs (Phase 25) -------------------------------------------------
@@ -1285,10 +1293,15 @@ export interface CollectionCardDetail {
   decks: Array<{
     deck_id: number; deck_name: string; board: string;
     qty_from_collection: number; qty_proxied: number;
-    /** Only 'building' and 'assembled' actually hold the copies. */
     deck_status: DeckStatus;
+    /** Whether the claim is holding copies: false on a deck that does not
+     *  reserve, and on an exempt basic, where the stored number is inert. */
+    holds_copies: boolean;
     deck_home_location: string | null;
   }>;
+  /** `assembly_moves_lots`: whether assembling moves the copies to the deck's
+   *  home. Off, claimed copies stay filed in their lot's location. */
+  copies_move_with_deck: boolean;
   availability: {
     owned_qty: number;
     allocated_qty: number;
@@ -1305,18 +1318,6 @@ export interface CollectionValue {
     captured_on: string; total_value_usd: number; total_cost_basis_usd: number | null;
     realized_gain_to_date_usd: number | null; total_cards: number; distinct_cards: number;
   }>;
-}
-
-export interface ShoppingListEntry {
-  oracleId: string; name: string; needed: number;
-  unitPriceUsd: number | null; estimatedUsd: number | null;
-  printingId: string | null; imageSmall: string | null; setCode: string | null;
-  availableElsewhere: number;
-}
-
-export interface ShoppingList {
-  deckId: number; deckName: string; entries: ShoppingListEntry[];
-  totalCards: number; totalUsd: number; unpricedCards: number;
 }
 
 export interface WantListItem {
@@ -1477,13 +1478,6 @@ export const fetchSetChecklist = (setCode: string, signal?: AbortSignal) =>
     price_usd: number | null; image_small: string | null; oracle_id: string;
     name: string; mana_cost: string | null; owned_qty: number;
   }> }>(`/api/v1/collection/sets/${encodeURIComponent(setCode)}`, signal).then((r) => r.cards);
-
-export const fetchShoppingList = (deckId: number, signal?: AbortSignal) =>
-  getJson<ShoppingList>(`/api/v1/decks/${deckId}/shopping-list`, signal);
-
-export const pushToWantList = (deckId: number, oracleIds?: string[]) =>
-  send<{ added: number; updated: number; listName: string }>(
-    `/api/v1/decks/${deckId}/shopping-list/want`, 'POST', { oracleIds });
 
 export const fetchWantList = (id: number, signal?: AbortSignal) =>
   getJson<{ id: number; name: string; items: WantListItem[] }>(`/api/v1/want-lists/${id}`, signal);

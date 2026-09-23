@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react';
 import { pushMissingToWantList, type BuildabilityDetail, type BuildabilityRow } from '../api.ts';
-import { money, missingRows } from '../buildability.ts';
+import { missingGroups, money, shortfallLine } from '../buildability.ts';
 
 /**
- * What this deck is short of, and who has the rest.
+ * What this deck is short of, what to do about each card, and what it costs.
  *
- * Distinct from the shopping list beside it, and deliberately so. The shopping
- * list shows the copies you *marked* as "need to buy"; this shows the copies
- * your collection cannot actually supply — including cards you own that another
- * built deck is holding. The second number is the one that decides whether you
- * buy anything this week, and it is the one you cannot get by looking at a
- * single deck slot.
+ * The one list. There used to be two — this one (with Swap) and a shopping
+ * list beside it (with Want) — near-duplicates that counted and priced
+ * differently: "9 missing" beside "Shopping list (7)", Craterhoof at $21.49 in
+ * one and $28.33 in the other. Both now read Phase 24's coverage, so the count,
+ * the prices and the total here are the deck header's, card for card.
+ *
+ * Grouped by what you would do: buy it, win it back from the deck holding it,
+ * or take it off a trade list. The groups divide one count; they never re-count.
  */
 export function MissingCardsPanel({
   detail,
   onClose,
   onSwap,
   swappable,
+  onReassign,
 }: {
   detail: BuildabilityDetail;
   onClose: () => void;
@@ -24,6 +27,8 @@ export function MissingCardsPanel({
   onSwap?: (row: BuildabilityRow) => void;
   /** Rows the swap is offered on; default all. The deck builder says no for a commander. */
   swappable?: (row: BuildabilityRow) => boolean;
+  /** Opens the contention screen, for a card two built decks are after. */
+  onReassign?: (row: BuildabilityRow) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pushed, setPushed] = useState<string | null>(null);
@@ -35,14 +40,14 @@ export function MissingCardsPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const rows = missingRows(detail.rows);
+  const groups = missingGroups(detail.rows);
   const { summary } = detail;
 
-  const push = async () => {
+  const push = async (oracleIds?: string[]) => {
     setBusy(true);
     setError(null);
     try {
-      const result = await pushMissingToWantList(detail.deckId);
+      const result = await pushMissingToWantList(detail.deckId, { oracleIds });
       const total = result.added + result.updated;
       setPushed(`${total} card${total === 1 ? '' : 's'} on "${result.listName}".`);
     } catch (e) {
@@ -63,7 +68,7 @@ export function MissingCardsPanel({
         {error && <div className="error">{error}</div>}
         {pushed && <div className="verdict ok">Added {pushed}</div>}
 
-        {rows.length === 0 && (
+        {groups.length === 0 && (
           <p className="empty">
             {summary.buildablePct === null
               ? 'This deck has no cards in it yet.'
@@ -71,7 +76,7 @@ export function MissingCardsPanel({
           </p>
         )}
 
-        {rows.length > 0 && (
+        {groups.length > 0 && (
           <>
             <div className="playtest-summary">
               <span><strong>{summary.missingCards}</strong> cards missing</span>
@@ -81,54 +86,76 @@ export function MissingCardsPanel({
               {summary.unpricedCount > 0 && (
                 <span className="tag warn">{summary.unpricedCount} unpriced</span>
               )}
-              {summary.contestedCount > 0 && (
-                <span className="tag warn">{summary.contestedCount} held by other decks</span>
-              )}
             </div>
 
-            <div className="shopping-rows">
-              {rows.map((row) => (
-                <div className="missing-row" key={row.oracleId}>
-                  <div className="shopping-name">
-                    <span>{row.missing}× {row.name}</span>
-                    {/* Where the rest live — because "you need this" on a card
-                        sitting in your own binder reads as a bug otherwise. */}
-                    {row.holdingDecks.length > 0 && (
-                      <span className="dim">
-                        held by {row.holdingDecks
-                          .map((deck) => `${deck.deckName} ×${deck.quantity}`)
-                          .join(', ')}
+            {groups.map((group) => (
+              <section className="missing-group" key={group.key}>
+                <h3>{group.title} <span className="dim">{group.rows.length}</span></h3>
+                <div className="shopping-rows">
+                  {group.rows.map((row) => (
+                    <div className="missing-row" key={row.oracleId}>
+                      <div className="shopping-name">
+                        <span>{row.missing}× {row.name}</span>
+                        {/* Where the rest are — because "you need this" on a
+                            card sitting in your own binder reads as a bug. */}
+                        <span className="dim">{shortfallLine(row)}</span>
+                      </div>
+                      <span className="shopping-price">
+                        {row.extendedUsd == null
+                          ? <span className="tag warn">no price</span>
+                          : money(row.extendedUsd)}
                       </span>
-                    )}
-                    {row.holdingDecks.length === 0 && row.tradeListed > 0 && (
-                      <span className="dim">{row.tradeListed} on a trade list</span>
-                    )}
-                  </div>
-                  <span className="shopping-price">
-                    {row.extendedUsd == null
-                      ? <span className="tag warn">no price</span>
-                      : money(row.extendedUsd)}
-                  </span>
-                  {/* The alternative to buying: something you already own
-                      that does the same job. Never automatic. */}
-                  {onSwap && (swappable?.(row) ?? true) && (
-                    <button
-                      className="btn secondary small"
-                      onClick={() => onSwap(row)}
-                      title="Cards you own that could fill this slot"
-                    >
-                      Swap
-                    </button>
-                  )}
+                      <span className="missing-actions">
+                        {/* Only a fight between two built decks can be
+                            settled by moving a claim; a brew holds nothing. */}
+                        {onReassign && row.contested && (
+                          <button
+                            className="btn secondary small"
+                            onClick={() => onReassign(row)}
+                            title="Give this deck the copy another built deck holds"
+                          >
+                            Reassign
+                          </button>
+                        )}
+                        {/* The alternative to buying: something you already own
+                            that does the same job. Never automatic. */}
+                        {onSwap && (swappable?.(row) ?? true) && (
+                          <button
+                            className="btn secondary small"
+                            onClick={() => onSwap(row)}
+                            title="Cards you own that could fill this slot"
+                          >
+                            Swap
+                          </button>
+                        )}
+                        <button
+                          className="btn secondary small"
+                          disabled={busy}
+                          onClick={() => push([row.oracleId])}
+                          title="Put this card on your want list"
+                        >
+                          Want
+                        </button>
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </section>
+            ))}
 
             <div className="deck-card-actions" style={{ marginTop: 14 }}>
-              <button className="btn" onClick={push} disabled={busy}>
+              <button className="btn" onClick={() => push()} disabled={busy}>
                 {busy ? 'Adding…' : 'Add all to want list'}
               </button>
             </div>
+            <p className="note">
+              Priced at each card's cheapest printing, or the one you pinned. Want-list
+              entries remember which deck needed them.
+              {summary.exemptBasicCards > 0 && (
+                <> {summary.exemptBasicCards} basic lands are not counted — they are left
+                out of allocation.</>
+              )}
+            </p>
           </>
         )}
       </div>

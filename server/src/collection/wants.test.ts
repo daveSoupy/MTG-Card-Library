@@ -5,7 +5,11 @@ import { readFileSync } from 'node:fs';
 import { SCHEMA_PATH } from '../db/index.ts';
 import { CollectionStore } from './store.ts';
 import { AlertStore } from '../alerts/store.ts';
-import { WantStore, ListNameTakenError, reconcileWants } from './wants.ts';
+import { WantStore, ListNameTakenError, reconcileWants, settleBasicWants } from './wants.ts';
+import { setSetting } from '../db/index.ts';
+import { pushEntriesToWantList } from './shopping.ts';
+import { ALLOCATION_IGNORES_BASICS } from '../decks/allocation.ts';
+import { DeckStore } from '../decks/store.ts';
 
 const SCHEMA = readFileSync(SCHEMA_PATH, 'utf8');
 
@@ -162,5 +166,42 @@ test('reconcileWants marks a want fulfilled once the collection covers it', () =
   const fulfilled = reconcileWants(db, alerts, 'goyf');
   assert.equal(fulfilled.length, 1);
   assert.equal(wants.get(def)!.items.find((i) => i.oracleId === 'goyf')!.status, 'fulfilled');
+  db.close();
+});
+
+test('deck-driven basic-land wants follow the exemption; one you added yourself stays', () => {
+  const { db, wants, alerts } = fixture();
+  db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout,is_basic_land)
+              VALUES ('plains','Plains','plains',0,'Basic Land — Plains','','normal',1)`).run();
+
+  // Pushed while the exemption was off: "Plains ×19, needed for: Eric".
+  setSetting(db, ALLOCATION_IGNORES_BASICS, '0');
+  const deckId = new DeckStore(db).create({ name: 'Eric' });
+  pushEntriesToWantList(db, deckId, [{ oracleId: 'plains', needed: 19 }]);
+  const mine = wants.createList('Foils');
+  wants.addItem(mine, 'plains');
+
+  assert.deepEqual(settleBasicWants(db, alerts), [], 'nothing to settle while the exemption is off');
+
+  setSetting(db, ALLOCATION_IGNORES_BASICS, '1');
+  const settled = settleBasicWants(db, alerts);
+  assert.equal(settled.length, 1);
+  assert.equal(settled[0].quantity, 19);
+
+  const statuses = db.prepare(`
+    SELECT w.status, EXISTS (SELECT 1 FROM want_list_item_decks d WHERE d.want_list_item_id = w.id) AS from_deck
+      FROM want_list_items w WHERE w.oracle_id = 'plains' ORDER BY from_deck`).all();
+  assert.deepEqual(statuses, [
+    { status: 'active', from_deck: 0 },
+    { status: 'fulfilled', from_deck: 1 },
+  ]);
+  const alert = db.prepare(`SELECT message FROM alerts WHERE kind = 'want_fulfilled'`).get() as { message: string };
+  assert.match(alert.message, /basic lands are left out of allocation/);
+
+  // Idempotent: a second pass finds nothing.
+  assert.deepEqual(settleBasicWants(db, alerts), []);
+  // And reconcileWants for the card settles through the same rule.
+  pushEntriesToWantList(db, deckId, [{ oracleId: 'plains', needed: 19 }]);
+  assert.equal(reconcileWants(db, alerts, 'plains').length, 1);
   db.close();
 });

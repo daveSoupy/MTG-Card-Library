@@ -23,7 +23,7 @@ const card = (over: Partial<DeckCard> = {}): DeckCard => ({
 const row = (over: Partial<BuildabilityRow> = {}): BuildabilityRow => ({
   oracleId: 'o-1', name: 'Sol Ring', required: 1, owned: 0, available: 0,
   tradeListed: 0, proxied: 0, covered: 0, missing: 1,
-  unitPriceUsd: 2, extendedUsd: 2, contested: false, holdingDecks: [],
+  unitPriceUsd: 2, pricePrintingId: null, extendedUsd: 2, contested: false, holdingDecks: [],
   ...over,
 });
 
