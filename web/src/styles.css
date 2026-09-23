@@ -2682,6 +2682,15 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 /* View and the match count share a line, count to the right. */
 .picker-customize { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 4px; }
 .picker-results-count { white-space: nowrap; }
+/* In the picker, View sits at the column's left edge and the column scrolls,
+   so a panel opening leftward from it was clipped out of sight. Anchor it to
+   the whole View line instead and let it open across the picker. The phone's
+   bottom sheet above keeps its own placement. */
+@media (min-width: 621px) {
+  .picker-customize { position: relative; }
+  .picker-customize .customize-view { position: static; }
+  .picker-customize .customize-drop { left: 0; right: 0; width: auto; }
+}
 
 .density-choices { display: flex; flex-wrap: wrap; gap: 4px; }
 .density-choice {

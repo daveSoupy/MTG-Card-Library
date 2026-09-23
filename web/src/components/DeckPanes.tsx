@@ -709,6 +709,12 @@ export function DeckPanes({
                           card={card}
                           problem={problemFor(card)}
                           density={density}
+                          // Full and Compact show their own art, so a tooltip
+                          // beside the tile would only repeat it — but with
+                          // the stats pane docked, the hovered card still
+                          // goes to the big image there, as every other
+                          // density's does.
+                          onPreview={hoverInStats ? (event) => hoverDeckCard(card, event) : undefined}
                           onDetail={() => openDetail(card.oracleId)}
                           onQuantity={(delta) =>
                             apply(
