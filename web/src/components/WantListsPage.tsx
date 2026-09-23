@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   addWantItem, createWantList, deleteWantList, fetchBuildability, fetchDeck, fetchWantLists,
-  fetchWantList, removeWantItem, renameWantList, reorderWantItems, updateWantItem,
+  fetchWantList, imageUrl, removeWantItem, renameWantList, reorderWantItems, updateWantItem,
   type NamedList, type WantList, type WantListItem,
 } from '../api.ts';
 import { SubstitutesSheet } from './SubstitutesSheet.tsx';
@@ -416,8 +416,10 @@ export function WantListsPage({
                         onClick={() => setDetailId(item.id)}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailId(item.id); } }}
                       >
-                        {item.imageSmall
-                          ? <img className="want-thumb" src={item.imageSmall} alt="" loading="lazy" />
+                        {/* The proxy, not Scryfall: cached to disk on the
+                            first request, like every other card image here. */}
+                        {item.printingId && item.imageSmall
+                          ? <img className="want-thumb" src={imageUrl(item.printingId, 'small')} alt="" loading="lazy" decoding="async" />
                           : <div className="want-thumb placeholder" />}
                       </div>
                       <div className="want-main">

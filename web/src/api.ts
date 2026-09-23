@@ -1754,6 +1754,7 @@ export const fetchWantItemsForOracle = (oracleId: string) =>
 
 export interface TradeListItem {
   id: number; collectionItemId: number; oracleId: string; name: string;
+  printingId: string | null;
   setCode: string | null; collectorNumber: string | null; finish: string; condition: string;
   locationName: string | null; quantity: number; askingPriceUsd: number | null; marketUsd: number | null;
   imageSmall: string | null; notes: string | null; ownedQuantity: number; availableOverall: number;

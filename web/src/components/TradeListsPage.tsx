@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   addTradeListItem, createTradeList, deleteTradeList, fetchCollectionCard, fetchTradeList,
-  fetchTradeLists, removeTradeListItem, renameTradeList, tradeListExportUrl, updateTradeListItem,
+  fetchTradeLists, imageUrl, removeTradeListItem, renameTradeList, tradeListExportUrl,
+  updateTradeListItem,
   type CollectionLot, type NamedList, type TradeList,
 } from '../api.ts';
 import { CardPicker } from './CardPicker.tsx';
@@ -166,8 +167,12 @@ export function TradeListsPage() {
           <div className="want-rows">
             {list.items.map((item) => (
               <div className={`want-row${item.conflictsWithDeck || item.exceedsOwned ? ' warn' : ''}`} key={item.id}>
-                {item.imageSmall
-                  ? <img className="want-thumb" src={item.imageSmall} alt="" loading="lazy" />
+                {/* Through the server's cache, like every other card image
+                    in the app. imageSmall is the "has art" answer; the URL to
+                    fetch is the proxy's, so the file is served from disk after
+                    the first request instead of from Scryfall every time. */}
+                {item.printingId && item.imageSmall
+                  ? <img className="want-thumb" src={imageUrl(item.printingId, 'small')} alt="" loading="lazy" decoding="async" />
                   : <div className="want-thumb placeholder" />}
                 <div className="want-main">
                   <div className="want-name">

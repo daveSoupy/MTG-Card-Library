@@ -42,7 +42,8 @@ export class TradeListStore {
 
     const items = this.db.prepare(`
       SELECT ti.id, ti.collection_item_id, ti.quantity, ti.asking_price_usd, ti.notes, ti.sort_order,
-             o.oracle_id, o.name, p.set_code, p.collector_number, ci.finish, ci.condition,
+             o.oracle_id, o.name, p.id AS printing_id, p.set_code, p.collector_number,
+             ci.finish, ci.condition,
              sl.name AS location_name,
              ${artUrlSql('p', 'ff', 'small')} AS image_small,
              p.price_usd AS market_usd,
@@ -78,6 +79,7 @@ export class TradeListStore {
         finish: row.finish,
         condition: row.condition,
         locationName: row.location_name,
+        printingId: row.printing_id,
         quantity: row.quantity,
         askingPriceUsd: row.asking_price_usd,
         marketUsd: row.market_usd,
