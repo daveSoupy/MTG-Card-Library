@@ -35,13 +35,13 @@ function build(printings: P[], sets: Array<[string, string]>) {
   const ins = db.prepare(`
     INSERT INTO card_printings (id, oracle_id, set_code, collector_number, collector_number_num,
                                 released_at, is_promo, in_booster, is_digital, is_oversized,
-                                is_variation, border_color, frame_effects, image_normal)
+                                is_variation, border_color, frame_effects, image_ts)
     VALUES (?, 'o1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const p of printings) {
     ins.run(p.id, p.set, String(p.number), p.number, p.released,
             p.promo ?? 0, p.booster ?? 1, p.digital ?? 0, p.oversized ?? 0,
             p.variation ?? 0, p.border ?? 'black', p.frame ?? null,
-            p.image === undefined ? 'http://img' : p.image);
+            p.image === undefined ? 1783900000 : p.image);
   }
 
   new CardImporter(db).assignDefaultPrintings();
@@ -135,12 +135,12 @@ test('a double-faced card is not scored as artless just because its art is on a 
   db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout)
               VALUES ('o1','Delver','delver',1,'Creature','x','transform')`).run();
   const ins = db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,
-              collector_number_num,released_at,image_normal) VALUES (?,'o1','exp',?,?,?,NULL)`);
+              collector_number_num,released_at,image_ts) VALUES (?,'o1','exp',?,?,?,NULL)`);
   ins.run('newer', '51', 51, '2026-01-01');
   ins.run('older', '12', 12, '2020-01-01');
   // Art lives on the face, as it does for every transforming card.
-  db.prepare(`INSERT INTO card_faces (printing_id, face_index, name, image_normal)
-              VALUES ('newer', 0, 'Delver', 'http://img')`).run();
+  db.prepare(`INSERT INTO card_faces (printing_id, face_index, name, image_ts)
+              VALUES ('newer', 0, 'Delver', 1783900000)`).run();
 
   new CardImporter(db).assignDefaultPrintings();
   const chosen = (db.prepare('SELECT default_printing_id AS id FROM oracle_cards').get() as any).id;
@@ -168,7 +168,7 @@ test('English wins, even over a nicer printing in another language', () => {
   db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout)
               VALUES ('o1','Test','test',1,'Instant','x','normal')`).run();
   const ins = db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,
-      collector_number_num,released_at,lang,image_normal) VALUES (?,'o1','exp',?,?,?,?,'http://img')`);
+      collector_number_num,released_at,lang,image_ts) VALUES (?,'o1','exp',?,?,?,?,1783900000)`);
   // The Japanese one is newer, so recency alone would take it.
   ins.run('ja', '10', 10, '2026-01-01', 'ja');
   ins.run('en', '11', 11, '2020-01-01', 'en');
@@ -185,7 +185,7 @@ test('a card printed only in another language still gets its art', () => {
   db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,oracle_text_all,layout)
               VALUES ('o1','Marsh Gas','marsh gas',1,'Instant','x','normal')`).run();
   db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,collector_number_num,
-      released_at,lang,image_normal) VALUES ('fr','o1','ren','59',59,'1995-01-01','fr','http://img')`).run();
+      released_at,lang,image_ts) VALUES ('fr','o1','ren','59',59,'1995-01-01','fr',1783900000)`).run();
 
   new CardImporter(db).assignDefaultPrintings();
   // Ranked, not filtered — otherwise these lose their art entirely.

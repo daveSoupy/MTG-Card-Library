@@ -172,6 +172,7 @@ export async function runSync(
     db.transaction(() => {
       importer.assignDefaultPrintings();
       importer.assignRarityFlags();
+      importer.assignPlayableFlags();
     })();
 
     // Prices just moved, so today's collection value is now different — record

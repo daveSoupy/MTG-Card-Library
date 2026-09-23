@@ -35,10 +35,10 @@ function fixture() {
     db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,cmc,type_line,
                   oracle_text_all,layout) VALUES (?,?,?,1,'Creature','x','normal')`)
       .run(oid, `Card ${i}`, `card ${i}`);
-    db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,rarity,
-                  image_small,image_normal)
-                VALUES (?,?,'tst',?,'common',?,?)`)
-      .run(pid, oid, String(i), `http://img/${pid}/small.jpg`, `http://img/${pid}/normal.jpg`);
+    // image_ts, not five URLs: the URL is derived from the id and this stamp.
+    db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,rarity,image_ts)
+                VALUES (?,?,'tst',?,'common',1783900000)`)
+      .run(pid, oid, String(i));
     db.prepare('UPDATE oracle_cards SET default_printing_id=? WHERE oracle_id=?').run(pid, oid);
   }
 

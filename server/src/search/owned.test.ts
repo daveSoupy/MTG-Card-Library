@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { CardImporter } from '../sync/importer.ts';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
@@ -53,6 +54,9 @@ function fixture() {
   }
   const locationId = (db.prepare('SELECT id FROM storage_locations LIMIT 1')
     .get() as { id: number }).id;
+  // is_playable is derived at sync from card_legalities, the same as any
+  // other flag on oracle_cards, so a hand-built fixture derives it too.
+  new CardImporter(db).assignPlayableFlags();
   return {
     db,
     search: new CardSearchStore(db),

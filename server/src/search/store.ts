@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { artUrlSql, imageUrlSql } from '../images/url.ts';
 import { compileQuery, mentionsDigital, mentionsLegality } from './query.ts';
 import { nameChecker, ownedAtLeast, type SearchContext } from './collection.ts';
 import {
@@ -272,9 +273,8 @@ export class CardSearchStore {
     // return nothing — a card banned everywhere is legal nowhere by definition,
     // which is exactly what makes it interesting to ask about.
     if (!filters.includeUnplayable && !mentionsLegality(text)) {
-      where.push(`EXISTS (SELECT 1 FROM card_legalities cl
-                          WHERE cl.oracle_id = o.oracle_id
-                            AND cl.legality IN ('legal','restricted'))`);
+      // The flag, not the subquery — see query.ts's 'playable' case.
+      where.push('o.is_playable = 1');
     }
 
     if (filters.commanderFor) {
@@ -439,8 +439,8 @@ export class CardSearchStore {
                dp.id AS printing_id, dp.set_code, dp.collector_number, dp.rarity,
                -- Double-faced cards carry no card-level art; it lives on the
                -- faces. Without this fallback every transform card renders blank.
-               COALESCE(dp.image_small, ff.image_small) AS image_small,
-               COALESCE(dp.image_normal, ff.image_normal) AS image_normal,
+               ${artUrlSql('dp', 'ff', 'small')} AS image_small,
+               ${artUrlSql('dp', 'ff', 'normal')} AS image_normal,
                dp.price_usd, dp.price_usd_foil,
                s.name AS set_name,
                ${refs.owned}       AS owned_qty,
@@ -474,8 +474,8 @@ export class CardSearchStore {
              o.is_reserved, o.can_be_commander, o.edhrec_rank, o.layout,
              o.deck_copy_limit,
              dp.id AS printing_id, dp.set_code, dp.collector_number, dp.rarity,
-             COALESCE(dp.image_small, ff.image_small) AS image_small,
-             COALESCE(dp.image_normal, ff.image_normal) AS image_normal,
+             ${artUrlSql('dp', 'ff', 'small')} AS image_small,
+             ${artUrlSql('dp', 'ff', 'normal')} AS image_normal,
              dp.price_usd, dp.price_usd_foil,
              dp.flavor_text, dp.artist, s.name AS set_name,
              ${refs.owned}       AS owned_qty,
@@ -499,7 +499,14 @@ export class CardSearchStore {
 
     const faces = this.db.prepare(`
       SELECT f.face_index, f.name, f.mana_cost, f.type_line, f.oracle_text,
-             f.power, f.toughness, f.image_normal
+             f.power, f.toughness,
+             ${imageUrlSql({
+               id: 'f.printing_id',
+               ts: 'f.image_ts',
+               override: 'f.image_url_override',
+               size: 'normal',
+               side: `CASE WHEN f.face_index = 0 THEN 'front' ELSE 'back' END`,
+             })} AS image_normal
       FROM card_faces f
       WHERE f.printing_id = (SELECT COALESCE(ap.printing_id, o.default_printing_id)
                                FROM oracle_cards o
@@ -509,7 +516,9 @@ export class CardSearchStore {
 
     const printings = this.db.prepare(`
       SELECT p.id, p.set_code, p.collector_number, p.rarity, p.released_at,
-             p.price_usd, p.price_usd_foil, p.image_normal, p.scryfall_uri,
+             p.price_usd, p.price_usd_foil,
+             ${imageUrlSql({ id: 'p.id', ts: 'p.image_ts', override: 'p.image_url_override', size: 'normal' })} AS image_normal,
+             p.scryfall_uri,
              p.tcgplayer_id, p.is_digital, p.is_promo, p.promo_types,
              COALESCE(s.name, p.set_code) AS set_name,
              COALESCE((SELECT SUM(ci.quantity) FROM collection_items ci
@@ -522,7 +531,7 @@ export class CardSearchStore {
       -- can actually see and price, newest first — promos and placeholders
       -- used to head the list purely because they were recent.
       ORDER BY (p.id = ?) DESC,
-               (p.image_normal IS NULL) ASC,
+               (p.image_ts IS NULL) ASC,
                (p.price_usd IS NULL) ASC,
                COALESCE(p.released_at,'0000-00-00') DESC,
                p.set_code, p.collector_number_num`)

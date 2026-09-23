@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { USER_AGENT } from '../sync/scryfall.ts';
+import { imageUrl, sideForFace } from './url.ts';
 
 /**
  * Fetching a single card image into the disk cache.
@@ -15,14 +16,6 @@ import { USER_AGENT } from '../sync/scryfall.ts';
 
 export type ImageSize = 'small' | 'normal' | 'large' | 'art_crop' | 'png';
 export const SIZES = new Set<ImageSize>(['small', 'normal', 'large', 'art_crop', 'png']);
-
-const COLUMN: Record<ImageSize, string> = {
-  small: 'image_small',
-  normal: 'image_normal',
-  large: 'image_large',
-  art_crop: 'image_art_crop',
-  png: 'image_png',
-};
 
 const extensionFor = (size: ImageSize) => (size === 'png' ? 'png' : 'jpg');
 
@@ -40,6 +33,9 @@ export function cachePathFor(imageDir: string, printingId: string, face: number,
  *
  * Double-faced cards carry no card-level art, so a face-0 request falls back to
  * the front face's image — the same rule the route has always used.
+ *
+ * The URL is built from `image_ts` rather than read from a column; url.ts owns
+ * the template and the `image_url_override` escape hatch.
  */
 export function remoteUrlFor(
   db: Database.Database,
@@ -47,15 +43,20 @@ export function remoteUrlFor(
   face: number,
   size: ImageSize,
 ): string | null {
-  const column = COLUMN[size];
-  const fromFace = (index: number) =>
-    (db.prepare(`SELECT ${column} AS url FROM card_faces WHERE printing_id = ? AND face_index = ?`)
-      .get(printingId, index) as { url: string | null } | undefined)?.url ?? null;
+  type Art = { image_ts: number | null; image_url_override: string | null } | undefined;
+  const fromFace = (index: number) => {
+    const row = db.prepare(
+      'SELECT image_ts, image_url_override FROM card_faces WHERE printing_id = ? AND face_index = ?',
+    ).get(printingId, index) as Art;
+    return row ? imageUrl(printingId, size, sideForFace(index), row.image_ts, row.image_url_override) : null;
+  };
 
   if (face > 0) return fromFace(face);
 
-  const printing = (db.prepare(`SELECT ${column} AS url FROM card_printings WHERE id = ?`)
-    .get(printingId) as { url: string | null } | undefined)?.url ?? null;
+  const row = db.prepare(
+    'SELECT image_ts, image_url_override FROM card_printings WHERE id = ?',
+  ).get(printingId) as Art;
+  const printing = row ? imageUrl(printingId, size, 'front', row.image_ts, row.image_url_override) : null;
   return printing ?? fromFace(0);
 }
 

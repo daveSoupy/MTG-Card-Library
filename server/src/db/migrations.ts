@@ -698,4 +698,173 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE card_printings DROP COLUMN purchase_uris;
     `,
   },
+  {
+    version: 23,
+    description: 'Drop three indexes each fully covered by another on the same table',
+    sql: `
+      -- Each of these is a strict prefix of an index that already exists, so it
+      -- can answer nothing the other cannot, and every one still costs a b-tree
+      -- write on every row change.
+      --
+      --   idx_print_oracle(oracle_id)      <- idx_print_oracle_set / _rarity /
+      --                                       _artist all lead with oracle_id
+      --   idx_coll_printing(printing_id)   <- idx_coll_stack leads with it
+      --   idx_deckcards_deck(deck_id)      <- the implicit index from
+      --                                       UNIQUE (deck_id, oracle_id, board)
+      --
+      -- idx_print_oracle is the one that mattered: card_printings is ~500k rows
+      -- and is fully upserted on every sync, so this was a fourth redundant
+      -- b-tree maintained across half a million upserts. Checked before
+      -- dropping — the price lookup that used it falls to idx_print_oracle_set
+      -- with no measurable change (2.69ms to 2.81ms over a 900-id chunk), and
+      -- v24 then makes it faster than it ever was.
+      --
+      -- rewind: CREATE INDEX idx_print_oracle ON card_printings(oracle_id)
+      -- rewind: CREATE INDEX idx_coll_printing ON collection_items(printing_id)
+      -- rewind: CREATE INDEX idx_deckcards_deck ON deck_cards(deck_id)
+      DROP INDEX IF EXISTS idx_print_oracle;
+      DROP INDEX IF EXISTS idx_coll_printing;
+      DROP INDEX IF EXISTS idx_deckcards_deck;
+    `,
+  },
+  {
+    version: 24,
+    description: 'Covering index for buildability.ts price lookups',
+    sql: `
+      -- MIN(price_usd), MIN(price_usd_foil) over the non-digital printings of a
+      -- chunk of oracle ids. It runs inside every gather, so inside every deck
+      -- write. The oracle_id-leading indexes seek it but carry no price, so
+      -- each of a card's ~10 printings cost a row fetch; this is covering and
+      -- the query never touches the table. 2.69ms to 1.65ms over a 900-id
+      -- chunk, and 6.5MB against the 5.1MB v23 just freed on the same table.
+      CREATE INDEX IF NOT EXISTS idx_print_price_lookup
+          ON card_printings(oracle_id, is_digital, price_usd, price_usd_foil);
+    `,
+  },
+  {
+    version: 25,
+    description: 'card_legalities WITHOUT ROWID, its secondary indexes dropped, is_playable denormalised',
+    sql: `
+      -- 136MB of a 371MB database was this table and its indexes. It declared
+      -- PRIMARY KEY (oracle_id, format_code) but was a rowid table, so SQLite
+      -- kept a separate unique index duplicating both key columns — 46MB of it.
+      -- WITHOUT ROWID makes the table *be* that index.
+      --
+      -- The table has to be rebuilt for that; there is no ALTER for it. Its two
+      -- secondary indexes are deliberately NOT recreated:
+      --
+      --   idx_legal_format(format_code, legality) was already dead. Every
+      --   legality predicate in this codebase leads with oracle_id — all nine
+      --   of them — so the planner never chose it, before or after.
+      --
+      --   idx_legal_playable existed because the old autoindex carried no
+      --   legality, so "legal anywhere?" had to fetch rows. The WITHOUT ROWID
+      --   table carries legality inline, and the planner now prefers the
+      --   primary key even when this index is present; forcing it with
+      --   INDEXED BY is *slower*, because a secondary index on a WITHOUT ROWID
+      --   table stores the whole primary key as its row locator.
+      --
+      -- Dropping idx_legal_playable would still have cost something real: the
+      -- unfiltered picker page measured 22.7ms to 39.5ms, because "legal
+      -- anywhere" became a scan of each card's ~23 legality rows. So the
+      -- question moves to a flag on oracle_cards, which is faster than either
+      -- (9.2ms) and is why this migration is one step rather than two — the
+      -- rebuild without the flag is a regression on a path search takes on
+      -- every query that does not mention legality.
+      --
+      -- rewind: CREATE INDEX idx_legal_format ON card_legalities(format_code, legality)
+      -- rewind: CREATE INDEX idx_legal_playable ON card_legalities(oracle_id) WHERE legality IN ('legal','restricted')
+      CREATE TABLE card_legalities_new (
+          oracle_id   TEXT NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
+          format_code TEXT NOT NULL,
+          legality    TEXT NOT NULL CHECK (legality IN ('legal','not_legal','restricted','banned')),
+          PRIMARY KEY (oracle_id, format_code)
+      ) WITHOUT ROWID;
+      INSERT INTO card_legalities_new (oracle_id, format_code, legality)
+        SELECT oracle_id, format_code, legality FROM card_legalities;
+      DROP TABLE card_legalities;
+      ALTER TABLE card_legalities_new RENAME TO card_legalities;
+
+      -- The flag, and its backfill. CardImporter.assignPlayableFlags() writes
+      -- the same answer from the same source on every sync; this is only so a
+      -- library that does not re-sync is correct immediately.
+      ALTER TABLE oracle_cards ADD COLUMN is_playable INTEGER NOT NULL DEFAULT 0;
+      UPDATE oracle_cards SET is_playable = 1
+       WHERE EXISTS (SELECT 1 FROM card_legalities cl
+                      WHERE cl.oracle_id = oracle_cards.oracle_id
+                        AND cl.legality IN ('legal','restricted'));
+    `,
+  },
+  {
+    version: 26,
+    description: 'Five image URL columns per table become one image_ts',
+    sql: `
+      -- 54MB of URL text across card_printings and card_faces, every byte of it
+      -- derivable. Verified across all 113,490 printings and 8,164 faces that
+      -- carry art: every URL is
+      --   https://cards.scryfall.io/{size}/{side}/{id[0]}/{id[1]}/{id}.{ext}?{ts}
+      -- where side is front for a printing and for face 0, back for face 1;
+      -- ext is png for the png size and jpg for the rest; and all five sizes of
+      -- a row share one timestamp. No exceptions, and the five are always
+      -- present together or absent together.
+      --
+      -- image_url_override is the guard on that: Scryfall's URL shape is their
+      -- decision, not ours. It holds a JSON object of size -> URL and is
+      -- written only for a row the template does not fit, so a change at their
+      -- end costs the space back for the affected rows instead of breaking the
+      -- images. On this library it matched every row and the column is empty.
+      --
+      -- rewind: ALTER TABLE card_printings ADD COLUMN image_small TEXT
+      -- rewind: ALTER TABLE card_printings ADD COLUMN image_normal TEXT
+      -- rewind: ALTER TABLE card_printings ADD COLUMN image_large TEXT
+      -- rewind: ALTER TABLE card_printings ADD COLUMN image_png TEXT
+      -- rewind: ALTER TABLE card_printings ADD COLUMN image_art_crop TEXT
+      -- rewind: ALTER TABLE card_faces ADD COLUMN image_small TEXT
+      -- rewind: ALTER TABLE card_faces ADD COLUMN image_normal TEXT
+      -- rewind: ALTER TABLE card_faces ADD COLUMN image_large TEXT
+      -- rewind: ALTER TABLE card_faces ADD COLUMN image_png TEXT
+      -- rewind: ALTER TABLE card_faces ADD COLUMN image_art_crop TEXT
+      ALTER TABLE card_printings ADD COLUMN image_ts INTEGER;
+      ALTER TABLE card_printings ADD COLUMN image_url_override TEXT;
+      UPDATE card_printings
+         SET image_ts = CAST(substr(image_small, instr(image_small, '?') + 1) AS INTEGER)
+       WHERE image_small IS NOT NULL;
+      UPDATE card_printings
+         SET image_url_override = json_object(
+               'small', image_small, 'normal', image_normal, 'large', image_large,
+               'png', image_png, 'art_crop', image_art_crop)
+       WHERE image_small IS NOT NULL
+         AND (image_small    <> 'https://cards.scryfall.io/small/front/'    || substr(id,1,1) || '/' || substr(id,2,1) || '/' || id || '.jpg?' || image_ts
+           OR image_normal   <> 'https://cards.scryfall.io/normal/front/'   || substr(id,1,1) || '/' || substr(id,2,1) || '/' || id || '.jpg?' || image_ts
+           OR image_large    <> 'https://cards.scryfall.io/large/front/'    || substr(id,1,1) || '/' || substr(id,2,1) || '/' || id || '.jpg?' || image_ts
+           OR image_png      <> 'https://cards.scryfall.io/png/front/'      || substr(id,1,1) || '/' || substr(id,2,1) || '/' || id || '.png?' || image_ts
+           OR image_art_crop <> 'https://cards.scryfall.io/art_crop/front/' || substr(id,1,1) || '/' || substr(id,2,1) || '/' || id || '.jpg?' || image_ts);
+      ALTER TABLE card_printings DROP COLUMN image_small;
+      ALTER TABLE card_printings DROP COLUMN image_normal;
+      ALTER TABLE card_printings DROP COLUMN image_large;
+      ALTER TABLE card_printings DROP COLUMN image_png;
+      ALTER TABLE card_printings DROP COLUMN image_art_crop;
+
+      ALTER TABLE card_faces ADD COLUMN image_ts INTEGER;
+      ALTER TABLE card_faces ADD COLUMN image_url_override TEXT;
+      UPDATE card_faces
+         SET image_ts = CAST(substr(image_small, instr(image_small, '?') + 1) AS INTEGER)
+       WHERE image_small IS NOT NULL;
+      UPDATE card_faces
+         SET image_url_override = json_object(
+               'small', image_small, 'normal', image_normal, 'large', image_large,
+               'png', image_png, 'art_crop', image_art_crop)
+       WHERE image_small IS NOT NULL
+         AND (image_small    <> 'https://cards.scryfall.io/small/'    || (CASE WHEN face_index = 0 THEN 'front' ELSE 'back' END) || '/' || substr(printing_id,1,1) || '/' || substr(printing_id,2,1) || '/' || printing_id || '.jpg?' || image_ts
+           OR image_normal   <> 'https://cards.scryfall.io/normal/'   || (CASE WHEN face_index = 0 THEN 'front' ELSE 'back' END) || '/' || substr(printing_id,1,1) || '/' || substr(printing_id,2,1) || '/' || printing_id || '.jpg?' || image_ts
+           OR image_large    <> 'https://cards.scryfall.io/large/'    || (CASE WHEN face_index = 0 THEN 'front' ELSE 'back' END) || '/' || substr(printing_id,1,1) || '/' || substr(printing_id,2,1) || '/' || printing_id || '.jpg?' || image_ts
+           OR image_png      <> 'https://cards.scryfall.io/png/'      || (CASE WHEN face_index = 0 THEN 'front' ELSE 'back' END) || '/' || substr(printing_id,1,1) || '/' || substr(printing_id,2,1) || '/' || printing_id || '.png?' || image_ts
+           OR image_art_crop <> 'https://cards.scryfall.io/art_crop/' || (CASE WHEN face_index = 0 THEN 'front' ELSE 'back' END) || '/' || substr(printing_id,1,1) || '/' || substr(printing_id,2,1) || '/' || printing_id || '.jpg?' || image_ts);
+      ALTER TABLE card_faces DROP COLUMN image_small;
+      ALTER TABLE card_faces DROP COLUMN image_normal;
+      ALTER TABLE card_faces DROP COLUMN image_large;
+      ALTER TABLE card_faces DROP COLUMN image_png;
+      ALTER TABLE card_faces DROP COLUMN image_art_crop;
+    `,
+  },
 ];

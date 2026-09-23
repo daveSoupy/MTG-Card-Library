@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { imageUrlSql } from '../images/url.ts';
 import { getSetting } from '../db/index.ts';
 import { colorsFromMask, isLimitedFormat } from '../model/mtg.ts';
 import { CATEGORY_LABELS, hasCardCategories } from '../sync/categories.ts';
@@ -276,7 +277,8 @@ interface CardRow {
 const CARD_COLUMNS = `
     o.oracle_id, o.name, o.cmc, o.type_line, o.mana_cost, o.color_identity,
     o.oracle_text_all, o.edhrec_rank, o.is_basic_land,
-    o.default_printing_id AS printing_id, p.image_small`;
+    o.default_printing_id AS printing_id,
+    ${imageUrlSql({ id: 'p.id', ts: 'p.image_ts', override: 'p.image_url_override', size: 'small' })} AS image_small`;
 
 /**
  * The hard filters, all in one statement.

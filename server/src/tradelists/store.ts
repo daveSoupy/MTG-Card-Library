@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { artUrlSql } from '../images/url.ts';
 import { allocationForMany } from '../decks/allocation.ts';
 import { reconcileAlerts } from '../decks/contention.ts';
 import { ListNameTakenError } from '../collection/wants.ts';
@@ -43,7 +44,7 @@ export class TradeListStore {
       SELECT ti.id, ti.collection_item_id, ti.quantity, ti.asking_price_usd, ti.notes, ti.sort_order,
              o.oracle_id, o.name, p.set_code, p.collector_number, ci.finish, ci.condition,
              sl.name AS location_name,
-             COALESCE(p.image_small, ff.image_small) AS image_small,
+             ${artUrlSql('p', 'ff', 'small')} AS image_small,
              p.price_usd AS market_usd,
              st.owned_qty_this_row, st.exceeds_owned
       FROM trade_list_items ti

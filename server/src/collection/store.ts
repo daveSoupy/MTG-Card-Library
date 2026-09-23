@@ -1,4 +1,10 @@
 import type Database from 'better-sqlite3';
+import { imageUrlSql } from '../images/url.ts';
+
+/** A printing's face-0 art column, as a correlated subquery — this file's
+ *  collection queries have no room for another join. */
+const FACE_ART = (column: string) =>
+  `(SELECT ff.${column} FROM card_faces ff WHERE ff.printing_id = p.id AND ff.face_index = 0)`;
 import { allocationFor } from '../decks/allocation.ts';
 import { getSetting, setSetting } from '../db/index.ts';
 import {
@@ -211,9 +217,12 @@ export class CollectionStore {
              MAX(COALESCE(v.acquired_at, '')) AS last_added,
              p.set_code AS min_set,
              COALESCE(p.collector_number_num, 999999) AS min_number,
-             COALESCE(p.image_small,
-                      (SELECT ff.image_small FROM card_faces ff
-                        WHERE ff.printing_id = p.id AND ff.face_index = 0)) AS image_small
+             ${imageUrlSql({
+                 id: 'p.id',
+                 ts: `COALESCE(p.image_ts, ${FACE_ART('image_ts')})`,
+                 override: `COALESCE(p.image_url_override, ${FACE_ART('image_url_override')})`,
+                 size: 'small',
+               })} AS image_small
       ${from}
       ORDER BY ${SORT_SQL[sort]}
       LIMIT ? OFFSET ?`).all(...params, limit, offset) as any[];
@@ -238,7 +247,8 @@ export class CollectionStore {
   cardDetail(oracleId: string) {
     const printings = this.db.prepare(`
       SELECT v.printing_id, v.finish, p.set_code, s.name AS set_name, p.collector_number,
-             p.rarity, p.price_usd, p.price_usd_foil, p.image_small,
+             p.rarity, p.price_usd, p.price_usd_foil,
+             ${imageUrlSql({ id: 'p.id', ts: 'p.image_ts', override: 'p.image_url_override', size: 'small' })} AS image_small,
              SUM(v.quantity) AS owned_qty,
              SUM(v.line_value_usd) AS value_usd,
              SUM(v.line_cost_basis_usd) AS cost_usd
@@ -753,7 +763,9 @@ export class CollectionStore {
   setChecklist(setCode: string) {
     return this.db.prepare(`
       SELECT p.id AS printing_id, p.collector_number, p.collector_number_num,
-             p.rarity, p.price_usd, p.image_small, o.oracle_id, o.name, o.mana_cost,
+             p.rarity, p.price_usd,
+             ${imageUrlSql({ id: 'p.id', ts: 'p.image_ts', override: 'p.image_url_override', size: 'small' })} AS image_small,
+             o.oracle_id, o.name, o.mana_cost,
              COALESCE(owned.qty, 0) AS owned_qty
       FROM card_printings p
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id

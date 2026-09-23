@@ -92,14 +92,13 @@ export class ImageDownloadManager {
       averages.set(row.size, row.avg);
     }
 
+    // One count, not one per size: a printing either has all five images or
+    // none, so image_ts answers for every size at once.
+    const withArt = (this.db.prepare(
+      'SELECT COUNT(*) AS n FROM card_printings WHERE image_ts IS NOT NULL',
+    ).get() as { n: number }).n;
     let total = 0;
-    for (const size of WARM_SIZES) {
-      const column = size === 'small' ? 'image_small' : 'image_normal';
-      const count = (this.db.prepare(
-        `SELECT COUNT(*) AS n FROM card_printings WHERE ${column} IS NOT NULL`,
-      ).get() as { n: number }).n;
-      total += count * (averages.get(size) ?? FALLBACK_AVG[size]);
-    }
+    for (const size of WARM_SIZES) total += withArt * (averages.get(size) ?? FALLBACK_AVG[size]);
     return Math.round(total);
   }
 

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { CardImporter } from '../sync/importer.ts';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
@@ -76,8 +77,8 @@ function fixture(cards: CardSpec[] = CATALOGUE) {
     const identity = ['W', 'U', 'B', 'R', 'G'].filter((_, i) => mask & (1 << i)).join('');
     insertCard.run(card.id, card.name, card.name.toLowerCase(), card.cmc, card.type,
       card.text ?? '', card.text ?? '', card.basic ? 1 : 0, mask, mask, identity, card.edhrec ?? null);
-    db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,price_usd,image_small)
-                VALUES (?,?,'tst',?,1,?)`).run(`p-${card.id}`, card.id, String(index + 1), `img-${card.id}`);
+    db.prepare(`INSERT INTO card_printings (id,oracle_id,set_code,collector_number,price_usd,image_ts)
+                VALUES (?,?,'tst',?,1,1)`).run(`p-${card.id}`, card.id, String(index + 1));
     db.prepare('UPDATE oracle_cards SET default_printing_id = ? WHERE oracle_id = ?')
       .run(`p-${card.id}`, card.id);
     for (const format of card.legal ?? ['commander', 'standard']) insertLegal.run(card.id, format, 'legal');
@@ -86,6 +87,9 @@ function fixture(cards: CardSpec[] = CATALOGUE) {
   const binder = Number(db.prepare(
     "INSERT INTO storage_locations (name, kind, sort_order) VALUES ('Binder 3','binder',1)",
   ).run().lastInsertRowid);
+  // is_playable is derived at sync from card_legalities, the same as any
+  // other flag on oracle_cards, so a hand-built fixture derives it too.
+  new CardImporter(db).assignPlayableFlags();
   return {
     db,
     binder,
@@ -366,7 +370,10 @@ test('every candidate carries a human-readable reason, in the server\'s words', 
   assert.deepEqual(murder.reasons, ['Removal', 'Instant', 'CMC 3', '4 available in Binder 3 +']);
   assert.deepEqual(murder.locations.map((l) => [l.name, l.quantity]), [['Binder 3', 3], ['Box', 1]]);
   assert.equal(murder.printingId, 'p-murder');
-  assert.equal(murder.imageSmall, 'img-murder');
+  // Derived, not stored: the fixture put `image_ts = 1` on printing p-murder
+  // and nothing else, and what comes back is the whole Scryfall URL — shard
+  // directories from the id, .jpg for the small size, the stamp as the query.
+  assert.equal(murder.imageSmall, 'https://cards.scryfall.io/small/front/p/-/p-murder.jpg?1');
   f.db.close();
 });
 

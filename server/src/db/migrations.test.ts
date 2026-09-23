@@ -357,3 +357,92 @@ test('filter_presets enforces unique names case-insensitively', () => {
   assert.throws(() => insert.run('commander staples', '{}'), /UNIQUE/);
   db.close();
 });
+
+/**
+ * v25 is the one migration in this phase that has to compute something. The
+ * rebuild to WITHOUT ROWID is mechanical, but dropping idx_legal_playable with
+ * it only works because "legal anywhere" moved to a flag — so the flag has to
+ * be right on a library that never re-syncs.
+ */
+test('v25 derives is_playable from the legality rows a library already has', () => {
+  const db = databaseAtVersion(24);
+  const card = db.prepare(
+    'INSERT INTO oracle_cards (oracle_id, name, name_normalized, oracle_text_all) VALUES (?,?,?,\'\')');
+  const legal = db.prepare('INSERT INTO card_legalities (oracle_id, format_code, legality) VALUES (?,?,?)');
+  for (const id of ['legal-somewhere', 'restricted-only', 'banned-everywhere', 'never-legal', 'no-rows']) {
+    card.run(id, id, id);
+  }
+  legal.run('legal-somewhere', 'modern', 'not_legal');
+  legal.run('legal-somewhere', 'commander', 'legal');
+  legal.run('restricted-only', 'vintage', 'restricted');
+  legal.run('banned-everywhere', 'legacy', 'banned');
+  legal.run('banned-everywhere', 'modern', 'not_legal');
+  legal.run('never-legal', 'commander', 'not_legal');
+  // 'no-rows' has no card_legalities at all — an Un-card or a playtest card.
+
+  db.exec(MIGRATIONS.find((m) => m.version === 25)!.sql);
+
+  const flag = (id: string) =>
+    (db.prepare('SELECT is_playable FROM oracle_cards WHERE oracle_id = ?').get(id) as { is_playable: number }).is_playable;
+  assert.equal(flag('legal-somewhere'), 1);
+  assert.equal(flag('restricted-only'), 1, 'restricted is playable — it is a limit, not a ban');
+  assert.equal(flag('banned-everywhere'), 0, 'banned is not playable, which is what makes is:unplayable useful');
+  assert.equal(flag('never-legal'), 0);
+  assert.equal(flag('no-rows'), 0, 'no legality rows at all is not playable');
+
+  // And the rebuild really did happen, with no secondary index left behind.
+  const sql = (db.prepare("SELECT sql FROM sqlite_master WHERE name = 'card_legalities'").get() as { sql: string }).sql;
+  assert.match(sql, /WITHOUT ROWID/i);
+  const indexes = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='card_legalities' AND name NOT LIKE 'sqlite_%'")
+    .pluck().all();
+  assert.deepEqual(indexes, [], 'both secondary indexes go with the rebuild');
+  db.close();
+});
+
+/**
+ * v26 throws away 54MB of URLs on the strength of a template. If the template
+ * is wrong for a row, that row has to keep its URLs rather than lose them —
+ * which is what image_url_override is for, and what this checks.
+ */
+test('v26 keeps every URL it can derive and stores the ones it cannot', () => {
+  const db = databaseAtVersion(25);
+  db.prepare("INSERT INTO sets (code,name) VALUES ('tst','Test')").run();
+  db.prepare(`INSERT INTO oracle_cards (oracle_id,name,name_normalized,oracle_text_all)
+              VALUES ('o1','Card','card','')`).run();
+
+  const id = 'a471b306-4941-4e46-a0cb-d92895c16f8a';
+  const ts = 1783907750;
+  const scryfall = (size: string, ext: string, side = 'front', key = id) =>
+    `https://cards.scryfall.io/${size}/${side}/${key[0]}/${key[1]}/${key}.${ext}?${ts}`;
+
+  const printing = db.prepare(`INSERT INTO card_printings
+    (id,oracle_id,set_code,collector_number,image_small,image_normal,image_large,image_png,image_art_crop)
+    VALUES (?,'o1','tst',?,?,?,?,?,?)`);
+  // One ordinary row, one with no art, one Scryfall served from somewhere else.
+  printing.run(id, '1', scryfall('small', 'jpg'), scryfall('normal', 'jpg'),
+    scryfall('large', 'jpg'), scryfall('png', 'png'), scryfall('art_crop', 'jpg'));
+  printing.run('dark', '2', null, null, null, null, null);
+  printing.run('odd', '3', 'https://elsewhere.test/odd-small.jpg', 'https://elsewhere.test/odd-normal.jpg',
+    null, null, null);
+
+  db.exec(MIGRATIONS.find((m) => m.version === 26)!.sql);
+
+  const row = (key: string) => db.prepare(
+    'SELECT image_ts, image_url_override FROM card_printings WHERE id = ?')
+    .get(key) as { image_ts: number | null; image_url_override: string | null };
+
+  assert.equal(row(id).image_ts, ts, 'the timestamp is lifted out of the query string');
+  assert.equal(row(id).image_url_override, null, 'a row that fits the template stores nothing else');
+
+  assert.equal(row('dark').image_ts, null, 'no art stays no art');
+  assert.equal(row('dark').image_url_override, null);
+
+  assert.ok(row('odd').image_url_override, 'a URL the template does not fit is kept verbatim');
+  assert.deepEqual(JSON.parse(row('odd').image_url_override!), {
+    small: 'https://elsewhere.test/odd-small.jpg',
+    normal: 'https://elsewhere.test/odd-normal.jpg',
+    large: null, png: null, art_crop: null,
+  });
+  db.close();
+});

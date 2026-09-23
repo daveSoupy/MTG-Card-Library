@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { SetRecord } from './scryfall.ts';
+import type { ImageSize } from '../images/fetch.ts';
+import { imageUrl, sideForFace, type ImageSide } from '../images/url.ts';
 import {
   canonicalColors, colorMask, normalizeName, parseDeckCopyLimit, splitCollectorNumber,
 } from '../model/mtg.ts';
@@ -64,6 +66,46 @@ function price(prices: Record<string, unknown> | undefined, key: string): number
 
 function jsonArray(value: unknown): string | null {
   return Array.isArray(value) && value.length > 0 ? JSON.stringify(value) : null;
+}
+
+/** The five sizes Scryfall publishes, in the order url.ts names them. */
+const IMAGE_SIZES: ImageSize[] = ['small', 'normal', 'large', 'art_crop', 'png'];
+
+/**
+ * A row's `image_ts` and `image_url_override`, from Scryfall's `image_uris`.
+ *
+ * Every URL Scryfall has published for this library derives from the printing
+ * id, the size, the side and one shared timestamp, so the timestamp is all that
+ * is stored — see url.ts for the template and the evidence. This is where that
+ * assumption is *checked* rather than trusted: each URL is rebuilt and compared,
+ * and the moment one does not match, all five are kept verbatim in the override
+ * instead. A change at Scryfall's end then costs the space back for the rows it
+ * affects, and nothing serves a wrong URL in the meantime.
+ *
+ * `image_ts` non-null is what every "does this row have art" check reads, so a
+ * row with art whose timestamp will not parse gets 0 rather than null — it has
+ * a picture, and the override is what will be served for it.
+ */
+function artColumns(
+  printingId: string,
+  side: ImageSide,
+  uris: Record<string, unknown> | undefined,
+): [ts: number | null, override: string | null] {
+  const url = (size: ImageSize) => text(uris?.[size]);
+  const present = IMAGE_SIZES.filter((size) => url(size) !== null);
+  if (present.length === 0) return [null, null];
+
+  const sample = url(present[0])!;
+  const parsed = Number.parseInt(sample.slice(sample.indexOf('?') + 1), 10);
+  const ts = Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0;
+
+  const derivable = ts > 0
+    && present.every((size) => url(size) === imageUrl(printingId, size, side, ts));
+  if (derivable) return [ts, null];
+
+  const kept: Record<string, string> = {};
+  for (const size of present) kept[size] = url(size)!;
+  return [ts, JSON.stringify(kept)];
 }
 
 /**
@@ -144,12 +186,12 @@ export class CardImporter {
          collector_number_suffix, lang, rarity, released_at, artist, flavor_text,
          finishes, frame, frame_effects, border_color, promo_types,
          is_full_art, is_textless, is_promo, is_reprint, is_variation, is_digital,
-         is_oversized, in_booster, image_small, image_normal, image_large, image_png,
-         image_art_crop, image_status, price_usd, price_usd_foil, price_usd_etched,
+         is_oversized, in_booster, image_ts, image_url_override,
+         image_status, price_usd, price_usd_foil, price_usd_etched,
          price_eur, price_eur_foil, price_tix, prices_updated_at,
          tcgplayer_id, tcgplayer_etched_id, cardmarket_id,
          scryfall_uri, scryfall_updated_at, synced_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
               strftime('%Y-%m-%dT%H:%M:%SZ','now'),?,?,?,?,?,
               strftime('%Y-%m-%dT%H:%M:%SZ','now'))
       ON CONFLICT(id) DO UPDATE SET
@@ -164,9 +206,8 @@ export class CardImporter {
         is_textless=excluded.is_textless, is_promo=excluded.is_promo,
         is_reprint=excluded.is_reprint, is_variation=excluded.is_variation,
         is_digital=excluded.is_digital, is_oversized=excluded.is_oversized,
-        in_booster=excluded.in_booster, image_small=excluded.image_small,
-        image_normal=excluded.image_normal, image_large=excluded.image_large,
-        image_png=excluded.image_png, image_art_crop=excluded.image_art_crop,
+        in_booster=excluded.in_booster, image_ts=excluded.image_ts,
+        image_url_override=excluded.image_url_override,
         image_status=excluded.image_status, price_usd=excluded.price_usd,
         price_usd_foil=excluded.price_usd_foil, price_usd_etched=excluded.price_usd_etched,
         price_eur=excluded.price_eur, price_eur_foil=excluded.price_eur_foil,
@@ -180,16 +221,14 @@ export class CardImporter {
       INSERT INTO card_faces
         (printing_id, face_index, name, mana_cost, type_line, oracle_text, colors_mask,
          power, toughness, loyalty, defense, artist, flavor_text,
-         image_small, image_normal, image_large, image_png, image_art_crop)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         image_ts, image_url_override)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(printing_id, face_index) DO UPDATE SET
         name=excluded.name, mana_cost=excluded.mana_cost, type_line=excluded.type_line,
         oracle_text=excluded.oracle_text, colors_mask=excluded.colors_mask,
         power=excluded.power, toughness=excluded.toughness, loyalty=excluded.loyalty,
         defense=excluded.defense, artist=excluded.artist, flavor_text=excluded.flavor_text,
-        image_small=excluded.image_small, image_normal=excluded.image_normal,
-        image_large=excluded.image_large, image_png=excluded.image_png,
-        image_art_crop=excluded.image_art_crop`);
+        image_ts=excluded.image_ts, image_url_override=excluded.image_url_override`);
 
     this.insertLegality = db.prepare(`
       INSERT INTO card_legalities (oracle_id, format_code, legality) VALUES (?,?,?)
@@ -368,8 +407,8 @@ export class CardImporter {
       bit(card.full_art), bit(card.textless), bit(card.promo), bit(card.reprint),
       bit(card.variation), bit(card.digital), bit(card.oversized),
       bit(card.booster ?? true),
-      text(images.small), text(images.normal), text(images.large),
-      text(images.png), text(images.art_crop), text(card.image_status),
+      ...artColumns(printingId, 'front', images),
+      text(card.image_status),
       price(prices, 'usd'), price(prices, 'usd_foil'), price(prices, 'usd_etched'),
       price(prices, 'eur'), price(prices, 'eur_foil'), price(prices, 'tix'),
       num(card.tcgplayer_id), num(card.tcgplayer_etched_id), num(card.cardmarket_id),
@@ -388,8 +427,7 @@ export class CardImporter {
         colorMask(face?.colors ?? []),
         text(face?.power), text(face?.toughness), text(face?.loyalty), text(face?.defense),
         text(face?.artist), text(face?.flavor_text),
-        text(faceImages.small), text(faceImages.normal), text(faceImages.large),
-        text(faceImages.png), text(faceImages.art_crop),
+        ...artColumns(printingId, sideForFace(index), faceImages),
       );
     }
   }
@@ -414,11 +452,11 @@ export class CardImporter {
             FROM card_printings p
             LEFT JOIN sets st ON st.code = p.set_code
             -- Double-faced cards carry their art on card_faces, so checking
-            -- p.image_normal alone scores every one of them as imageless.
+            -- p.image_ts alone scores every one of them as imageless.
             LEFT JOIN card_faces f ON f.printing_id = p.id AND f.face_index = 0
            WHERE p.oracle_id = oracle_cards.oracle_id
            ORDER BY
-             (COALESCE(p.image_normal, f.image_normal) IS NULL) ASC,
+             (COALESCE(p.image_ts, f.image_ts) IS NULL) ASC,
              -- English first, above every other preference: a readable card in
              -- the wrong frame beats an unreadable one in the right frame.
              -- Ranked, not filtered, so the handful of cards printed only in
@@ -464,5 +502,26 @@ export class CardImporter {
       UPDATE oracle_cards SET has_uncommon_printing =
         EXISTS (SELECT 1 FROM card_printings p
                 WHERE p.oracle_id = oracle_cards.oracle_id AND p.rarity = 'uncommon')`);
+  }
+
+  /**
+   * "Legal or restricted in at least one format", onto oracle_cards.
+   *
+   * Search hides Un-cards and playtest cards by asking this of every query that
+   * does not mention legality, and as a correlated EXISTS against an
+   * 889,000-row card_legalities it was the most expensive thing on that path.
+   * The answer only changes on a sync, so it is computed once here instead —
+   * the unfiltered picker page went from 22.7ms to 9.2ms.
+   *
+   * A post-pass like the two above: every legality row has to be in first. The
+   * v25 migration writes the same answer from the same source, so a library
+   * that never re-syncs is correct immediately; this keeps it correct after.
+   */
+  assignPlayableFlags(): void {
+    this.db.exec(`
+      UPDATE oracle_cards SET is_playable =
+        EXISTS (SELECT 1 FROM card_legalities cl
+                WHERE cl.oracle_id = oracle_cards.oracle_id
+                  AND cl.legality IN ('legal','restricted'))`);
   }
 }

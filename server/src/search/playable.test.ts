@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { CardImporter } from '../sync/importer.ts';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
@@ -70,6 +71,9 @@ function makeStore() {
     }
   });
 
+  // is_playable is derived at sync from card_legalities, the same as any
+  // other flag on oracle_cards, so a hand-built fixture derives it too.
+  new CardImporter(db).assignPlayableFlags();
   return { store: new CardSearchStore(db), close: () => db.close() };
 }
 
@@ -200,6 +204,8 @@ function ubStore() {
   // Never anywhere near a crossover.
   add('o-bolt', 'Lightning Bolt', [['p5', 'cmm', null]]);
 
+  // As makeStore: the flag is derived, never hand-written.
+  new CardImporter(db).assignPlayableFlags();
   return { store: new CardSearchStore(db), close: () => db.close() };
 }
 

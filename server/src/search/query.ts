@@ -201,9 +201,10 @@ function isFragment(value: string, context: SearchContext): Fragment | null {
       // "Legal somewhere", the same test the format filter uses without
       // naming a format. Banned is not playable, which is why Chaos Orb
       // answers to is:unplayable.
-      const legalSomewhere = `EXISTS (SELECT 1 FROM card_legalities cl
-                                     WHERE cl.oracle_id = o.oracle_id
-                                       AND cl.legality IN ('legal','restricted'))`;
+      // oracle_cards.is_playable, not a subquery: the same answer, derived at
+      // sync by CardImporter.assignPlayableFlags(). It used to be a correlated
+      // EXISTS over 889,000 legality rows, evaluated per card.
+      const legalSomewhere = 'o.is_playable = 1';
       return value === 'playable'
         ? { sql: legalSomewhere, params: [] }
         : { sql: `NOT ${legalSomewhere}`, params: [] };

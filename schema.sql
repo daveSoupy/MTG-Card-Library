@@ -28,7 +28,7 @@
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
-PRAGMA user_version = 22;
+PRAGMA user_version = 26;
 
 
 -- =====================================================================
@@ -223,8 +223,22 @@ CREATE TABLE oracle_cards (
     partner_kind        TEXT,
     partner_with        TEXT,
     has_uncommon_printing INTEGER NOT NULL DEFAULT 0,
-    deck_copy_limit     INTEGER   -- the card's own per-deck cap; see parseDeckCopyLimit()
+    deck_copy_limit     INTEGER,  -- the card's own per-deck cap; see parseDeckCopyLimit()
+    is_playable         INTEGER NOT NULL DEFAULT 0   -- legal or restricted somewhere; see below
 );
+-- is_playable: "legal or restricted in at least one format", derived at sync
+-- from card_legalities and written nowhere else. Search applies it to every
+-- query that does not mention legality, to hide Un-cards and playtest cards,
+-- so it used to be a correlated EXISTS against an 889,000-row table on the hot
+-- path. As a flag read: the unfiltered picker page went from 22.7ms to 9.2ms
+-- and the whole-catalogue count from 16.1ms to 7.9ms on the live library.
+-- CardImporter.assignPlayableFlags() is the one writer. It is also what made
+-- dropping card_legalities' idx_legal_playable free rather than a regression.
+--
+-- Prose stays out of the column list on purpose: ALTER TABLE DROP COLUMN
+-- rewrites the stored CREATE TABLE text, and a multi-line comment between
+-- columns comes back as "incomplete input" (CLAUDE.md says this; the test
+-- caught it saying it again).
 CREATE INDEX idx_oracle_name        ON oracle_cards(name_normalized);
 CREATE INDEX idx_oracle_cmc         ON oracle_cards(cmc);
 CREATE INDEX idx_oracle_ci          ON oracle_cards(color_identity_mask);
@@ -264,12 +278,8 @@ CREATE TABLE card_printings (
     is_oversized            INTEGER NOT NULL DEFAULT 0,
     in_booster              INTEGER NOT NULL DEFAULT 1,   -- set-completion can exclude non-booster cards
 
-    -- Images for single-faced cards; multi-faced live in card_faces.
-    image_small             TEXT,
-    image_normal            TEXT,
-    image_large             TEXT,
-    image_png               TEXT,
-    image_art_crop          TEXT,
+    -- Images: see image_ts at the end of this table. The five URL columns that
+    -- used to sit here were 50MB of derivable text.
     image_status            TEXT,   -- 'highres_scan','lowres','placeholder','missing'
 
     -- Prices, straight from Scryfall's fields. Treated as ~24h stale.
@@ -294,9 +304,31 @@ CREATE TABLE card_printings (
     scryfall_updated_at     TEXT,
     synced_at               TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 
+    image_ts                INTEGER,   -- card art; see the note below the table
+    image_url_override      TEXT,      -- JSON {size: url} when the template does not fit
+
     UNIQUE (set_code, collector_number, lang)
 );
-CREATE INDEX idx_print_oracle   ON card_printings(oracle_id);
+-- Card art is stored as the one thing about it that is not derivable.
+--
+-- Scryfall's five image URLs per printing were 50MB of this database, and every
+-- one of them matches
+--   https://cards.scryfall.io/{size}/front/{id[0]}/{id[1]}/{id}.{jpg|png}?{ts}
+-- with a single timestamp shared by all five — verified across all 113,490
+-- printings that carry art, no exceptions, and the five are always present
+-- together or absent together. So the timestamp is stored and the URL is built
+-- by images/fetch.ts's remoteUrlFor. image_ts NULL means the printing has no
+-- art at all, which is how "does this card have a picture" is asked now.
+--
+-- image_url_override is the escape hatch, and the reason this is safe:
+-- Scryfall's URL shape is their decision, not ours. The importer derives by
+-- default and writes a JSON object of size -> URL here only for a row the
+-- template does not fit, so a change at their end costs the space back for the
+-- affected rows rather than breaking the images.
+-- No bare idx_print_oracle(oracle_id): it was a strict prefix of the three
+-- oracle_id-leading indexes below, so it answered nothing they could not, and
+-- card_printings is fully upserted on every sync — a fourth redundant b-tree
+-- maintained across half a million upserts for no read it alone could serve.
 CREATE INDEX idx_print_set_num  ON card_printings(set_code, collector_number_num, collector_number_suffix);
 CREATE INDEX idx_print_rarity   ON card_printings(set_code, rarity);
 CREATE INDEX idx_print_price    ON card_printings(price_usd);
@@ -313,6 +345,15 @@ CREATE INDEX idx_print_oracle_rarity ON card_printings(oracle_id, rarity);
 -- fetching a full printing row per candidate. 128ms -> 18ms across 117,620
 -- printings.
 CREATE INDEX idx_print_oracle_artist ON card_printings(oracle_id, artist);
+
+-- buildability.ts's priceLookup: MIN(price_usd), MIN(price_usd_foil) over the
+-- non-digital printings of a chunk of oracle ids, which runs on every gather
+-- and so on every deck write. The oracle_id-leading indexes above seek it but
+-- carry no price, so each of a card's ~10 printings cost a row fetch; this one
+-- is covering and the query never touches the table. Measured over a 900-id
+-- chunk: 2.69ms to 1.65ms, and it replaces the 5.1MB idx_print_oracle rather
+-- than adding to it.
+CREATE INDEX idx_print_price_lookup ON card_printings(oracle_id, is_digital, price_usd, price_usd_foil);
 
 -- Now that card_printings exists, oracle_cards.default_printing_id has a
 -- target. SQLite can't ALTER in a FK, so it is enforced by trigger.
@@ -341,31 +382,43 @@ CREATE TABLE card_faces (
     defense         TEXT,
     artist          TEXT,
     flavor_text     TEXT,
-    image_small     TEXT,
-    image_normal    TEXT,
-    image_large     TEXT,
-    image_png       TEXT,
-    image_art_crop  TEXT,
+    image_ts        INTEGER,   -- as card_printings; see the note below
+    image_url_override TEXT,
     PRIMARY KEY (printing_id, face_index)
 );
+-- Faces store the timestamp too, not five URLs. The side comes from face_index
+-- (0 is /front/, 1 is /back/) rather than being stored — verified across all
+-- 8,164 faces that carry art. A face carries art only when its printing does
+-- not; the two are mutually exclusive in every row of the live library.
 
 -- Legality per format, at oracle level. A table rather than a JSON blob so
 -- "flag banned/restricted cards in this deck" is a join, not a scan.
+-- WITHOUT ROWID, and with no secondary indexes at all.
+--
+-- As a rowid table this declared a primary key it did not store: SQLite kept a
+-- separate unique index duplicating both key columns, 46MB of a 52MB table.
+-- WITHOUT ROWID makes the table *be* that index, so the key is stored once and
+-- `legality` sits inline beside it.
+--
+-- That also killed both secondary indexes, which is most of the saving. Every
+-- legality predicate in this codebase leads with oracle_id — there are nine of
+-- them and not one starts from a format — so idx_legal_format(format_code, …)
+-- was never chosen by the planner even before this. And idx_legal_playable
+-- existed because the old autoindex carried no legality; the table now does,
+-- so the planner prefers the primary key even when the index is still there
+-- and forcing it with INDEXED BY is *slower* (a secondary index on a WITHOUT
+-- ROWID table stores the full primary key as its row locator, so its entries
+-- are three times as wide). Table plus indexes: 136MB to 50MB.
+--
+-- "Is this card legal anywhere" moved to oracle_cards.is_playable, which is
+-- what made dropping idx_legal_playable free rather than a regression — see
+-- the column's own note.
 CREATE TABLE card_legalities (
     oracle_id   TEXT NOT NULL REFERENCES oracle_cards(oracle_id) ON DELETE CASCADE,
     format_code TEXT NOT NULL,      -- intentionally NOT an FK: Scryfall may add formats before formats is seeded
     legality    TEXT NOT NULL CHECK (legality IN ('legal','not_legal','restricted','banned')),
     PRIMARY KEY (oracle_id, format_code)
-);
-CREATE INDEX idx_legal_format ON card_legalities(format_code, legality);
-
--- "Is this card legal anywhere at all", which search asks of every card on
--- every query to hide Un-cards and playtest cards. The primary key is
--- (oracle_id, format_code) and carries no legality, so without this the probe
--- fetches every one of a card's 23 legality rows. Partial, because only the
--- playable rows are ever asked about — 366k of 888k.
-CREATE INDEX idx_legal_playable ON card_legalities(oracle_id)
-    WHERE legality IN ('legal','restricted');
+) WITHOUT ROWID;
 
 -- Every name a card can be searched/imported/OCR'd by: full name, each
 -- face name, flip name. Powers Phase 5 decklist import and Phase 7 OCR
@@ -561,7 +614,8 @@ CREATE TABLE collection_items (
     -- Default that picker to FIFO: oldest acquired_at first, NULLs last.
 );
 CREATE INDEX idx_coll_location ON collection_items(location_id);
-CREATE INDEX idx_coll_printing ON collection_items(printing_id);
+-- No bare idx_coll_printing(printing_id): idx_coll_stack below leads with the
+-- same column and answers everything it did.
 CREATE INDEX idx_coll_batch    ON collection_items(import_batch_id);
 CREATE INDEX idx_coll_stack    ON collection_items(printing_id, location_id, finish, condition);
 CREATE INDEX idx_coll_acquired ON collection_items(acquired_at);
@@ -822,7 +876,8 @@ CREATE TABLE deck_cards (
 
     UNIQUE (deck_id, oracle_id, board)
 );
-CREATE INDEX idx_deckcards_deck   ON deck_cards(deck_id);
+-- No bare idx_deckcards_deck(deck_id): UNIQUE (deck_id, oracle_id, board) above
+-- already creates an index leading with deck_id.
 CREATE INDEX idx_deckcards_oracle ON deck_cards(oracle_id);
 CREATE INDEX idx_deckcards_alloc  ON deck_cards(oracle_id) WHERE quantity_from_collection > 0;
 

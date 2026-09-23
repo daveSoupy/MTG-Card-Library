@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { artUrlSql } from '../images/url.ts';
 import { validateDeck, canLeadDeck, isSignatureSpell, pairingIsLegal } from './validate.ts';
 import { deckStats } from './stats.ts';
 import { analyseManaBase } from './manabase.ts';
@@ -211,7 +212,7 @@ export class DeckStore {
              o.has_uncommon_printing, o.deck_copy_limit,
              cl.legality,
              dp.id AS printing_id, dp.set_code, dp.rarity, dp.price_usd,
-             COALESCE(dp.image_small, ff.image_small) AS image_small
+             ${artUrlSql('dp', 'ff', 'small')} AS image_small
       FROM deck_cards dc
       JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
       LEFT JOIN card_printings dp ON dp.id = COALESCE(dc.preferred_printing_id, o.default_printing_id)

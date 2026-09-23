@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { artUrlSql } from '../images/url.ts';
 import {
   allocationFor, allocationForMany, allocationSettings, reservingStatuses,
 } from '../decks/allocation.ts';
@@ -420,7 +421,7 @@ export class TradeStore {
     const rows = this.db.prepare(`
       SELECT ti.*, o.oracle_id, o.name AS card_name, o.mana_cost,
              p.set_code, p.collector_number,
-             COALESCE(p.image_small, ff.image_small) AS image_small,
+             ${artUrlSql('p', 'ff', 'small')} AS image_small,
              CASE ti.finish WHEN 'foil' THEN p.price_usd_foil
                             WHEN 'etched' THEN p.price_usd_etched
                             ELSE p.price_usd END AS market_usd,

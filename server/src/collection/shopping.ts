@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { artUrlSql, imageUrlSql } from '../images/url.ts';
 import { allocationForMany, allocationSettings, copiesToBuy } from '../decks/allocation.ts';
 
 /**
@@ -51,7 +52,12 @@ export function shoppingList(db: Database.Database, deckId: number): ShoppingLis
            o.name AS card_name,
            COALESCE(dc.preferred_printing_id, o.default_printing_id) AS price_printing_id,
            COALESCE(pp.price_usd, dp.price_usd) AS unit_price_usd,
-           COALESCE(pp.image_small, dp.image_small, ffp.image_small, ffd.image_small) AS image_small,
+           ${imageUrlSql({
+               id: 'COALESCE(pp.id, dp.id)',
+               ts: 'COALESCE(pp.image_ts, ffp.image_ts, dp.image_ts, ffd.image_ts)',
+               override: 'COALESCE(pp.image_url_override, ffp.image_url_override, dp.image_url_override, ffd.image_url_override)',
+               size: 'small',
+             })} AS image_small,
            COALESCE(pp.set_code, dp.set_code) AS set_code
     FROM deck_cards dc
     JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
@@ -222,7 +228,7 @@ export function wantList(db: Database.Database, wantListId?: number) {
     SELECT w.id, w.oracle_id, w.quantity, w.target_price_usd, w.priority, w.status, w.notes,
            w.sort_order, o.name, o.mana_cost, o.color_identity,
            COALESCE(dp.price_usd, 0) AS price_usd,
-           COALESCE(dp.image_small, ff.image_small) AS image_small,
+           ${artUrlSql('dp', 'ff', 'small')} AS image_small,
            dp.id AS printing_id,
            COALESCE(owned.qty, 0) AS owned_qty
     FROM want_list_items w
