@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   previewCollectionCsv, importCollectionCsv,
-  type CsvPreview, type ColumnRole, type StorageLocation,
+  type CsvPreview, type CsvPreviewRow, type ColumnRole, type StorageLocation,
 } from '../api.ts';
 import { HelpButton } from './helpTopics.tsx';
 
@@ -16,6 +16,7 @@ const ROLES: Array<[ColumnRole, string]> = [
   ['condition', 'Condition'],
   ['language', 'Language'],
   ['price', 'Purchase price'],
+  ['scryfallId', 'Scryfall ID'],
 ];
 
 /**
@@ -34,7 +35,13 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
   const [text, setText] = useState('');
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [mapping, setMapping] = useState<ColumnRole[] | null>(null);
-  const [locationId, setLocationId] = useState<number | null>(locations[0]?.id ?? null);
+  // What the user picked, if anything. Until they do, the default location is
+  // worked out on every render rather than once: the page's location list can
+  // still be loading when the dialog opens, and a default taken at mount would
+  // stay null while the select showed its first option as if it were chosen.
+  const [pickedLocation, setLocationId] = useState<number | null>(null);
+  const locationId = pickedLocation
+    ?? (locations.find((l) => l.is_default) ?? locations[0])?.id ?? null;
   const [skipped, setSkipped] = useState<Record<number, boolean>>({});
   const [choice, setChoice] = useState<Record<number, string | null>>({});
   const [busy, setBusy] = useState(false);
@@ -46,8 +53,10 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
       const result = await previewCollectionCsv(contents, override);
       setPreview(result);
       setMapping(result.mapping);
+      // Only a certain match starts ticked: a 75% guess is a question, not
+      // an answer, and picking a candidate below is what ticks it.
       setSkipped(Object.fromEntries(
-        result.rows.filter((r) => !r.match).map((r) => [r.lineNumber, true]),
+        result.rows.filter((r) => r.match?.confidence !== 1).map((r) => [r.lineNumber, true]),
       ));
       setChoice(Object.fromEntries(result.rows.map((r) => [r.lineNumber, r.printingId])));
     } catch (cause: any) {
@@ -95,7 +104,7 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
         locationId,
         rows,
         fileName,
-        unmatched: (preview?.counts.unresolved ?? 0),
+        unmatched: (preview?.rows.length ?? 0) - rows.length,
       });
       onImported();
     } catch (cause: any) {
@@ -105,6 +114,10 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
   };
 
   const cards = rows.reduce((sum, r) => sum + r.quantity, 0);
+  // A condition column whose values all came back 'unknown' is a vocabulary
+  // miss, and should be said out loud rather than left in the grey row text.
+  const unreadConditions = preview && mapping?.includes('condition')
+    ? preview.rows.filter((r) => r.condition === 'unknown').length : 0;
 
   return (
     <div className="sync-overlay" onClick={onClose}>
@@ -151,36 +164,26 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
                 <span className="tally bad">{preview.counts.unresolved} not found</span>}
               {preview.skipped.length > 0 &&
                 <span className="tally bad">{preview.skipped.length} skipped</span>}
+              {unreadConditions > 0 &&
+                <span className="tally warn" title="These rows' condition was blank or not recognised; they import as unknown condition.">
+                  {unreadConditions} without a recognised condition
+                </span>}
             </div>
 
             <div className="import-rows">
-              {preview.rows.map((row) => {
-                const state = row.match?.confidence === 1 ? 'ok' : row.match ? 'warn' : 'bad';
-                return (
-                  <div className={`import-row ${state}${skipped[row.lineNumber] ? ' skipped' : ''}`} key={row.lineNumber}>
-                    <input
-                      type="checkbox"
-                      checked={!skipped[row.lineNumber]}
-                      disabled={!row.printingId}
-                      onChange={(e) => setSkipped((s) => ({ ...s, [row.lineNumber]: !e.target.checked }))}
-                    />
-                    <span className="import-qty">{row.quantity}×</span>
-                    <span className="import-raw">{row.name}</span>
-                    <span className="import-match">
-                      {row.match ? row.match.name : 'No match found'}
-                      {row.match && row.match.confidence < 1 &&
-                        <em> — {Math.round(row.match.confidence * 100)}% match</em>}
-                    </span>
-                    <span className="import-note">
-                      {row.setCode ? row.setCode.toUpperCase() : '—'}
-                      {row.finish !== 'nonfoil' ? ` ${row.finish}` : ''}
-                      {` ${row.condition}`}
-                      {row.price !== null ? ` $${row.price.toFixed(2)}` : ''}
-                      {row.match && !row.printingExact && <em title="The exact printing was not in the local card data; a default was used."> approx. printing</em>}
-                    </span>
-                  </div>
-                );
-              })}
+              {preview.rows.map((row) => (
+                <CsvRow
+                  key={row.lineNumber}
+                  row={row}
+                  chosen={choice[row.lineNumber] ?? null}
+                  skipped={skipped[row.lineNumber] ?? false}
+                  onSkip={(value) => setSkipped((s) => ({ ...s, [row.lineNumber]: value }))}
+                  onChoose={(printingId) => {
+                    setChoice((c) => ({ ...c, [row.lineNumber]: printingId }));
+                    setSkipped((s) => ({ ...s, [row.lineNumber]: !printingId }));
+                  }}
+                />
+              ))}
             </div>
 
             <div className="row import-newdeck">
@@ -208,6 +211,61 @@ export function CollectionImportDialog({ locations, onClose, onImported }: {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * One CSV row. A settled match shows its name; anything less offers the
+ * candidates, each a printing, so a typo is fixed here rather than dropped.
+ * The choice is keyed by printing id — `choice` is what gets imported.
+ */
+function CsvRow({ row, chosen, skipped, onSkip, onChoose }: {
+  row: CsvPreviewRow;
+  chosen: string | null;
+  skipped: boolean;
+  onSkip: (value: boolean) => void;
+  onChoose: (printingId: string | null) => void;
+}) {
+  const state = row.match?.confidence === 1 ? 'ok' : row.match ? 'warn' : 'bad';
+  const options = row.candidates.filter((c) => c.printingId);
+  const picked = options.find((c) => c.printingId === chosen);
+  const exact = picked ? picked.printingExact : row.printingExact;
+
+  return (
+    <div className={`import-row ${state}${skipped ? ' skipped' : ''}`}>
+      <input
+        type="checkbox"
+        checked={!skipped}
+        disabled={!chosen}
+        onChange={(e) => onSkip(!e.target.checked)}
+      />
+      <span className="import-qty">{row.quantity}×</span>
+      <span className="import-raw">{row.name}</span>
+      {options.length > 0 ? (
+        <select
+          className="import-choice"
+          value={chosen ?? ''}
+          onChange={(e) => onChoose(e.target.value || null)}
+        >
+          <option value="">{row.match ? 'Choose a card…' : 'No match — choose a card…'}</option>
+          {options.map((candidate) => (
+            <option key={candidate.oracleId} value={candidate.printingId!}>
+              {candidate.name}
+              {candidate.confidence < 1 ? ` — ${Math.round(candidate.confidence * 100)}% match` : ''}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="import-match">{row.match ? row.match.name : 'No match found'}</span>
+      )}
+      <span className="import-note">
+        {row.setCode ? row.setCode.toUpperCase() : '—'}
+        {row.finish !== 'nonfoil' ? ` ${row.finish}` : ''}
+        {` ${row.condition}`}
+        {row.price !== null ? ` $${row.price.toFixed(2)}` : ''}
+        {chosen && !exact && <em title="The exact printing was not in the local card data; a default was used."> approx. printing</em>}
+      </span>
     </div>
   );
 }

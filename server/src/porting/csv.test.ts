@@ -42,6 +42,22 @@ test('ManaBox headers are recognised', () => {
     ['name', 'setCode', 'setName', 'collectorNumber', 'finish', 'quantity', 'condition']);
 });
 
+test('a Scryfall ID column gets its own role', () => {
+  assert.deepEqual(guessMapping(['Name', 'Scryfall ID', 'ManaBox ID', 'Quantity']),
+    ['name', 'scryfallId', 'ignore', 'quantity']);
+});
+
+test('ManaBox-style underscore and hyphen conditions are recognised', () => {
+  assert.equal(normalizeCondition('near_mint'), 'NM');
+  assert.equal(normalizeCondition('lightly_played'), 'LP');
+  assert.equal(normalizeCondition('moderately_played'), 'MP');
+  assert.equal(normalizeCondition('heavily_played'), 'HP');
+  assert.equal(normalizeCondition('damaged'), 'DMG');
+  assert.equal(normalizeCondition('Near-Mint'), 'NM');
+  assert.equal(normalizeCondition('lightly-played'), 'LP');
+  assert.equal(normalizeCondition('  Heavily  Played '), 'HP');
+});
+
 test('unrecognised columns are ignored rather than guessed at', () => {
   const mapping = guessMapping(['Name', 'Quantity', 'Rarity', 'My Personal Notes']);
   assert.deepEqual(mapping, ['name', 'quantity', 'ignore', 'ignore']);
@@ -82,7 +98,7 @@ test('a mapped row carries everything needed to create a lot', () => {
 
   assert.equal(skipped.length, 0);
   assert.deepEqual(rows[0], {
-    name: "Atraxa, Praetors' Voice",
+    name: "Atraxa, Praetors' Voice", scryfallId: null,
     setCode: 'cmr', setName: null, collectorNumber: '3',
     quantity: 2, finish: 'foil', condition: 'NM', language: 'en',
     price: 12.5, lineNumber: 2,

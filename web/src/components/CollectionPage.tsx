@@ -1,11 +1,15 @@
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import {
   addCollectionLot, addTradeListItem, createLocation, deleteLocation, fetchCollection,
+  restoreLocation,
   fetchCollectionCard, fetchCollectionValue, fetchLocations, fetchSetCompletion, fetchSets,
-  fetchTradeLists, removeCollectionLot, updateCollectionLot, DECK_STATUS_HINT,
+  fetchTradeList, fetchTradeLists, removeCollectionLot, removeTradeListItem, updateCollectionLot,
+  updateTradeListItem, DECK_STATUS_HINT, type NamedList,
   type CollectionCard, type CollectionCardDetail, type CollectionLot, type CollectionValue,
-  type SetRecord, type StorageLocation,
+  type LocationRestore, type SetRecord, type StorageLocation,
 } from '../api.ts';
+import { LocationDeleteConfirm } from './LocationDeleteConfirm.tsx';
+import { ListForTradeForm } from './ListForTradeForm.tsx';
 import { useUndoShortcuts, useUndoStack, type UndoEntry } from '../undo.ts';
 import { AddCardsDialog } from './AddCardsDialog.tsx';
 import { WantListsPage } from './WantListsPage.tsx';
@@ -77,7 +81,10 @@ function CardLots({
 }) {
   const [detail, setDetail] = useState<CollectionCardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tradeListId, setTradeListId] = useState<number | null>(null);
+  const [tradeLists, setTradeLists] = useState<NamedList[]>([]);
+  // The lot whose "For trade" form is open, and whether its listing is saving.
+  const [tradingLot, setTradingLot] = useState<number | null>(null);
+  const [listing, setListing] = useState(false);
   const [listed, setListed] = useState<number | null>(null);
 
   const load = useCallback(() => {
@@ -85,23 +92,54 @@ function CardLots({
   }, [oracleId]);
   useEffect(load, [load]);
 
-  // The default trade list is where the "For trade" button lists a copy.
+  // The lists "For trade" can put a copy on; the form defaults to the default.
   useEffect(() => {
-    fetchTradeLists()
-      .then((lists) => setTradeListId((lists.find((l) => l.is_default) ?? lists[0])?.id ?? null))
-      .catch(() => {});
+    fetchTradeLists().then(setTradeLists).catch(() => {});
   }, []);
 
-  const listForTrade = async (lotId: number, quantity: number) => {
-    if (tradeListId == null) return;
+  /**
+   * Lists `quantity` copies of a lot, with an undo that puts the listing back
+   * as it was. Adding is an upsert — a lot already on that list has its count
+   * replaced — so what was there before is read first, and its asking price
+   * and notes are carried through rather than wiped by the upsert.
+   */
+  const listForTrade = async (lot: CollectionLot, listId: number, quantity: number) => {
     setError(null);
+    setListing(true);
     try {
-      await addTradeListItem(tradeListId, lotId, { quantity });
-      setListed(lotId);
-      setTimeout(() => setListed((current) => (current === lotId ? null : current)), 1600);
-      onChanged();
+      const prior = (await fetchTradeList(listId)).items.find((i) => i.collectionItemId === lot.id);
+      const fields = {
+        quantity,
+        askingPriceUsd: prior?.askingPriceUsd ?? null,
+        notes: prior?.notes ?? null,
+      };
+      const itemOf = (list: { items: Array<{ id: number; collectionItemId: number }> }) =>
+        list.items.find((i) => i.collectionItemId === lot.id)?.id;
+      let itemId = itemOf(await addTradeListItem(listId, lot.id, fields));
+      setTradingLot(null);
+      setListed(lot.id);
+      setTimeout(() => setListed((current) => (current === lot.id ? null : current)), 1600);
+      // The Availability block above reads this card's detail, which the
+      // listing has just changed — reload it, not only the page around it.
+      refresh();
+      const list = tradeLists.find((l) => l.id === listId)?.name ?? 'a trade list';
+      record({
+        label: `listing ${quantity} ${cardName} on ${list}`,
+        undo: async () => {
+          if (itemId === undefined) return;
+          if (prior) await updateTradeListItem(listId, itemId, { quantity: prior.quantity });
+          else await removeTradeListItem(listId, itemId);
+          refresh();
+        },
+        redo: async () => {
+          itemId = itemOf(await addTradeListItem(listId, lot.id, fields));
+          refresh();
+        },
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setListing(false);
     }
   };
 
@@ -290,9 +328,10 @@ function CardLots({
                       )}>
                 −1
               </button>
-              <button className="linkish" disabled={tradeListId == null}
-                      onClick={() => listForTrade(lot.id, lot.quantity)}>
-                {listed === lot.id ? 'Listed ✓' : 'For trade'}
+              <button className="linkish" disabled={tradeLists.length === 0}
+                      aria-expanded={tradingLot === lot.id}
+                      onClick={() => setTradingLot(tradingLot === lot.id ? null : lot.id)}>
+                {listed === lot.id ? 'Listed ✓' : 'For trade…'}
               </button>
               <button className="linkish danger"
                       onClick={() => apply(
@@ -302,6 +341,15 @@ function CardLots({
                 Remove
               </button>
             </div>
+            {tradingLot === lot.id && (
+              <ListForTradeForm
+                max={lot.quantity}
+                lists={tradeLists}
+                busy={listing}
+                onSubmit={(listId, quantity) => listForTrade(lot, listId, quantity)}
+                onCancel={() => setTradingLot(null)}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -380,6 +428,10 @@ export function CollectionPage({
   // buttons — the header has enough in it already.
   const undoStack = useUndoStack();
   useUndoShortcuts(undoStack);
+  // The location whose delete confirm is open, and whether a delete is
+  // running — while one is, every other × holds still.
+  const [confirmingDelete, setConfirmingDelete] = useState<number | null>(null);
+  const [deletingLocation, setDeletingLocation] = useState(false);
 
   const reloadLocations = useCallback(() => {
     fetchLocations().then(setLocations).catch((e) => setLoadError(e.message));
@@ -428,23 +480,34 @@ export function CollectionPage({
 
   const refreshAll = () => { reloadCards(); reloadLocations(); reloadValue(); };
 
-  const removeLocation = async (location: StorageLocation) => {
-    setError(null);
-    try {
-      const fallback = locations.find((l) => l.is_default && l.id !== location.id)
-        ?? locations.find((l) => l.id !== location.id);
-      // Only offer to relocate when there is somewhere to put things.
-      const moveTo = location.card_count > 0 ? fallback?.id : undefined;
-      if (location.card_count > 0 && !moveTo) {
-        setError('Create another location first so these cards have somewhere to go.');
-        return;
-      }
-      setLocations(await deleteLocation(location.id, moveTo));
-      if (locationFilter === location.id) setLocationFilter(undefined);
-      refreshAll();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+  /**
+   * After the confirm's delete: the undo goes on the collection stack with the
+   * toast. Undo recreates the location from the record the delete returned —
+   * its lots, name, kind and deck homes — and redo deletes it again, taking a
+   * fresh record, since the location may have come back under a new id.
+   */
+  const locationDeleted = (name: string, result: { locations: StorageLocation[]; restore: LocationRestore }) => {
+    setConfirmingDelete(null);
+    setLocations(result.locations);
+    if (locationFilter === result.restore.location.id) setLocationFilter(undefined);
+    refreshAll();
+    let restore = result.restore;
+    let id = restore.location.id;
+    undoStack.record({
+      label: `deleting ${name}`,
+      undo: async () => {
+        const back = await restoreLocation(restore);
+        id = back.id;
+        setLocations(back.locations);
+        refreshAll();
+      },
+      redo: async () => {
+        const again = await deleteLocation(id, restore.movedTo ?? undefined);
+        restore = again.restore;
+        setLocations(again.locations);
+        refreshAll();
+      },
+    });
   };
 
   const totalValue = value?.value.total_value_usd ?? 0;
@@ -502,8 +565,20 @@ export function CollectionPage({
                     <span className="count">{location.card_count}</span>
                   </button>
                   {!location.is_default && (
-                    <button className="loc-del" onClick={() => removeLocation(location)}
+                    <button className="loc-del"
+                            onClick={() => setConfirmingDelete(location.id)}
+                            disabled={deletingLocation}
+                            aria-expanded={confirmingDelete === location.id}
                             aria-label={`Delete ${location.name}`}>×</button>
+                  )}
+                  {confirmingDelete === location.id && (
+                    <LocationDeleteConfirm
+                      location={location}
+                      locations={locations}
+                      onCancel={() => setConfirmingDelete(null)}
+                      onBusy={setDeletingLocation}
+                      onDeleted={(result) => locationDeleted(location.name, result)}
+                    />
                   )}
                 </div>
               ))}
@@ -524,7 +599,7 @@ export function CollectionPage({
                 />
                 <p className="note">
                   Deleting a location moves its cards to another one rather than
-                  discarding them.
+                  discarding them, and can be undone.
                 </p>
               </div>
             </div>

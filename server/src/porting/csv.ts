@@ -9,13 +9,14 @@
 
 export type ColumnRole =
   | 'name' | 'setCode' | 'setName' | 'collectorNumber' | 'quantity'
-  | 'finish' | 'condition' | 'language' | 'price' | 'ignore';
+  | 'finish' | 'condition' | 'language' | 'price' | 'scryfallId' | 'ignore';
 
 /**
  * Header spellings seen in the wild, lowercased. Order matters: the first role
  * whose patterns match a header wins, so more specific ones come first.
  */
 const HEADER_PATTERNS: Array<[ColumnRole, RegExp]> = [
+  ['scryfallId', /^(scryfall ?id|scryfall ?uuid|scryfall ?card ?id)$/],
   ['collectorNumber', /^(collector ?number|card ?number|number|cn)$/],
   ['setCode', /^(set ?code|edition ?code|set_?id|expansion ?code)$/],
   ['setName', /^(set|set ?name|edition|expansion)$/],
@@ -143,6 +144,8 @@ export function guessMapping(headers: string[]): ColumnRole[] {
 
 export interface MappedRow {
   name: string;
+  /** A Scryfall card id: one exact printing, which beats name, set and number. */
+  scryfallId: string | null;
   setCode: string | null;
   setName: string | null;
   collectorNumber: string | null;
@@ -168,8 +171,10 @@ const CONDITION_ALIASES: Record<string, string> = {
 };
 
 export function normalizeCondition(value: string): string {
-  const key = value.trim().toLowerCase();
-  return CONDITION_ALIASES[key] ?? (key === '' ? 'unknown' : 'unknown');
+  // ManaBox writes `near_mint`, others `Near-Mint` or `Heavily  Played`: the
+  // aliases are single-spaced words, so separators collapse to one space first.
+  const key = value.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  return CONDITION_ALIASES[key] ?? 'unknown';
 }
 
 /**
@@ -229,7 +234,8 @@ export function applyMapping(table: CsvTable, mapping: ColumnRole[]): {
     };
 
     const name = nameIndex === -1 ? '' : (row[nameIndex] ?? '').trim();
-    if (!name) {
+    const scryfallId = at('scryfallId').toLowerCase() || null;
+    if (!name && !scryfallId) {
       skipped.push({ lineNumber, reason: 'No card name in this row.' });
       return;
     }
@@ -246,6 +252,7 @@ export function applyMapping(table: CsvTable, mapping: ColumnRole[]): {
 
     rows.push({
       name,
+      scryfallId,
       setCode: at('setCode') ? at('setCode').toLowerCase() : null,
       setName: at('setName') || null,
       collectorNumber: at('collectorNumber') || null,

@@ -54,7 +54,7 @@ const CSV_ROWS = {
 const COLUMN_ROLE = {
   type: 'string',
   enum: ['name', 'setCode', 'setName', 'collectorNumber', 'quantity',
-         'finish', 'condition', 'language', 'price', 'ignore'],
+         'finish', 'condition', 'language', 'price', 'scryfallId', 'ignore'],
 } as const;
 
 interface DeckEntry { oracleId: string; quantity: number; board?: ParsedBoard }

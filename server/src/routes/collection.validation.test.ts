@@ -186,6 +186,75 @@ test('moving a location\'s contents to a location that does not exist is a 400, 
   db.close();
 });
 
+test('a location delete can be undone: its lots, its name and kind, and its deck homes', async () => {
+  const { db, app, location } = fixture();
+  const binder = Number(db.prepare(
+    `INSERT INTO storage_locations (name, kind, notes, sort_order) VALUES ('Binder 2', 'binder', 'blue', 4)`,
+  ).run().lastInsertRowid);
+  const lot = (quantity: number, at: number) => Number(db.prepare(
+    `INSERT INTO collection_items (printing_id, location_id, quantity) VALUES ('p-bolt', ?, ?)`,
+  ).run(at, quantity).lastInsertRowid);
+  const moved = [lot(3, binder), lot(1, binder)];
+  const stayed = lot(2, location);
+  const deck = Number(db.prepare(
+    `INSERT INTO decks (name, home_location_id) VALUES ('Burn', ?)`,
+  ).run(binder).lastInsertRowid);
+
+  const impact = await app.inject({ method: 'GET', url: `/api/v1/locations/${binder}/impact` });
+  assert.deepEqual(impact.json(), { cards: 4, lots: 2, homeOf: [{ id: deck, name: 'Burn' }] });
+
+  const deleted = await app.inject({
+    method: 'DELETE', url: `/api/v1/locations/${binder}?moveTo=${location}`,
+  });
+  assert.equal(deleted.statusCode, 200);
+  const { restore } = deleted.json();
+  assert.deepEqual(restore.lotIds, moved);
+  assert.deepEqual(restore.references, { 'decks.home_location_id': [deck] });
+  const home = () => (db.prepare('SELECT home_location_id AS h FROM decks WHERE id = ?').get(deck) as any).h;
+  assert.equal(home(), null, 'the delete cleared the home');
+
+  const undone = await app.inject({
+    method: 'POST', url: '/api/v1/locations/restore', payload: { restore },
+  });
+  assert.equal(undone.statusCode, 200);
+  assert.equal(undone.json().id, binder, 'the old id was free, so it comes back under it');
+  const back = db.prepare('SELECT name, kind, notes, sort_order FROM storage_locations WHERE id = ?')
+    .get(binder) as any;
+  assert.deepEqual({ ...back }, { name: 'Binder 2', kind: 'binder', notes: 'blue', sort_order: 4 });
+  const where = (id: number) => (db.prepare('SELECT location_id AS l FROM collection_items WHERE id = ?')
+    .get(id) as any).l;
+  assert.deepEqual(moved.map(where), [binder, binder]);
+  assert.equal(where(stayed), location, 'a lot that was already there stays');
+  assert.equal(home(), binder);
+
+  // A second restore of the same record is refused rather than doubling up.
+  const again = await app.inject({
+    method: 'POST', url: '/api/v1/locations/restore', payload: { restore },
+  });
+  assert.equal(again.statusCode, 409);
+  await app.close();
+  db.close();
+});
+
+test('a restore record can only touch the listed reference columns', async () => {
+  const { db, app, location } = fixture();
+  const lot = Number(db.prepare(
+    `INSERT INTO collection_items (printing_id, location_id, quantity) VALUES ('p-bolt', ?, 3)`,
+  ).run(location).lastInsertRowid);
+  const response = await app.inject({
+    method: 'POST', url: '/api/v1/locations/restore',
+    payload: { restore: {
+      location: { id: 50, name: 'X', kind: 'box', notes: null, isArchived: 0, sortOrder: 0, createdAt: 'now' },
+      movedTo: null, lotIds: [], references: { 'collection_items.quantity': [lot] },
+    } },
+  });
+  // The schema strips the unknown key, and the store only walks its own list.
+  assert.equal(response.statusCode, 200);
+  assert.equal((db.prepare('SELECT quantity FROM collection_items WHERE id = ?').get(lot) as any).quantity, 3);
+  await app.close();
+  db.close();
+});
+
 test('a well-formed lot still lands, nulls and all', async () => {
   const { db, app, location } = fixture();
 

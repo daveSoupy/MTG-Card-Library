@@ -80,13 +80,24 @@ test('a card outside the commander colour identity is caught on an imported deck
   );
 });
 
-test('a maybeboard line is imported into the deck rather than dropped', () => {
+test('a Maybeboard section lands on the maybeboard, not in the main deck', () => {
   const { db, decks } = fixture();
-  const deckId = decks.create({ name: 'Deck', formatCode: null });
-  commitDecklist(db, decks, deckId, [{ oracleId: 'o-bolt', quantity: 2, board: 'maybe' }]);
+  const deckId = decks.create({ name: 'Deck', formatCode: 'commander' });
+  const preview = previewDecklist(db,
+    `Commander\n1 Atraxa, Praetors' Voice\n\nDeck\n1 Sol Ring\n\nMaybeboard\n1 Sol Ring\n1 Lightning Bolt`);
+  assert.deepEqual(preview.lines.map((l) => l.board), ['command', 'main', 'maybe', 'maybe']);
+  commitDecklist(db, decks, deckId, preview.lines
+    .map((l) => ({ oracleId: l.match!.oracleId, quantity: l.quantity, board: l.board })));
+
   const deck = decks.get(deckId)!;
-  assert.equal(deck.cards[0].board, 'main');
-  assert.equal(deck.cards[0].quantity, 2);
+  const maybe = deck.cards.filter((c) => c.board === 'maybe').map((c) => c.oracleId).sort();
+  assert.deepEqual(maybe, ['o-bolt', 'o-solring']);
+  // Sol Ring in the main deck stays a 1-of, so singleton holds, and the
+  // off-colour Bolt on the maybeboard is not a colour-identity violation.
+  assert.equal(deck.cards.find((c) => c.board === 'main' && c.oracleId === 'o-solring')!.quantity, 1);
+  assert.equal(deck.validation.maybeCount, 2);
+  assert.ok(!deck.validation.issues.some((i) => /singleton|colou?r identity|copies/i.test(i.message)),
+    deck.validation.issues.map((i) => i.message).join(' | '));
 });
 
 test('a CSV import can be undone, taking back exactly what it added', () => {
@@ -155,6 +166,42 @@ test('a user override still applies to a headerless file on re-preview', () => {
   const preview = previewCollectionCsv(db, 'Sol Ring,3\nLightning Bolt,4\n', ['name', 'quantity']);
   assert.deepEqual(preview.rows.map((r) => [r.name, r.quantity]),
     [['Sol Ring', 3], ['Lightning Bolt', 4]]);
+});
+
+test('a Scryfall ID pins the exact printing, over the name and set', () => {
+  const { db } = fixture();
+  db.prepare(`INSERT INTO sets (code, name) VALUES ('alt','Alt Set')`).run();
+  db.prepare(`INSERT INTO card_printings (id, oracle_id, set_code, collector_number, collector_number_num)
+              VALUES ('bolt-alt','o-bolt','alt','99',99)`).run();
+
+  // The name column even says something else: the id is the stronger claim.
+  const preview = previewCollectionCsv(db,
+    'Name,Set code,Scryfall ID,Quantity\nSol Ring,tst,BOLT-ALT,2\nSol Ring,tst,no-such-id,1\n');
+  assert.equal(preview.mapping[2], 'scryfallId');
+  assert.equal(preview.rows[0].printingId, 'bolt-alt');
+  assert.equal(preview.rows[0].printingExact, true);
+  assert.equal(preview.rows[0].match!.oracleId, 'o-bolt');
+  assert.equal(preview.rows[0].setCode, 'alt');
+  // An id this database does not know falls back to the name.
+  assert.equal(preview.rows[1].printingId, 'o-solring-p');
+});
+
+test('a typo row offers candidates that each carry a printing to import', () => {
+  const { db } = fixture();
+  const preview = previewCollectionCsv(db, 'Name,Quantity\nLightnig Blot,1\nSol Ring,1\n');
+  const typo = preview.rows[0];
+  assert.notEqual(typo.match?.confidence, 1);
+  const bolt = typo.candidates.find((c) => c.oracleId === 'o-bolt');
+  assert.ok(bolt, typo.candidates.map((c) => c.name).join(', '));
+  assert.equal(bolt!.printingId, 'o-bolt-p');
+  // A certain row has nothing to choose, so resolves no alternatives.
+  assert.deepEqual(preview.rows[1].candidates, []);
+});
+
+test('CSV conditions come through as the schema vocabulary', () => {
+  const { db } = fixture();
+  const preview = previewCollectionCsv(db, 'Name,Condition\nSol Ring,near_mint\nLightning Bolt,lightly_played\n');
+  assert.deepEqual(preview.rows.map((r) => r.condition), ['NM', 'LP']);
 });
 
 test('an undo leaves cards the import did not add alone', () => {

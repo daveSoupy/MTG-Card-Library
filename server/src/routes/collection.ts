@@ -1,15 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import type Database from 'better-sqlite3';
 import {
-  ACQUISITION_KINDS, CONDITIONS, COST_METHODS, FINISHES, LocationInUseError,
+  ACQUISITION_KINDS, CONDITIONS, COST_METHODS, FINISHES, LOCATION_REFERENCES, LocationInUseError,
+  LocationNameTakenError,
   type AcquisitionKind, type CollectionSort, type CollectionStore, type Condition,
-  type CostMethod, type Finish,
+  type CostMethod, type Finish, type LocationRestore,
 } from '../collection/store.ts';
 import { pushToWantList, shoppingList, wantList } from '../collection/shopping.ts';
 import { reconcileWants } from '../collection/wants.ts';
 import { AlertStore } from '../alerts/store.ts';
 import {
-  ID, LOT_COUNT, MONEY, MONEY_OR_NULL, NAME, TEXT, TEXT_OR_NULL, FLAG, DATE_OR_NULL,
+  ID, ID_OR_NULL, LOT_COUNT, MONEY, MONEY_OR_NULL, NAME, TEXT, TEXT_OR_NULL, FLAG, DATE_OR_NULL,
   body as bodySchema, idParams,
 } from './schema.ts';
 
@@ -118,9 +119,9 @@ export function registerCollectionRoutes(
       if (!db.prepare('SELECT 1 FROM storage_locations WHERE id = ?').get(id)) {
         return reply.status(404).send({ error: 'No location with that id.' });
       }
+      let restore: LocationRestore | null;
       try {
-        if (moveTo !== undefined) collection.moveLocationContents(id, moveTo);
-        collection.deleteLocation(id);
+        restore = collection.deleteLocationRecorded(id, moveTo);
       } catch (error) {
         if (error instanceof LocationInUseError) {
           // 409, not 400: the request is well formed, the state forbids it.
@@ -128,7 +129,63 @@ export function registerCollectionRoutes(
         }
         throw error;
       }
-      return { locations: collection.locations() };
+      // `restore` is the undo: handed back unchanged, it puts all of this back.
+      return { locations: collection.locations(), restore };
+    },
+  );
+
+  /** What a delete would do, so the confirm can say it before it happens. */
+  app.get<{ Params: { id: number } }>(
+    '/api/v1/locations/:id/impact',
+    { schema: { params: idParams('id') } },
+    async (request, reply) => {
+      const impact = collection.locationImpact(request.params.id);
+      if (!impact) return reply.status(404).send({ error: 'No location with that id.' });
+      return impact;
+    },
+  );
+
+  /** Undoes a location delete from the record the delete returned. */
+  app.post<{ Body: { restore: LocationRestore } }>(
+    '/api/v1/locations/restore',
+    {
+      schema: {
+        body: bodySchema({
+          restore: {
+            type: 'object',
+            required: ['location', 'movedTo', 'lotIds', 'references'],
+            properties: {
+              location: {
+                type: 'object',
+                required: ['id', 'name', 'kind', 'notes', 'isArchived', 'sortOrder', 'createdAt'],
+                properties: {
+                  id: ID, name: NAME, kind: LOCATION_KIND, notes: TEXT_OR_NULL,
+                  isArchived: { type: 'integer', enum: [0, 1] },
+                  sortOrder: { type: 'integer' },
+                  createdAt: TEXT,
+                },
+              },
+              movedTo: ID_OR_NULL,
+              lotIds: { type: 'array', items: ID },
+              // Only the columns the store knows; anything else is refused.
+              references: {
+                type: 'object',
+                additionalProperties: false,
+                properties: Object.fromEntries(LOCATION_REFERENCES.map((key) => [key, { type: 'array', items: ID }])),
+              },
+            },
+          },
+        }, ['restore']),
+      },
+    },
+    async (request, reply) => {
+      try {
+        const id = collection.restoreLocation(request.body.restore);
+        return { locations: collection.locations(), id };
+      } catch (error) {
+        if (error instanceof LocationNameTakenError) return reply.status(409).send({ error: error.message });
+        throw error;
+      }
     },
   );
 

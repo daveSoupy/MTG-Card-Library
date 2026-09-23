@@ -65,7 +65,8 @@ export function DeckImportDialog({ deckId, deckName, formats, onClose, onImporte
       }));
   }, [preview, choice, skipped, boards]);
 
-  const cardCount = entries.reduce((sum, e) => sum + e.quantity, 0);
+  const cardCount = entries.filter((e) => e.board !== 'maybe').reduce((sum, e) => sum + e.quantity, 0);
+  const maybeCount = entries.filter((e) => e.board === 'maybe').reduce((sum, e) => sum + e.quantity, 0);
 
   const commit = async () => {
     setBusy(true); setError(null);
@@ -169,7 +170,7 @@ export function DeckImportDialog({ deckId, deckName, formats, onClose, onImporte
 
             <div className="btnrow">
               <button className="btn" onClick={commit} disabled={busy || entries.length === 0}>
-                {busy ? 'Importing…' : `Import ${cardCount} card${cardCount === 1 ? '' : 's'}`}
+                {busy ? 'Importing…' : importLabel(cardCount, maybeCount)}
               </button>
               <button className="btn secondary" onClick={() => setPreview(null)} disabled={busy}>
                 Back
@@ -180,6 +181,14 @@ export function DeckImportDialog({ deckId, deckName, formats, onClose, onImporte
       </div>
     </div>
   );
+}
+
+/** Says where the cards go, so a Maybeboard section is not read as deck cards. */
+function importLabel(deck: number, maybe: number): string {
+  const cards = (n: number) => `${n} card${n === 1 ? '' : 's'}`;
+  if (maybe === 0) return `Import ${cards(deck)}`;
+  if (deck === 0) return `Import ${cards(maybe)} to Maybe`;
+  return `Import ${cards(deck)} + ${maybe} to Maybe`;
 }
 
 function ImportRow({ line, chosen, skipped, board, onChoose, onSkip, onBoard }: {

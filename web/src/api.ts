@@ -1393,11 +1393,39 @@ export const createLocation = (name: string, kind: string) =>
   send<{ locations: StorageLocation[] }>('/api/v1/locations', 'POST', { name, kind })
     .then((r) => r.locations);
 
+/**
+ * What a location delete hands back: the record that undoes it. Opaque to the
+ * client — `restoreLocation` sends it back unchanged.
+ */
+export interface LocationRestore {
+  location: {
+    id: number; name: string; kind: string; notes: string | null;
+    isArchived: number; sortOrder: number; createdAt: string;
+  };
+  movedTo: number | null;
+  lotIds: number[];
+  references: Record<string, number[]>;
+}
+
+/** What deleting a location would do, for the confirm. */
+export interface LocationImpact {
+  cards: number;
+  lots: number;
+  homeOf: Array<{ id: number; name: string }>;
+}
+
+export const fetchLocationImpact = (id: number) =>
+  getJson<LocationImpact>(`/api/v1/locations/${id}/impact`);
+
 /** `moveTo` relocates the contents first; without it a non-empty location 409s. */
 export const deleteLocation = (id: number, moveTo?: number) =>
-  send<{ locations: StorageLocation[] }>(
+  send<{ locations: StorageLocation[]; restore: LocationRestore }>(
     `/api/v1/locations/${id}${moveTo ? `?moveTo=${moveTo}` : ''}`, 'DELETE',
-  ).then((r) => r.locations);
+  );
+
+/** Undoes a delete; `id` is the location's id now (its old one when that was free). */
+export const restoreLocation = (restore: LocationRestore) =>
+  send<{ locations: StorageLocation[]; id: number }>('/api/v1/locations/restore', 'POST', { restore });
 
 export interface CollectionQuery {
   location?: number; set?: string; q?: string;
@@ -1504,7 +1532,13 @@ export interface DecklistPreview {
 
 export type ColumnRole =
   | 'name' | 'setCode' | 'setName' | 'collectorNumber' | 'quantity'
-  | 'finish' | 'condition' | 'language' | 'price' | 'ignore';
+  | 'finish' | 'condition' | 'language' | 'price' | 'scryfallId' | 'ignore';
+
+/** An alternative for a CSV row, carrying the printing it would import as. */
+export interface CsvCandidate extends ResolvedCard {
+  printingId: string | null;
+  printingExact: boolean;
+}
 
 export interface CsvPreviewRow {
   lineNumber: number;
@@ -1517,7 +1551,8 @@ export interface CsvPreviewRow {
   language: string;
   price: number | null;
   match: ResolvedCard | null;
-  candidates: ResolvedCard[];
+  /** Empty for a settled match; otherwise the alternatives to pick from. */
+  candidates: CsvCandidate[];
   printingId: string | null;
   printingExact: boolean;
 }

@@ -74,6 +74,49 @@ export class LocationInUseError extends Error {
   }
 }
 
+/**
+ * Every other row that points at a location and is cleared when it goes, as
+ * `table.column`. Deleting a location sets these to NULL; undoing it puts back
+ * exactly the rows that pointed at it. A fixed list, so a restore record the
+ * client hands back can only ever name these columns.
+ */
+export const LOCATION_REFERENCES = [
+  'decks.home_location_id',
+  'deck_assembly_items.from_location_id',
+  'deck_assembly_items.to_location_id',
+  'trade_items.destination_location_id',
+  'trade_items.source_location_id',
+  'scan_sessions.default_location_id',
+] as const;
+export type LocationReference = typeof LOCATION_REFERENCES[number];
+
+/** Everything needed to put a deleted location back as it was. */
+export interface LocationRestore {
+  location: {
+    id: number; name: string; kind: string; notes: string | null;
+    isArchived: number; sortOrder: number; createdAt: string;
+  };
+  /** Where its lots went, and which lots they were. */
+  movedTo: number | null;
+  lotIds: number[];
+  /** Row ids per reference column, for only the columns that had any. */
+  references: Partial<Record<LocationReference, number[]>>;
+}
+
+/** What deleting a location would do, for the confirm that asks first. */
+export interface LocationImpact {
+  cards: number;
+  lots: number;
+  homeOf: Array<{ id: number; name: string }>;
+}
+
+export class LocationNameTakenError extends Error {
+  constructor(name: string) {
+    super(`A location called "${name}" already exists, so this one cannot be put back.`);
+    this.name = 'LocationNameTakenError';
+  }
+}
+
 export interface CollectionFilters {
   locationId?: number;
   setCode?: string;
@@ -161,7 +204,100 @@ export class CollectionStore {
     this.db.prepare('DELETE FROM storage_locations WHERE id = ?').run(id);
   }
 
-  /** Moves every card from one location to another, merging identical lots. */
+  /** What deleting a location would move and which decks would lose their home. */
+  locationImpact(id: number): LocationImpact | null {
+    if (!this.db.prepare('SELECT 1 FROM storage_locations WHERE id = ?').get(id)) return null;
+    const lots = this.db.prepare(
+      'SELECT COUNT(*) AS lots, COALESCE(SUM(quantity), 0) AS cards FROM collection_items WHERE location_id = ?',
+    ).get(id) as { lots: number; cards: number };
+    const homeOf = this.db.prepare(
+      'SELECT id, name FROM decks WHERE home_location_id = ? ORDER BY name COLLATE NOCASE',
+    ).all(id) as Array<{ id: number; name: string }>;
+    return { ...lots, homeOf };
+  }
+
+  /**
+   * Deletes a location, moving its lots first, and returns what `restoreLocation`
+   * needs to undo it exactly.
+   *
+   * The move is a plain re-point with no merge, so the lot ids survive it and
+   * the undo can send precisely those lots back. Everything else that pointed
+   * here is recorded before the delete's `SET NULL` erases it.
+   */
+  deleteLocationRecorded(id: number, moveTo?: number): LocationRestore | null {
+    return this.db.transaction(() => {
+      const row = this.db.prepare(`
+        SELECT id, name, kind, notes, is_archived AS isArchived, sort_order AS sortOrder,
+               created_at AS createdAt
+        FROM storage_locations WHERE id = ?`).get(id) as LocationRestore['location'] | undefined;
+      if (!row) return null;
+
+      const lotIds = moveTo === undefined ? [] : (this.db.prepare(
+        'SELECT id FROM collection_items WHERE location_id = ? ORDER BY id',
+      ).all(id) as Array<{ id: number }>).map((lot) => lot.id);
+
+      const references: LocationRestore['references'] = {};
+      for (const reference of LOCATION_REFERENCES) {
+        const [table, column] = reference.split('.');
+        const ids = (this.db.prepare(`SELECT id FROM ${table} WHERE ${column} = ? ORDER BY id`)
+          .all(id) as Array<{ id: number }>).map((r) => r.id);
+        if (ids.length > 0) references[reference] = ids;
+      }
+
+      if (moveTo !== undefined) this.moveLocationContents(id, moveTo);
+      this.deleteLocation(id);
+      return { location: row, movedTo: moveTo ?? null, lotIds, references };
+    })();
+  }
+
+  /**
+   * Puts a deleted location back: the same row (under its old id when that is
+   * still free), its lots, and every reference to it.
+   *
+   * Only lots still sitting where the delete put them come back — one the user
+   * has since moved on, or removed, is left where it is rather than guessed at.
+   * The same goes for references: only rows that are still NULL are re-pointed.
+   */
+  restoreLocation(restore: LocationRestore): number {
+    return this.db.transaction(() => {
+      const { location } = restore;
+      if (this.db.prepare('SELECT 1 FROM storage_locations WHERE name = ?').get(location.name)) {
+        throw new LocationNameTakenError(location.name);
+      }
+      const idFree = !this.db.prepare('SELECT 1 FROM storage_locations WHERE id = ?').get(location.id);
+      const result = this.db.prepare(`
+        INSERT INTO storage_locations (id, name, kind, notes, is_archived, sort_order, created_at)
+        VALUES (?,?,?,?,?,?,?)`)
+        .run(idFree ? location.id : null, location.name, location.kind, location.notes,
+             location.isArchived, location.sortOrder, location.createdAt);
+      const id = Number(result.lastInsertRowid);
+
+      let moved = 0;
+      if (restore.movedTo != null) {
+        const back = this.db.prepare(
+          'UPDATE collection_items SET location_id = ? WHERE id = ? AND location_id = ?',
+        );
+        for (const lotId of restore.lotIds) moved += back.run(id, lotId, restore.movedTo).changes;
+      }
+
+      for (const reference of LOCATION_REFERENCES) {
+        const ids = restore.references[reference];
+        if (!ids) continue;
+        const [table, column] = reference.split('.');
+        const repoint = this.db.prepare(`UPDATE ${table} SET ${column} = ? WHERE id = ? AND ${column} IS NULL`);
+        for (const rowId of ids) repoint.run(id, rowId);
+      }
+
+      // Same reason as the move out: archived-ness can differ between the two.
+      if (moved > 0) reconcileAllDecks(this.db);
+      return id;
+    })();
+  }
+
+  /**
+   * Moves every card from one location to another: a plain re-point, with no
+   * merge, so every lot keeps its id (`deleteLocationRecorded` relies on that).
+   */
   moveLocationContents(fromId: number, toId: number): number {
     return this.db.transaction(() => {
       const moved = (this.db.prepare(

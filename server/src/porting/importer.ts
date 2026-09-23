@@ -92,8 +92,9 @@ export function commitDecklist(
 
   db.transaction(() => {
     for (const entry of entries) {
-      // 'maybe' is a real board, but a pasted list never means to fill it.
-      const board = entry.board === 'maybe' ? 'main' : entry.board;
+      // The board the preview showed. A Maybeboard section lands on the
+      // maybeboard, which reserves nothing and never counts toward legality.
+      const board = entry.board;
       // Alerts deferred to one pass below. Per card, the alert evaluation reads
       // every deck competing for it and prices them; a 100-card list asked that
       // 100 times and kept only the last answer.
@@ -137,8 +138,19 @@ export interface CsvPreviewRow {
   language: string;
   price: number | null;
   match: ResolvedCard | null;
-  candidates: ResolvedCard[];
+  /**
+   * What the user can pick instead, each already carrying the printing it
+   * would import as. Only filled for a row with something to choose — a
+   * settled one has nothing, and a 2,000-row file would otherwise
+   * resolve a printing for every alternative of every row.
+   */
+  candidates: CsvCandidate[];
   /** The printing chosen, and whether the set/number actually pinned it. */
+  printingId: string | null;
+  printingExact: boolean;
+}
+
+export interface CsvCandidate extends ResolvedCard {
   printingId: string | null;
   printingExact: boolean;
 }
@@ -176,6 +188,11 @@ export function previewCollectionCsv(
     ?? (table.hasHeader === false ? headerlessMapping(table.rows[0]) : guessMapping(table.headers));
   const { rows, skipped } = applyMapping(table, mapping);
   const setCodes = setCodeLookup(db);
+  const printingById = db.prepare(`
+    SELECT p.id, p.oracle_id AS oracleId, o.name, p.set_code AS setCode,
+           p.collector_number AS collectorNumber
+    FROM card_printings p JOIN oracle_cards o ON o.oracle_id = p.oracle_id
+    WHERE p.id = ?`);
 
   const previewed: CsvPreviewRow[] = rows.map((row) => {
     // Deckbox and several others write the set's full name rather than its
@@ -183,10 +200,39 @@ export function previewCollectionCsv(
     // printing — which is the wrong price and the wrong cost basis, silently.
     const setCode = row.setCode ?? (row.setName ? setCodes.get(normalizeName(row.setName)) ?? null : null);
 
+    // A Scryfall id names the printing outright, so it wins over whatever the
+    // name, set and number would have resolved to. An id this database does not
+    // know falls through to the name, as if the column were not there.
+    const byId = row.scryfallId ? printingById.get(row.scryfallId) as PrintingById | undefined : undefined;
+    if (byId) {
+      return {
+        lineNumber: row.lineNumber,
+        name: row.name || byId.name,
+        quantity: row.quantity,
+        setCode: byId.setCode,
+        collectorNumber: byId.collectorNumber,
+        finish: row.finish,
+        condition: row.condition,
+        language: row.language,
+        price: row.price,
+        match: { oracleId: byId.oracleId, name: byId.name, via: 'exact' as const, confidence: 1 },
+        candidates: [],
+        printingId: byId.id,
+        printingExact: true,
+      };
+    }
+
     const resolution = resolver.resolve(row.name, setCode);
     const printing = resolution.match
       ? resolvePrinting(db, resolution.match.oracleId, setCode, row.collectorNumber)
       : { printingId: null, exact: false };
+    // A certain match has nothing to choose between, unless two different
+    // cards really do share the name.
+    const settled = resolution.match?.confidence === 1 && resolution.candidates.length <= 1;
+    const candidates: CsvCandidate[] = settled ? [] : resolution.candidates.map((candidate) => {
+      const pick = resolvePrinting(db, candidate.oracleId, setCode, row.collectorNumber);
+      return { ...candidate, printingId: pick.printingId, printingExact: pick.exact };
+    });
 
     return {
       lineNumber: row.lineNumber,
@@ -199,7 +245,7 @@ export function previewCollectionCsv(
       language: row.language,
       price: row.price,
       match: resolution.match,
-      candidates: resolution.candidates,
+      candidates,
       printingId: printing.printingId,
       printingExact: printing.exact,
     };
@@ -275,6 +321,10 @@ export function commitCollectionCsv(
     collection.finishBulkAdd(batchId, input.rows.map((row) => row.printingId));
     return { batchId, lots: input.rows.length, cards };
   })();
+}
+
+interface PrintingById {
+  id: string; oracleId: string; name: string; setCode: string; collectorNumber: string;
 }
 
 /** Set name -> code, so an export that names its sets can still pin printings. */
