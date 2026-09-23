@@ -23,14 +23,13 @@ import { CustomizeView } from './CustomizeView.tsx';
 import { groupByField, type GroupBy } from '../deckView.ts';
 import type { Density, DensityPage } from '../density.ts';
 import { COLLECTION_TABS, type CollectionTab } from '../router.ts';
+import { count, money } from '../format.ts';
 
 const TAB_LABEL: Record<CollectionTab, string> = {
-  browse: 'Browse', add: 'Add by set', sets: 'Set Completion', value: 'Value',
+  browse: 'Cards', add: 'Add by set', sets: 'Set Completion', value: 'Value',
   wants: 'Wants', tradelists: 'For trade',
 };
 
-const money = (value: number | null | undefined) =>
-  value == null ? '—' : `$${Number(value).toFixed(2)}`;
 
 const COLLECTION_SORTS = [
   ['name', 'Name'],
@@ -530,10 +529,10 @@ export function CollectionPage({
         <div style={{ flex: 1 }} />
         {tab !== 'wants' && tab !== 'tradelists' && value && (
           <span className="count">
-            {value.value.total_cards ?? 0} cards · {money(totalValue)}
+            {count(value.value.total_cards ?? 0)} copies · {money(totalValue)}
             {gain != null && (
-              <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>
-                {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)}
+              <span className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'} title="Market value minus what you paid, for copies with a known cost">
+                {' '}{Number(gain) >= 0 ? '+' : ''}{money(gain)} unrealised
               </span>
             )}
           </span>
@@ -553,7 +552,7 @@ export function CollectionPage({
                 onClick={() => setLocationFilter(undefined)}
               >
                 <span>Everywhere</span>
-                <span className="count">{value ? value.value.total_cards ?? 0 : '—'}</span>
+                <span className="count">{value ? count(value.value.total_cards ?? 0) : '—'}</span>
               </button>
               {locations.map((location) => (
                 <div className="loc-row" key={location.id}>
@@ -622,7 +621,7 @@ export function CollectionPage({
                   ? 'Loading…'
                   : loadError
                     ? 'Not loaded'
-                    : `${totals.distinctCards} cards · ${totals.totalCards} copies · ${money(totals.totalValue)}`}
+                    : `${count(totals.distinctCards)} printings · ${count(totals.totalCards)} copies · ${money(totals.totalValue)}`}
               </span>
               <CustomizeView
                 page={page}
@@ -643,7 +642,7 @@ export function CollectionPage({
             {!loading && cards.length === 0 && !loadError && (
               <p className="empty">
                 Nothing here yet. Use <strong>Add by set</strong> to work through a binder,
-                or add cards from the Browse tab.
+                or find cards in <strong>Browse</strong> at the top and add them from there.
               </p>
             )}
 
@@ -720,7 +719,7 @@ export function CollectionPage({
               <div className="colorbar-track">
                 <div className="colorbar-fill cG" style={{ width: `${s.percent_complete ?? 0}%` }} />
               </div>
-              <span className="count">{s.owned_printings}/{s.total_cards} · {s.percent_complete ?? 0}%</span>
+              <span className="count">{count(s.owned_printings)} of {count(s.total_cards)} printings · {s.percent_complete ?? 0}%</span>
             </div>
           ))}
         </div>

@@ -1,3 +1,4 @@
+import { money as formatMoney } from './format.ts';
 import type { BuildabilityRow, DeckBuildability } from './api.ts';
 
 /**
@@ -11,7 +12,7 @@ import type { BuildabilityRow, DeckBuildability } from './api.ts';
 
 /** `$23`, or `$23.50` when the cents matter. Whole dollars lose the `.00`. */
 export function money(value: number): string {
-  return Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
+  return formatMoney(value, { wholeDollars: true });
 }
 
 export function percent(fraction: number): string {
@@ -71,7 +72,7 @@ export function summarySegments(figures: DeckBuildability): SummarySegment[] {
       : '';
     segments.push({
       key: 'cost',
-      text: `${money(figures.costToCompleteUsd)}${unpriced}`,
+      text: `${money(figures.costToCompleteUsd)}${unpriced} to finish`,
       title: figures.unpricedCount > 0
         ? `About ${money(figures.costToCompleteUsd)} to finish, plus ${figures.unpricedCount} `
           + 'card(s) with no price — the real total is higher.'

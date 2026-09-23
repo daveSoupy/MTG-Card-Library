@@ -1,3 +1,4 @@
+import { money } from '../format.ts';
 import { useEffect, useRef, useState } from 'react';
 import {
   addCollectionLot, fetchCard, fetchSettings, imageUrl,
@@ -176,7 +177,7 @@ export function AddCardsDialog({
                     <option key={p.id} value={p.id}>
                       {p.setName} #{p.collectorNumber}
                       {p.isPromo ? ' (promo)' : ''}
-                      {p.priceUsd != null ? ` — $${p.priceUsd.toFixed(2)}` : ''}
+                      {p.priceUsd != null ? ` — ${money(p.priceUsd)}` : ''}
                       {p.ownedQuantity > 0 ? ` (own ${p.ownedQuantity})` : ''}
                     </option>
                   ))}

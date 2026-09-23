@@ -3,8 +3,9 @@ import {
   fetchCard, imageUrl, updateDeckCard,
   type CardDetail, type Deck, type DeckCard,
 } from '../api.ts';
+import { money as formatMoney } from '../format.ts';
 
-const money = (usd: number | null) => (usd == null ? '' : `$${usd.toFixed(2)}`);
+function money(usd: number | null) { return usd == null ? '' : formatMoney(usd); }
 
 /**
  * Choosing which printing's art a deck card wears.

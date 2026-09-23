@@ -44,7 +44,7 @@ export function ownedBadge(card: CardSummary): OwnedBadge | null {
   if (listed > 0) reasons.push(`${listed} on a trade list`);
 
   return {
-    text: `${available}/${owned}`,
+    text: `${available} free of ${owned}`,
     title: reasons.length > 0
       ? `${available} of ${copies(owned)} free — ${reasons.join(', ')}`
       : `${available} of ${copies(owned)} free`,
@@ -57,7 +57,7 @@ export function deckBadge(card: CardSummary): OwnedBadge | null {
   if (count <= 0) return null;
   const names = card.deckNames ?? [];
   return {
-    text: String(count),
+    text: `in ${count} deck${count === 1 ? '' : 's'}`,
     title: names.length > 0
       ? `In ${names.join(', ')}`
       : `In ${count} deck${count === 1 ? '' : 's'}`,

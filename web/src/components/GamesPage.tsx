@@ -7,8 +7,8 @@ import {
 } from '../api.ts';
 import { GameLogDialog } from './GameLogDialog.tsx';
 import { BackToTop } from './BackToTop.tsx';
+import { money } from '../format.ts';
 
-const money = (v: number | null | undefined) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
 
 const dayOf = (timestamp: string) => timestamp.slice(0, 10);
 

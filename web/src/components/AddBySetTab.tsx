@@ -6,6 +6,7 @@ import {
 import { Combobox } from './Combobox.tsx';
 import { CostPoolBanner, CostPoolFields, useCostPool } from './CostPoolControls.tsx';
 import { DENSITIES_FOR, DENSITY_HINT, DENSITY_LABEL, type Density } from '../density.ts';
+import { useCoarsePointer } from '../viewport.ts';
 
 /**
  * Set-scoped entry.
@@ -28,6 +29,7 @@ export function AddBySetTab({
   density?: Density;
   onDensity?: (density: Density) => void;
 }) {
+  const coarse = useCoarsePointer();
   const [setCode, setSetCode] = useState('');
   const [cards, setCards] = useState<Awaited<ReturnType<typeof fetchSetChecklist>>>([]);
   const [loading, setLoading] = useState(false);
@@ -242,7 +244,7 @@ export function AddBySetTab({
             <span className="count">
               {ownedCount} of {cards.length} owned · showing {shown.length}
             </span>
-            <span className="hint">Tap to add · press and hold to remove one</span>
+            <span className="hint">{coarse ? 'Tap to add · press and hold to remove one' : 'Click to add · click and hold to remove one'}</span>
           </div>
           <div className="entry-grid">
             {shown.map((card) => (
@@ -254,7 +256,7 @@ export function AddBySetTab({
                 onPointerUp={endPress}
                 onPointerLeave={endPress}
                 onContextMenu={(e) => e.preventDefault()}
-                title={`Tap to add ${card.name} · hold to remove one`}
+                title={`${coarse ? 'Tap' : 'Click'} to add ${card.name} · hold to remove one`}
               >
                 {/* Ultra-compact is a checklist rather than a wall of art:
                     the collector number and the name are what you read off a

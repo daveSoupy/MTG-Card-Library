@@ -279,9 +279,9 @@ describe('routing', () => {
     expect(url()).toBe('/collection/wants');
   });
 
-  it('a sub-tab pushes its URL, Browse is spelled /collection, and Back retraces', () => {
+  it('a sub-tab pushes its URL, Cards is spelled /collection, and Back retraces', () => {
     const { container } = render(<App />);
-    expect(activeSubtab(container)).toBe('Browse');
+    expect(activeSubtab(container)).toBe('Cards');
 
     const before = window.history.length;
     fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Value' }));
@@ -289,11 +289,11 @@ describe('routing', () => {
     expect(activeSubtab(container)).toBe('Value');
     expect(window.history.length).toBe(before + 1);
 
-    // Browse and the bare /collection are one view: a single URL, so
-    // clicking Browse while on it cannot leave a duplicate entry.
-    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Browse' }));
+    // Cards and the bare /collection are one view: a single URL, so
+    // clicking Cards while on it cannot leave a duplicate entry.
+    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Cards' }));
     expect(url()).toBe('/collection');
-    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Browse' }));
+    fireEvent.click(within(subtabs(container)).getByRole('button', { name: 'Cards' }));
     expect(window.history.length).toBe(before + 2);
 
     window.history.replaceState(null, '', '/collection/value');

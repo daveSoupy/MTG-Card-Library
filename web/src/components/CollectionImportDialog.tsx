@@ -1,3 +1,4 @@
+import { money } from '../format.ts';
 import { useMemo, useState } from 'react';
 import {
   previewCollectionCsv, importCollectionCsv,
@@ -263,7 +264,7 @@ function CsvRow({ row, chosen, skipped, onSkip, onChoose }: {
         {row.setCode ? row.setCode.toUpperCase() : '—'}
         {row.finish !== 'nonfoil' ? ` ${row.finish}` : ''}
         {` ${row.condition}`}
-        {row.price !== null ? ` $${row.price.toFixed(2)}` : ''}
+        {row.price !== null ? ` ${money(row.price)}` : ''}
         {chosen && !exact && <em title="The exact printing was not in the local card data; a default was used."> approx. printing</em>}
       </span>
     </div>

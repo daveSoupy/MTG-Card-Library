@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchShoppingList, imageUrl, pushToWantList, type ShoppingList } from '../api.ts';
+import { money } from '../format.ts';
 
-const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
 /**
  * What a deck still needs buying.

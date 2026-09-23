@@ -1,7 +1,7 @@
 import { imageUrl, type DeckStats, type DeckValidation, type ManaBase, type TemplateProgress } from '../api.ts';
 import { HelpButton } from './helpTopics.tsx';
+import { money } from '../format.ts';
 
-const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
 /**
  * Deck size, drawn as progress toward the format's requirement.

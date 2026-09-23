@@ -109,6 +109,8 @@ export function pickerSearchParams(input: {
  * entirely on a metered connection, where speculative downloads are exactly
  * what the browser is asking us not to do.
  */
+const problemCount = (n: number) => `${n} problem${n === 1 ? '' : 's'}`;
+
 const WARM_ART_COUNT = 8;
 
 function warmArt(cards: CardSummary[]): void {
@@ -582,7 +584,7 @@ export function DeckBuilder({
             onChange={(e) => apply(() => updateDeck(deck.id, {
               homeLocationId: e.target.value ? Number(e.target.value) : null,
             }))}
-            style={{ width: 170 }}
+            style={{ width: 210 }}
             title="Where this deck physically lives — an assembly run moves its cards here"
             aria-label="Home location"
           >
@@ -707,7 +709,7 @@ export function DeckBuilder({
         );
         const verdict = (
           <span className={`verdict-chip ${deck.validation.isLegal ? 'ok' : 'bad'}`}>
-            {deck.validation.isLegal ? 'Legal' : `${deck.validation.issues.filter((i) => i.severity === 'error').length} problems`}
+            {deck.validation.isLegal ? 'Legal' : problemCount(deck.validation.issues.filter((i) => i.severity === 'error').length)}
           </span>
         );
         // Whether the deck is legal and whether you can physically build it
@@ -741,12 +743,12 @@ export function DeckBuilder({
               <button className="btn secondary" onClick={onBack}>← Decks</button>
               {title}
               {statusPill}
-              {formatSelect}
-              {templateSelect}
+              <label className="hdr-field"><span>Format</span>{formatSelect}</label>
+              {templateSelect && <label className="hdr-field"><span>Template</span>{templateSelect}</label>}
               {verdict}
               {strip}
               {shortfallChip}
-              {homeSelect}
+              {homeSelect && <label className="hdr-field"><span>Home</span>{homeSelect}</label>}
               {resumeButton}
               {assembleButtons}
               {toolButtons}

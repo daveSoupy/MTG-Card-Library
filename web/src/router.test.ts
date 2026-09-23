@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_ROUTE, formatRoute, parseRoute, type Route } from './router.ts';
+import { DEFAULT_ROUTE, formatRoute, isUnknownPath, parseRoute, type Route } from './router.ts';
 
 test('every route round-trips through the URL', () => {
   const routes: Route[] = [
@@ -79,4 +79,13 @@ test('trailing slashes and doubled slashes are tolerated', () => {
 test('a search string on a route that has no query is ignored', () => {
   assert.deepEqual(parseRoute('/decks', '?q=bolt'), { name: 'decks' });
   assert.deepEqual(parseRoute('/decks/3', '?utm=whatever'), { name: 'deck', id: 3 });
+});
+
+test('an unrecognised path is flagged; the root and real routes are not', () => {
+  assert.equal(isUnknownPath('/deck/6'), true);
+  assert.equal(isUnknownPath('/collection/nope'), true);
+  assert.equal(isUnknownPath('/'), false);
+  assert.equal(isUnknownPath(''), false);
+  assert.equal(isUnknownPath('/collection'), false);
+  assert.equal(isUnknownPath('/decks/6'), false);
 });

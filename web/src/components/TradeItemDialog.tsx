@@ -4,8 +4,8 @@ import {
   type CardPrinting, type CollectionLot, type Trade, type TradeItem,
 } from '../api.ts';
 import { Combobox } from './Combobox.tsx';
+import { money } from '../format.ts';
 
-const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const FINISHES = ['nonfoil', 'foil', 'etched'] as const;
 const FINISH_LABEL: Record<string, string> = { nonfoil: 'Non-foil', foil: 'Foil', etched: 'Etched' };
 

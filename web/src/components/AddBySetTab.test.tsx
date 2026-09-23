@@ -60,7 +60,7 @@ describe('AddBySetTab', () => {
     render(<AddBySetTab sets={sets} locations={[location]} onChanged={onChanged} />);
     await openSet();
 
-    fireEvent.click(screen.getByTitle(/Tap to add Test Card/));
+    fireEvent.click(screen.getByTitle(/to add Test Card/));
     // The number and the toast are there while the POST is still in flight…
     expect(screen.getByText('1', { selector: '.tile-owned' })).toBeInTheDocument();
     expect(screen.getByText('Added Test Card')).toBeInTheDocument();
@@ -79,7 +79,7 @@ describe('AddBySetTab', () => {
     render(<AddBySetTab sets={sets} locations={[location]} onChanged={onChanged} />);
     await openSet();
 
-    fireEvent.click(screen.getByTitle(/Tap to add Test Card/));
+    fireEvent.click(screen.getByTitle(/to add Test Card/));
     await screen.findByText('No such location');
     expect(screen.queryByText('1', { selector: '.tile-owned' })).not.toBeInTheDocument();
     expect(screen.getByText('Not added: Test Card')).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe('AddBySetTab', () => {
     rerender(<AddBySetTab sets={sets} locations={[location]} onChanged={vi.fn()} />);
     await openSet();
 
-    fireEvent.click(screen.getByTitle(/Tap to add Test Card/));
+    fireEvent.click(screen.getByTitle(/to add Test Card/));
     await waitFor(() => expect(addCollectionLot).toHaveBeenCalled());
     expect(vi.mocked(addCollectionLot).mock.calls[0][0]).toMatchObject({ locationId: 1 });
   });

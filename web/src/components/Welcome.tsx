@@ -24,7 +24,7 @@ const STOPS: Array<{ to: WelcomeDestination; title: string; blurb: string }> = [
     to: 'collection',
     title: 'Collection',
     blurb: 'The cards you own, by box or binder, with what they are worth and what you paid. '
-      + 'Add a set at a time, or import a CSV from wherever you tracked them before.',
+      + 'Add a set at a time, or import a CSV from wherever you tracked them before (Data → Collection import and export).',
   },
   {
     to: 'decks',

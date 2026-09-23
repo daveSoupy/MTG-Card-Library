@@ -9,8 +9,8 @@ import { CardPicker } from './CardPicker.tsx';
 import { BackToTop } from './BackToTop.tsx';
 import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
+import { money } from '../format.ts';
 
-const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 
 /**
  * Trade lists — specific owned copies flagged as available to trade away, with

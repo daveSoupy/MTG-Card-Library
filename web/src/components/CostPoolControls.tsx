@@ -5,9 +5,8 @@ import {
   type CostMethod, type CostPool,
 } from '../api.ts';
 import { HelpButton } from './helpTopics.tsx';
+import { money } from '../format.ts';
 
-const money = (value: number | null | undefined) =>
-  value == null ? '—' : `$${Number(value).toFixed(2)}`;
 
 /**
  * Cost-pool state (box split / draft) for the "add by set" flow. Lives on the

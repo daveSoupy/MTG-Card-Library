@@ -324,6 +324,10 @@ button { cursor: pointer; }
 .row { display: flex; align-items: center; gap: 8px; }
 .row + .row { margin-top: 8px; }
 label.check { display: flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13px; }
+/* On the Data page the setting's name outranks its explanation. */
+.data-section label.check { color: var(--text); font-size: 14px; font-weight: 600; }
+.data-section .sync-age { margin: 6px 0 0; font-size: 12.5px; color: var(--text-2); }
+a.btn, a.btn:hover { text-decoration: none; }
 select, input[type='number'] {
   background: var(--panel-2);
   border: 1px solid var(--line-strong);
@@ -549,6 +553,8 @@ input[type='date'] {
 .kv span:first-child { color: var(--text-3); }
 .legalities { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
 .legal-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.legal-status { margin-left: auto; font-size: 11px; color: var(--text-2); }
+.legal-status.banned, .legal-status.restricted { color: var(--warn); }
 .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dot.ok { background: var(--good); }
 
@@ -1189,11 +1195,13 @@ input[type='date'] {
   font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
 }
 .tile-controls {
-  position: absolute; inset: auto 0 0 0;
+  /* Along the top edge, never the bottom: the bottom strip of a card image
+     carries the artist and copyright line, which CLAUDE.md says stays clear. */
+  position: absolute; inset: 0 0 auto 0;
   display: flex; justify-content: center; gap: 4px;
   padding: 6px; opacity: 0;
-  background: linear-gradient(to top, rgba(8, 10, 14, .9), transparent);
-  border-radius: 0 0 8px 8px;
+  background: linear-gradient(to bottom, rgba(8, 10, 14, .9), transparent);
+  border-radius: 8px 8px 0 0;
   transition: opacity .12s ease;
   /* Invisible must mean untouchable: a closed bar still sat over the bottom
      of the art, and a tap there pressed a button nobody could see rather
@@ -1511,7 +1519,7 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .entry-tile:hover img, .entry-tile:hover .placeholder { outline: 2px solid var(--accent); outline-offset: 1px; }
 .entry-tile.owned img, .entry-tile.owned .placeholder { opacity: .45; }
 .entry-number {
-  position: absolute; bottom: 4px; left: 4px;
+  position: absolute; top: 4px; left: 4px;
   background: rgba(8,10,14,.8); color: #e7ecf5;
   font-family: var(--mono); font-size: 10px; border-radius: 4px; padding: 1px 5px;
 }
@@ -1676,7 +1684,7 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .data-section h3 { margin: 0; font-size: 15px; }
 .data-section h4 { margin: 6px 0 0; font-size: 12px; color: var(--text-2); font-weight: 600; }
 .data-section.danger { border-color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
-.data-section .hint { margin: 0; line-height: 1.5; }
+.data-section .hint { margin: 0; line-height: 1.5; font-size: 12.5px; color: var(--text-2); }
 .mono { font-family: var(--mono); font-size: 11px; }
 .dim { color: var(--text-3); }
 
@@ -2215,7 +2223,12 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
   .topbar .tabs { order: -2; }
   .topbar .alerts-bell { order: -1; }
   .topbar .topbar-help { display: none; }
-  .tabs .tabs-help { display: block; }
+  /* A full-size target, pinned to the strip's right edge so the bell and a
+     scrolled tab row can never squeeze it to a sliver. */
+  .tabs .tabs-help {
+    display: block; flex: none; min-width: 36px;
+    position: sticky; right: 0; background: var(--panel); z-index: 1;
+  }
   /* The tabs are the flexible item on this row; a spacer beside them would
      take half of what they need. */
   .topbar-spacer { display: none; }
@@ -2411,6 +2424,12 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
      count stays beside the title, with the active tab snapped into view
      (CollectionPage scrolls it there on change). */
   .subtabs { order: 10; scroll-snap-type: x proximity; }
+  /* A fade on the right edge says the strip scrolls, so "For trade" is found. */
+  .tabs.subtabs {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    padding-right: 20px;
+  }
   /* 7px sides: the last tab ("For trade") began 5px before the strip's right
      edge, and those 5px were the only hint that the strip scrolls; now about
      half of it shows. Two classes, because `.tabs.small button` (11px) would
@@ -2868,7 +2887,9 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
   font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums;
 }
 .build-strip .build-seg + .build-seg::before {
+  /* inline-block, or the separator inherits the link underline on hover. */
   content: "·"; margin-right: 6px; color: var(--line-strong);
+  display: inline-block; text-decoration: none;
 }
 button.build-seg {
   background: none; border: 0; padding: 0; cursor: pointer;
@@ -2880,7 +2901,8 @@ button.build-seg:hover { text-decoration: underline; }
 /* The same verdict the text row shows, over the art. Loud on purpose: it only
    ever appears when the card needs something doing about it. */
 .tile-chip {
-  position: absolute; bottom: 5px; left: 5px; right: 5px;
+  /* Top-right, clear of the artist/copyright strip at the bottom of the art. */
+  position: absolute; top: 5px; right: 5px; max-width: calc(100% - 10px);
   font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 1px 7px;
   text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   background: var(--warn); color: var(--bg);
@@ -3201,3 +3223,29 @@ button.build-seg:hover { text-decoration: underline; }
   .substitutes-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .substitute-tile { padding: 6px; }
 }
+
+/* Phase 41B: the desktop deck header's selects carry a visible caption, as the
+   phone sheet's do. */
+.hdr-field { display: inline-flex; flex-direction: column; gap: 1px; }
+.hdr-field > span { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.route-notice {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  margin: 8px 12px 0; padding: 6px 10px; border-radius: 7px;
+  background: var(--panel-2); border: 1px solid var(--line-strong);
+  font-size: 12.5px; color: var(--text-2);
+}
+
+/* The printed cost, symbol by symbol (ManaSymbols). */
+.mana-symbols { display: inline-flex; align-items: center; gap: 6px; vertical-align: middle; }
+.mana-face { display: inline-flex; align-items: center; gap: 2px; }
+.mana-split { color: var(--text-3); margin-right: 4px; font-size: 11px; }
+.mana-pip {
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 700 10px/1 var(--mono); color: #111; background: var(--line-strong);
+}
+.mana-pip.W { background: var(--w); } .mana-pip.U { background: var(--u); }
+.mana-pip.B { background: var(--b); color: #eee; } .mana-pip.R { background: var(--r); }
+.mana-pip.G { background: var(--g); }
+.mana-pip.H { background: linear-gradient(135deg, var(--m) 0 50%, var(--h) 50% 100%); }
+.mana-pip.C { background: #c9c4bd; }

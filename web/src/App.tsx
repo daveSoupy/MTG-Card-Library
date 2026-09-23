@@ -31,8 +31,9 @@ import { SCOPES, SCOPE_HINT, SCOPE_LABEL, scopeOf, withScope } from './searchSco
 import { deckBadge, ownedBadge } from './ownedBadge.ts';
 import { ManaCost } from './components/ManaCost.tsx';
 import {
-  DEFAULT_ROUTE, onRouteChange, pushRoute, readRoute, replaceRoute, type Route,
+  DEFAULT_ROUTE, isUnknownPath, onRouteChange, pushRoute, readRoute, replaceRoute, type Route,
 } from './router.ts';
+import { money } from './format.ts';
 
 const SORTS = [
   ['relevance', 'Best match'],
@@ -49,8 +50,6 @@ const PAGE_SIZE = 60;
 const BROWSE_GROUPS: GroupBy[] =
   ['none', 'type', 'subtype', 'rarity', 'color', 'colorIdentity', 'mana', 'set'];
 
-const money = (value: number | null | undefined) =>
-  value == null ? '—' : `$${Number(value).toFixed(2)}`;
 
 /** The filter panel's state as the search API wants it. Shared by the initial
  *  search and by "Load more", so the two cannot drift apart. */
@@ -93,12 +92,16 @@ export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [showSync, setShowSync] = useState(false);
   const [view, setView] = useState<View>(readRoute);
+  // A mistyped or stale link (`/deck/6`) still lands on Collection, but says so.
+  const [lostPath, setLostPath] = useState<string | null>(
+    () => (isUnknownPath(window.location.pathname, window.location.search) ? window.location.pathname : null));
   // A `/browse?q=` link seeds the box; otherwise the query starts empty.
   const [text, setText] = useState(() => (view.name === 'browse' ? view.q ?? '' : ''));
 
   /** Every deliberate move between views: a tab, opening a deck, the deck
    *  builder's back arrow. Pushes a history entry so Back retraces it. */
   const navigate = useCallback((route: View) => {
+    setLostPath(null);
     pushRoute(route);
     setView(route);
   }, []);
@@ -109,6 +112,7 @@ export default function App() {
   useEffect(() => {
     replaceRoute(readRoute());
     return onRouteChange((route) => {
+      setLostPath(isUnknownPath(window.location.pathname, window.location.search) ? window.location.pathname : null);
       setView(route);
       if (route.name === 'browse') setText(route.q ?? '');
     });
@@ -551,6 +555,12 @@ export default function App() {
           aria-label="Help"
         >?</button>
       </header>
+      {lostPath && (
+        <div className="route-notice" role="status">
+          <span>That page doesn't exist (<code>{lostPath}</code>) — showing Collection instead.</span>
+          <button className="linkish" onClick={() => setLostPath(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
 
       {view.name === 'collection' && (
         <CollectionPage
@@ -699,7 +709,7 @@ export default function App() {
                             {card.collectorNumber ? ` #${card.collectorNumber}` : ''}
                           </span>
                           <span className="tr-qty" title={owned?.title}>
-                            {owned ? `×${owned.text}` : ''}
+                            {owned ? (/^\d+$/.test(owned.text) ? `×${owned.text}` : owned.text) : ''}
                           </span>
                           <span className="tr-price">{money(card.priceUsd)}</span>
                         </div>
@@ -717,7 +727,7 @@ export default function App() {
                               "do I own this?", and the reason a copy you own
                               may still not be one you can build with. */}
                           {decks && (
-                            <span className="deck-badge" title={decks.title}>⛁{decks.text}</span>
+                            <span className="deck-badge" title={decks.title}>{decks.text}</span>
                           )}
                           <div className="cname">
                             <span className="cname-text">{card.name}</span>

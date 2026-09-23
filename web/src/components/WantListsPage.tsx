@@ -14,8 +14,8 @@ import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
 import type { Density, DensityPage } from '../density.ts';
 import { useNarrow } from '../viewport.ts';
+import { money } from '../format.ts';
 
-const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
 const PRIORITY = ['—', 'Low', 'Medium', 'High'];
 
 /** One pointer's drag, from pointerdown to release. `lift` is null until the

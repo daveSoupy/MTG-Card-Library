@@ -25,7 +25,7 @@ test('a claimed copy splits the badge and says who has it', () => {
   const badge = ownedBadge(card({
     ownedQuantity: 4, availableQuantity: 1, reservedQuantity: 2, tradeListedQuantity: 1,
   }));
-  assert.equal(badge?.text, '1/4');
+  assert.equal(badge?.text, '1 free of 4');
   assert.match(badge!.title, /2 in decks/);
   assert.match(badge!.title, /1 on a trade list/);
 });
@@ -43,7 +43,7 @@ test('an older row with no allocation fields still shows what it owns', () => {
 
 test('the deck badge names the decks', () => {
   const badge = deckBadge(card({ deckCount: 2, deckNames: ['Atraxa', 'Rakdos, Lord of Riots'] }));
-  assert.equal(badge?.text, '2');
+  assert.equal(badge?.text, 'in 2 decks');
   assert.equal(badge?.title, 'In Atraxa, Rakdos, Lord of Riots');
   assert.equal(deckBadge(card({ deckCount: 0 })), null);
 });

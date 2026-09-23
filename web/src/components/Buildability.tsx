@@ -41,7 +41,7 @@ export function BuildabilityBar({ figures }: { figures: DeckBuildability | null 
         {figures.missingCards > 0 ? (
           <>
             <span>{figures.missingCards} missing</span>
-            <span>{money(figures.costToCompleteUsd)}{unpriced}</span>
+            <span>{money(figures.costToCompleteUsd)}{unpriced} to finish</span>
           </>
         ) : (
           <span className="good">ready to build</span>

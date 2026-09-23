@@ -10,7 +10,8 @@
  *
  * Every route round-trips: `parseRoute(formatRoute(r))` is `r`. Anything the
  * parser does not recognise lands on Collection, the same place the app used
- * to start unconditionally, rather than on a 404 page there is no design for.
+ * to start unconditionally, rather than on a 404 page there is no design for;
+ * `isUnknownPath` lets the app add a one-line note that it did.
  */
 
 export const COLLECTION_TABS = ['browse', 'add', 'sets', 'value', 'wants', 'tradelists'] as const;
@@ -100,6 +101,14 @@ export function formatRoute(route: Route): string {
     case 'data':
       return '/data';
   }
+}
+
+/** True for a path the parser did not recognise and sent to Collection —
+ *  `/deck/6`, `/collection/nope` — as opposed to a bare `/`, which is a
+ *  deliberate way in. Lets the app say so instead of silently redirecting. */
+export function isUnknownPath(pathname: string, search = ''): boolean {
+  if (pathname.split('/').filter(Boolean).length === 0) return false;
+  return parseRoute(pathname, search) === DEFAULT_ROUTE;
 }
 
 // ---------------------------------------------------------------- window

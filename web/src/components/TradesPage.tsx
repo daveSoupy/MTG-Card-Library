@@ -9,10 +9,23 @@ import { TradeItemDialog } from './TradeItemDialog.tsx';
 import { BackToTop } from './BackToTop.tsx';
 import { UndoToast } from './UndoToast.tsx';
 import { useUndoShortcuts, useUndoStack } from '../undo.ts';
+import { money } from '../format.ts';
 
-const money = (v: number | null | undefined) => (v == null ? '—' : `$${v.toFixed(2)}`);
-const sumValue = (items: Trade['items'], dir: 'out' | 'in') =>
-  items.filter((i) => i.direction === dir).reduce((t, i) => t + (i.unitValueUsd ?? 0) * i.quantity, 0);
+/** The priced total of one side, and how many of its lines carry no price —
+ *  an unpriced line is unknown, not free, so it is counted rather than summed as $0. */
+function sumValue(items: Trade['items'], dir: 'out' | 'in') {
+  let total = 0;
+  let unpriced = 0;
+  for (const i of items) {
+    if (i.direction !== dir) continue;
+    if (i.unitValueUsd == null) unpriced += 1;
+    else total += i.unitValueUsd * i.quantity;
+  }
+  return { total, unpriced };
+}
+
+const sideTotal = ({ total, unpriced }: { total: number; unpriced: number }) =>
+  `${money(total)}${unpriced > 0 ? ` + ${unpriced} unpriced` : ''}`;
 
 /**
  * An outgoing card the collection can't supply — its lot was edited or deleted
@@ -69,7 +82,7 @@ export function TradesPage({ openId, onOpen, onAlertsChanged }: {
     <div className="list-page">
       {error && <div className="error" onClick={() => setError(null)}>{error}</div>}
       <div className="list-head">
-        <h2>Trades</h2>
+        <h2>Trade log</h2>
         <button className="btn" onClick={start}>New trade</button>
       </div>
 
@@ -267,7 +280,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
 
       <div className="trade-columns">
         <section className="trade-col">
-          <h3>Giving away <span className="trade-value">{money(valueOut)}</span></h3>
+          <h3>Giving away <span className="trade-value">{sideTotal(valueOut)}</span></h3>
           {out.map((item) => (
             <div className="trade-item" key={item.id}>
               {!readOnly ? (
@@ -290,7 +303,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                     : <span className="dim">own {item.ownedQuantity}</span>}
                 </span>
               </span>
-              <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
+              <span className="trade-value">{money(item.unitValueUsd == null ? null : item.unitValueUsd * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
             </div>
           ))}
@@ -303,7 +316,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
         </section>
 
         <section className="trade-col">
-          <h3>Receiving <span className="trade-value">{money(valueIn)}</span></h3>
+          <h3>Receiving <span className="trade-value">{sideTotal(valueIn)}</span></h3>
           {incoming.map((item) => (
             <div className="trade-item" key={item.id}>
               {!readOnly ? (
@@ -330,7 +343,7 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               )}
-              <span className="trade-value">{money((item.unitValueUsd ?? 0) * item.quantity)}</span>
+              <span className="trade-value">{money(item.unitValueUsd == null ? null : item.unitValueUsd * item.quantity)}</span>
               {!readOnly && <button className="row-remove" onClick={() => removeItem(item)}>×</button>}
             </div>
           ))}

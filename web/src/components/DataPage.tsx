@@ -1,3 +1,4 @@
+import type { LibraryStatus } from '../api.ts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   backupDownloadUrl, cancelImageDownload, collectionCsvUrl, fetchImageDownloadStatus,
@@ -8,7 +9,7 @@ import {
   type AppSettings, type ImageDownloadScope, type ImageDownloadStatus, type ImportBatch,
   type RestoreReport, type ScheduledBackup, type StorageInfo, type StorageLocation,
 } from '../api.ts';
-import { formatBytes, percent } from '../format.ts';
+import { count, formatBytes, money, percent } from '../format.ts';
 import { CollectionImportDialog } from './CollectionImportDialog.tsx';
 import { PairPhonePanel } from './PairPhonePanel.tsx';
 import { HelpButton } from './helpTopics.tsx';
@@ -23,6 +24,13 @@ const formatWhen = (iso: string) => new Date(iso).toLocaleString();
  * Restoring is the only genuinely destructive thing in the app, so it is behind
  * an explicit confirmation that names what is about to be replaced.
  */
+/** "today", "3 days ago" — the staleness is the point, the timestamp is detail. */
+function syncAge(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 0) return 'today';
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
 export function DataPage({
   locations, onCollectionChanged, onSettingsChanged, theme, onTheme, onSync,
 }: {
@@ -38,6 +46,7 @@ export function DataPage({
   onSync: () => void;
 }) {
   const [batches, setBatches] = useState<ImportBatch[]>([]);
+  const [library, setLibrary] = useState<LibraryStatus | null>(null);
   const [backups, setBackups] = useState<ScheduledBackup[]>([]);
   const [directory, setDirectory] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -78,6 +87,10 @@ export function DataPage({
     fetchImageDownloadStatus().then(setDownload).catch(() => { /* no job yet */ });
     loadStorage();
   }, [loadStorage]);
+
+  useEffect(() => {
+    fetchStatus().then((s) => setLibrary(s.library)).catch(() => { /* the line just stays off */ });
+  }, []);
 
   // Poll while a download runs, then refresh the storage figures once it stops.
   useEffect(() => {
@@ -159,7 +172,7 @@ export function DataPage({
   const reopen = async (batch: ImportBatch) => {
     const when = formatWhen(batch.importedAt);
     const detail = `opened ${when} with ${batch.cardsRemaining} card`
-      + `${batch.cardsRemaining === 1 ? '' : 's'} for $${(batch.totalCostUsd ?? 0).toFixed(2)}`;
+      + `${batch.cardsRemaining === 1 ? '' : 's'} for ${money(batch.totalCostUsd ?? 0)}`;
     if (!confirm(`Reopen “${batch.fileName ?? 'this pool'}” — ${detail}. Add more to it now?`)) return;
     setBusy(true);
     setError(null);
@@ -207,6 +220,13 @@ export function DataPage({
           catalogue, then refreshes prices, categories and rulings from the same run.
           Everything stays searchable while it works.
         </p>
+        {library && (
+          <p className="sync-age">
+            {library.lastSyncedAt
+              ? <>Last synced {new Date(library.lastSyncedAt).toLocaleString()} ({syncAge(library.lastSyncedAt)}) — cards and prices together.</>
+              : 'Never synced.'}
+          </p>
+        )}
         <div className="btnrow">
           <button className="btn" onClick={onSync}>Sync card data</button>
         </div>
@@ -250,6 +270,7 @@ export function DataPage({
                 className="btn secondary small"
                 style={{ marginTop: 6 }}
                 disabled={resolving}
+                title="Re-read which cards count as ramp, removal, card draw and so on — the tags deck templates count against"
                 onClick={() => {
                   setResolving(true);
                   resolveCategories()
@@ -262,7 +283,7 @@ export function DataPage({
                     });
                 }}
               >
-                {resolving ? 'Resolving…' : 'Resolve categories'}
+                {resolving ? 'Re-tagging…' : 'Re-tag cards by role'}
               </button>
             </div>
           </div>
@@ -611,12 +632,16 @@ export function DataPage({
           Replaces your collection, decks and lists with the contents of a backup file.
           What is in the app now is discarded.
         </p>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".sqlite,.db,application/octet-stream"
-          onChange={(e) => { setPending(e.target.files?.[0] ?? null); setReport(null); }}
-        />
+        <div className="btnrow">
+          <button className="btn secondary" onClick={() => fileInput.current?.click()}>Choose a backup file…</button>
+          <input
+            ref={fileInput}
+            type="file"
+            hidden
+            accept=".sqlite,.db,application/octet-stream"
+            onChange={(e) => { setPending(e.target.files?.[0] ?? null); setReport(null); }}
+          />
+        </div>
         {pending && (
           <div className="restore-confirm">
             <p>
@@ -684,8 +709,8 @@ export function DataPage({
                   <span className="dim">
                     {batch.totalCostUsd != null ? (
                       <>
-                        ${batch.totalCostUsd.toFixed(2)} · {batch.cardsRemaining} cards
-                        {batch.cardsRemaining > 0 && ` · $${(batch.totalCostUsd / batch.cardsRemaining).toFixed(2)} each`}
+                        {money(batch.totalCostUsd)} · {count(batch.cardsRemaining)} cards
+                        {batch.cardsRemaining > 0 && ` · ${money(batch.totalCostUsd / batch.cardsRemaining)} each`}
                       </>
                     ) : (
                       <>

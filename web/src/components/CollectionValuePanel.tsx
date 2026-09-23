@@ -1,7 +1,6 @@
 import type { CollectionValue } from '../api.ts';
+import { count, money } from '../format.ts';
 
-const money = (value: number | null | undefined) =>
-  value == null ? '—' : `$${Number(value).toFixed(2)}`;
 
 /** Value over time, as a plain SVG line — no chart library for one sparkline. */
 export function ValueChart({ history }: { history: CollectionValue['history'] }) {
@@ -62,11 +61,11 @@ export function CollectionValuePanel({ value }: { value: CollectionValue | null 
           <b className={Number(gain) >= 0 ? 'gain-up' : 'gain-down'}>{money(gain)}</b>
           <span>unrealised</span>
         </div>
-        <div className="stat"><b>{value?.value.total_cards ?? 0}</b><span>cards</span></div>
+        <div className="stat"><b>{count(value?.value.total_cards ?? 0)}</b><span>copies</span></div>
       </div>
       {value && <ValueChart history={value.history} />}
       <p className="note">
-        Cost covers only the {value?.value.cost_known_cards ?? 0} copies with a known
+        Cost covers only the {count(value?.value.cost_known_cards ?? 0)} copies with a known
         purchase price; the rest are recorded as unknown rather than free, so the
         unrealised figure is not inflated.
       </p>

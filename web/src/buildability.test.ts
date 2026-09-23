@@ -45,9 +45,9 @@ test('a deck that is nearly there never rounds up to finished', () => {
   assert.equal(percent(0), '0%');
 });
 
-test('the header strip reads 94% - 6 missing - $23', () => {
+test('the header strip reads 94% - 6 missing - $23 to finish', () => {
   const segments = summarySegments(figures());
-  assert.deepEqual(segments.map((s) => s.text), ['94%', '6 missing', '$23']);
+  assert.deepEqual(segments.map((s) => s.text), ['94%', '6 missing', '$23 to finish']);
   assert.deepEqual(segments.map((s) => s.actionable), [false, true, true]);
 });
 
@@ -68,7 +68,7 @@ test('an empty deck reads empty, not 100% buildable', () => {
 test('unpriced cards ride along with the total instead of vanishing into it', () => {
   const segments = summarySegments(figures({ unpricedCount: 2 }));
   const cost = segments.find((s) => s.key === 'cost')!;
-  assert.equal(cost.text, '$23 + 2 unpriced');
+  assert.equal(cost.text, '$23 + 2 unpriced to finish');
   assert.match(cost.title, /the real total is higher/);
 });
 

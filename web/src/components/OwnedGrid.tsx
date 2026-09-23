@@ -1,9 +1,8 @@
 import { imageUrl, type CollectionCard } from '../api.ts';
 import type { Density } from '../density.ts';
 import { ManaCost } from './ManaCost.tsx';
+import { money } from '../format.ts';
 
-const money = (value: number | null | undefined) =>
-  value == null ? '—' : `$${Number(value).toFixed(2)}`;
 
 export type OwnedGridSelection = { oracleId: string; printingId: string | null; finish: string };
 

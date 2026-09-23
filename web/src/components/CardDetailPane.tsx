@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { fetchCard, fetchCardHolders, setCardArt, imageUrl, type CardDetail, type CardHolders } from '../api.ts';
 import { holdersLine } from '../contention.ts';
-import { ManaCost } from './ManaCost.tsx';
+import { ManaSymbols } from './ManaCost.tsx';
+import { money } from '../format.ts';
 
 const RULING_SOURCE_LABEL: Record<string, string> = { wotc: 'WotC', scryfall: 'Scryfall' };
 
@@ -16,13 +17,20 @@ function tcgplayerUrl(name: string, tcgplayerId: number | null): string {
     : `https://www.tcgplayer.com/search/magic/product?q=${encodeURIComponent(name)}`;
 }
 
-const money = (value: number | null) => (value == null ? '—' : `$${value.toFixed(2)}`);
 
 function legalityClass(status: string): string {
   if (status === 'legal') return 'ok';
   if (status === 'banned') return 'banned';
   if (status === 'restricted') return 'restricted';
   return 'no';
+}
+
+/** The status in words, so the dot is never the only carrier of it. */
+function legalityWord(status: string): string {
+  if (status === 'legal') return 'legal';
+  if (status === 'banned') return 'banned';
+  if (status === 'restricted') return 'restricted';
+  return 'not legal';
 }
 
 export function CardDetailPane({
@@ -132,9 +140,9 @@ export function CardDetailPane({
           <div className="detail-sub">
             {card.typeLine}
             {card.manaCost ? ' · ' : ''}
-            {/* The summary line is scanned; the per-face block below keeps the
-                cost exactly as printed, which is what you came here to read. */}
-            <ManaCost cost={card.manaCost} cmc={card.cmc} />
+            {/* There is room here, so the cost is shown as printed rather than
+                as the compact `3 ●` the dense rows use. */}
+            <ManaSymbols cost={card.manaCost} />
           </div>
 
           {showFaces ? (
@@ -217,8 +225,9 @@ export function CardDetailPane({
             <div className="legalities">
               {card.legalities.map((legality) => (
                 <div className="legal-row" key={legality.format}>
-                  <span className={`dot ${legalityClass(legality.status)}`} />
+                  <span className={`dot ${legalityClass(legality.status)}`} aria-hidden="true" />
                   <span>{legality.displayName}</span>
+                  <span className={`legal-status ${legalityClass(legality.status)}`}>{legalityWord(legality.status)}</span>
                 </div>
               ))}
             </div>

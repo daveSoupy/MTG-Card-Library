@@ -40,7 +40,7 @@ describe('BuildabilityBar', () => {
     render(<BuildabilityBar figures={figures()} />);
     expect(screen.getByText('94%')).toBeInTheDocument();
     expect(screen.getByText('6 missing')).toBeInTheDocument();
-    expect(screen.getByText('$23')).toBeInTheDocument();
+    expect(screen.getByText('$23 to finish')).toBeInTheDocument();
     expect(barOf().style.width).toBe('94%');
   });
 
@@ -54,7 +54,7 @@ describe('BuildabilityBar', () => {
 
   it('carries the unpriced count beside the total instead of hiding it', () => {
     render(<BuildabilityBar figures={figures({ unpricedCount: 2 })} />);
-    expect(screen.getByText('$23 + 2 unpriced')).toBeInTheDocument();
+    expect(screen.getByText('$23 + 2 unpriced to finish')).toBeInTheDocument();
   });
 
   it('renders nothing at all when the figures have not arrived', () => {

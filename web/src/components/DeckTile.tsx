@@ -130,8 +130,8 @@ export function DeckTile({
         {onDetail && (
           <button onClick={onDetail} aria-label={`Details for ${card.name}`} title="Card details">ⓘ</button>
         )}
-        {/* The chip on a tile stays a label: this bar covers the bottom of the
-            art, so a button under it could never be reached. The action lives
+        {/* The chip on a tile stays a label: this bar covers the top of the
+            art, where the chip sits, so a button under it could never be reached. The action lives
             here instead, beside the others, and only for a card you are short of. */}
         {onSwap && canSwap(action) && (
           <button
