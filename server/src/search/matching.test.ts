@@ -31,6 +31,10 @@ const CARDS: Array<{ name: string; type: string; text: string; cost?: string; co
   { name: 'Æther Vial', type: 'Artifact', text: 'Put a creature card onto the battlefield.' },
   { name: 'Boros Recruit', type: 'Creature', text: 'Double strike', cost: '{R/W}', colors: 9 },
   { name: 'Behemoth Sledge', type: 'Artifact — Equipment', text: 'Lifelink', cost: '{1}{G}{W}', colors: 17 },
+  // Same shape as the audit's "sol ring" bug: the name starts with one query
+  // word and the rules text happens to contain the other, in the same row —
+  // a real Sol Ring search returned four of these alongside the card itself.
+  { name: 'Soldier Recruit', type: 'Creature — Human Soldier', text: 'Ring the bell to begin a new phase.' },
 ];
 
 function makeStore() {
@@ -124,9 +128,22 @@ test('a query shorter than a trigram still works instead of erroring', () => {
   close();
 });
 
-test('searching still matches rules text, not just names', () => {
+test('a bare word matches names only — rules text needs o: — the Scryfall way', () => {
   const { store, close } = makeStore();
-  assert.ok(names(store.search('nonbasic', {}, 'relevance', 50)).includes('Wasteland'));
+  // "nonbasic" only ever appears in Wasteland's rules text, never in a name.
+  assert.deepEqual(names(store.search('nonbasic', {}, 'relevance', 50)), []);
+  assert.ok(names(store.search('o:nonbasic', {}, 'relevance', 50)).includes('Wasteland'));
+  close();
+});
+
+test('a bare word does not match across name and rules text on the same card', () => {
+  const { store, close } = makeStore();
+  // The audit's repro: "sol ring" returned Sol Ring plus four Soldiers whose
+  // name merely starts with "Sol" and whose text happens to mention "Ring".
+  assert.deepEqual(names(store.search('sol ring', {}, 'relevance', 50)), []);
+  // The data really does contain both words — o: proves it, so a search that
+  // finds nothing above is the fix working, not a fixture typo.
+  assert.ok(names(store.search('o:ring', {}, 'relevance', 50)).includes('Soldier Recruit'));
   close();
 });
 
@@ -142,11 +159,12 @@ test('gold selects multicolour cards and hybrid selects split symbols', () => {
   close();
 });
 
-test('free text compiles to prefix terms', () => {
-  // Guards the one-character change that fixes all of the above.
-  assert.equal(compileQuery('waste').ftsMatch, '"waste"*');
-  assert.equal(compileQuery('lightning bolt').ftsMatch, '"lightning"* AND "bolt"*');
-  assert.equal(compileQuery('Æther').ftsMatch, '"aether"*');
+test('free text compiles to prefix terms against the name column', () => {
+  // Guards the one-character change that fixes all of the above, and the
+  // `name:` column filter (Phase 41E) that keeps bare words out of rules text.
+  assert.equal(compileQuery('waste').ftsMatch, 'name:"waste"*');
+  assert.equal(compileQuery('lightning bolt').ftsMatch, 'name:"lightning"* AND name:"bolt"*');
+  assert.equal(compileQuery('Æther').ftsMatch, 'name:"aether"*');
   assert.equal(compileQuery('t:creature').ftsMatch, null, 'operators are not free text');
 });
 

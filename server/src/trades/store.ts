@@ -411,8 +411,30 @@ export class TradeStore {
       : options.sort === 'oldest'
         ? `${drafts}${when} ASC, id ASC`
         : `${drafts}${when} DESC, id DESC`;
+    // A draft has no frozen value_out_usd/value_in_usd — those are only
+    // written at completion — so the list row for one is summed live from its
+    // items instead, the same arithmetic TradeEditor's sumValue does. Gated by
+    // status inside the CASE so a completed or cancelled row, the common case,
+    // never runs the correlated subquery at all.
     const rows = this.db.prepare(`
-      SELECT * FROM trades
+      SELECT trades.*,
+        CASE WHEN status = 'draft' THEN
+          (SELECT COUNT(*) FROM trade_items WHERE trade_id = trades.id) END AS draft_item_count,
+        CASE WHEN status = 'draft' THEN
+          (SELECT COALESCE(SUM(quantity), 0) FROM trade_items WHERE trade_id = trades.id) END AS draft_card_count,
+        CASE WHEN status = 'draft' THEN
+          (SELECT COALESCE(SUM(unit_value_usd * quantity), 0) FROM trade_items
+            WHERE trade_id = trades.id AND direction = 'out') END AS draft_value_out_usd,
+        CASE WHEN status = 'draft' THEN
+          (SELECT COUNT(*) FROM trade_items
+            WHERE trade_id = trades.id AND direction = 'out' AND unit_value_usd IS NULL) END AS draft_out_unpriced,
+        CASE WHEN status = 'draft' THEN
+          (SELECT COALESCE(SUM(unit_value_usd * quantity), 0) FROM trade_items
+            WHERE trade_id = trades.id AND direction = 'in') END AS draft_value_in_usd,
+        CASE WHEN status = 'draft' THEN
+          (SELECT COUNT(*) FROM trade_items
+            WHERE trade_id = trades.id AND direction = 'in' AND unit_value_usd IS NULL) END AS draft_in_unpriced
+      FROM trades
       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY ${order}`).all(...params) as any[];
 
@@ -451,6 +473,14 @@ export class TradeStore {
       valueInUsd: trade.value_in_usd,
       createdAt: trade.created_at,
       updatedAt: trade.updated_at,
+      // Present only on a draft row from list() — undefined (dropped by JSON)
+      // everywhere else, including get(), which returns the real items instead.
+      draftItemCount: trade.draft_item_count ?? undefined,
+      draftCardCount: trade.draft_card_count ?? undefined,
+      draftValueOutUsd: trade.draft_value_out_usd ?? undefined,
+      draftOutUnpriced: trade.draft_out_unpriced ?? undefined,
+      draftValueInUsd: trade.draft_value_in_usd ?? undefined,
+      draftInUnpriced: trade.draft_in_unpriced ?? undefined,
     };
   }
 

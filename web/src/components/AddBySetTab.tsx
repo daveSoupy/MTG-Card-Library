@@ -61,6 +61,9 @@ export function AddBySetTab({
   const [error, setError] = useState<string | null>(null);
 
   const setName = (code: string) => sets.find((s) => s.code === code)?.name ?? code.toUpperCase();
+  // A paper collection has nowhere to put a digital-only set's cards — Alchemy,
+  // Historic and the like never printed a physical copy to log.
+  const paperSets = useMemo(() => sets.filter((s) => !s.digital), [sets]);
 
   const load = useCallback(() => {
     if (!setCode) { setCards([]); return; }
@@ -166,7 +169,7 @@ export function AddBySetTab({
         <label>
           <span>Set</span>
           <Combobox
-            options={sets.map((s) => ({ value: s.code, label: `${s.name} (${s.code.toUpperCase()})` }))}
+            options={paperSets.map((s) => ({ value: s.code, label: `${s.name} (${s.code.toUpperCase()})` }))}
             value={setCode}
             onChange={setSetCode}
             placeholder="Search sets…"
@@ -249,7 +252,7 @@ export function AddBySetTab({
             <span className="count">
               {ownedCount} of {cards.length} owned · showing {shown.length}
             </span>
-            <span className="hint">{coarse ? 'Tap to add · press and hold to remove one' : 'Click to add · click and hold to remove one'}</span>
+            <span className="hint">{coarse ? 'Tap to add · press and hold to remove one' : 'Click to add · click and hold or right-click to remove one'}</span>
           </div>
           <div className="entry-grid">
             {shown.map((card) => (
@@ -260,8 +263,14 @@ export function AddBySetTab({
                 onPointerDown={() => startPress(card.printing_id, card.name)}
                 onPointerUp={endPress}
                 onPointerLeave={endPress}
-                onContextMenu={(e) => e.preventDefault()}
-                title={`${coarse ? 'Tap' : 'Click'} to add ${card.name} · hold to remove one`}
+                // Right-click is the mouse's equivalent of a long-press: the
+                // browser's own context menu never fires, and a copy comes off
+                // instead.
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (card.owned_qty > 0) removeOne(card.printing_id, card.name);
+                }}
+                title={`${coarse ? 'Tap' : 'Click'} to add ${card.name} · hold${coarse ? '' : ' or right-click'} to remove one`}
               >
                 {/* Ultra-compact is a checklist rather than a wall of art:
                     the collector number and the name are what you read off a
@@ -279,6 +288,9 @@ export function AddBySetTab({
                       : <div className="placeholder">{card.name}</div>}
                     <span className="entry-number">#{card.collector_number}</span>
                     {card.owned_qty > 0 && <span className="tile-owned">{card.owned_qty}</span>}
+                    {card.owned_qty > 0 && (
+                      <span className="entry-remove" aria-hidden="true">−</span>
+                    )}
                   </>
                 )}
               </button>

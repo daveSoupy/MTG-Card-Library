@@ -239,6 +239,17 @@ export function reconcileAlerts(
       oracleId, name: card.name, owned: card.owned, allocated: card.held,
       short: card.shortfall, holders: card.holders, shortDecks: card.shortDecks,
     };
+    raised.push(payload);
+
+    // A dismissed alert whose fight has not actually changed stays dismissed.
+    // Without this, editing any deck that shares a card with a dismissed
+    // conflict re-raised it — `reconcileAlerts` runs on nearly every write, and
+    // a card can be contested by decks that have nothing to do with the one
+    // just edited. Only a real change to the fight (who is short, who holds it,
+    // by how much) earns it back into the inbox.
+    const existing = alerts.getByDedupeKey(key);
+    if (existing && existing.state !== 'active' && sameConflict(existing.payload, payload)) continue;
+
     alerts.raise({
       kind: 'allocation_conflict',
       dedupeKey: key,
@@ -247,9 +258,18 @@ export function reconcileAlerts(
       message: describe(card),
       payload,
     });
-    raised.push(payload);
   }
   return raised;
+}
+
+/** Whether two conflict payloads describe the same fight — same shortfall,
+ *  same holders, same short decks — the fields `reconcileAlerts` re-raises on. */
+function sameConflict(a: unknown, b: ContentionAlertPayload): boolean {
+  const prior = a as Partial<ContentionAlertPayload> | null;
+  if (!prior || typeof prior !== 'object') return false;
+  return prior.short === b.short
+    && JSON.stringify(prior.holders) === JSON.stringify(b.holders)
+    && JSON.stringify(prior.shortDecks) === JSON.stringify(b.shortDecks);
 }
 
 /** The alert's one sentence. */

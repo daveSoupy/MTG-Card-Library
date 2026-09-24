@@ -94,6 +94,8 @@ export interface BuildabilityDetail {
   deckName: string;
   summary: DeckBuildability;
   rows: BuildabilityRow[];
+  /** Exempt basic lands this deck lists, by card — Assemble's "also pull" note. */
+  exemptBasics: Array<{ oracleId: string; name: string; quantity: number }>;
 }
 
 /**
@@ -272,6 +274,8 @@ interface Engine {
   requirements: Map<number, Requirement[]>;
   /** Copies of exempt basic lands each deck lists, left out of `requirements`. */
   exemptBasics: Map<number, number>;
+  /** The same, broken down by card — what Assemble's "also pull" note lists. */
+  exemptBasicsByCard: Map<number, Map<string, { name: string; quantity: number }>>;
   unitPrice: (oracleId: string, preferredPrintingId: string | null) => MissingCopyPrice | null;
   effectiveStatus: (deckId: number) => DeckStatus;
 }
@@ -348,6 +352,7 @@ function gather(
 
   const requirements = new Map<number, Requirement[]>();
   const exemptBasics = new Map<number, number>();
+  const exemptBasicsByCard = new Map<number, Map<string, { name: string; quantity: number }>>();
   const byDeckAndOracle = new Map<number, Map<string, Requirement>>();
   for (const row of slotRows) {
     const deck = decks.get(row.deck_id);
@@ -361,6 +366,11 @@ function gather(
     const isBasic = Boolean(row.is_basic_land);
     if (isBasic && settings.ignoreBasics) {
       exemptBasics.set(row.deck_id, (exemptBasics.get(row.deck_id) ?? 0) + row.quantity);
+      const byCard = exemptBasicsByCard.get(row.deck_id) ?? new Map<string, { name: string; quantity: number }>();
+      const existingBasic = byCard.get(row.oracle_id);
+      if (existingBasic) existingBasic.quantity += row.quantity;
+      else byCard.set(row.oracle_id, { name: row.card_name, quantity: row.quantity });
+      exemptBasicsByCard.set(row.deck_id, byCard);
       continue;
     }
 
@@ -400,6 +410,7 @@ function gather(
     collection: collectionRollup(db),
     requirements,
     exemptBasics,
+    exemptBasicsByCard,
     unitPrice: missingCopyPrices(db, oracleIds, printingIds),
     effectiveStatus,
   };
@@ -643,11 +654,16 @@ export function buildabilityDetail(
     || (b.extendedUsd ?? 0) - (a.extendedUsd ?? 0)
     || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
+  const exemptBasics = [...(engine.exemptBasicsByCard.get(deckId)?.entries() ?? [])]
+    .map(([oracleId, { name, quantity }]) => ({ oracleId, name, quantity }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
   return {
     deckId,
     deckName: meta.name,
     summary: summarise(deckId, rows, engine.exemptBasics.get(deckId) ?? 0),
     rows,
+    exemptBasics,
   };
 }
 

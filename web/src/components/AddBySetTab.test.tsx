@@ -9,8 +9,9 @@ vi.mock('../api.ts', async (importOriginal) => ({
   fetchOpenCostPool: vi.fn().mockResolvedValue(null),
   fetchSetChecklist: vi.fn(),
   addCollectionLot: vi.fn(),
+  decrementCollectionCopy: vi.fn(),
 }));
-import { addCollectionLot, fetchSetChecklist } from '../api.ts';
+import { addCollectionLot, decrementCollectionCopy, fetchSetChecklist } from '../api.ts';
 
 const location: StorageLocation = {
   id: 1, name: 'Binder A', kind: 'binder', notes: null, is_default: 1,
@@ -40,6 +41,7 @@ describe('AddBySetTab', () => {
   beforeEach(() => {
     vi.mocked(fetchSetChecklist).mockResolvedValue([card] as never);
     vi.mocked(addCollectionLot).mockReset();
+    vi.mocked(decrementCollectionCopy).mockReset();
   });
 
   it('renders the empty state and toggles "Hide ones I have"', () => {
@@ -95,5 +97,40 @@ describe('AddBySetTab', () => {
     fireEvent.click(screen.getByTitle(/to add Test Card/));
     await waitFor(() => expect(addCollectionLot).toHaveBeenCalled());
     expect(vi.mocked(addCollectionLot).mock.calls[0][0]).toMatchObject({ locationId: 1 });
+  });
+
+  it('offers no digital-only set — a paper collection has nowhere to put its cards', async () => {
+    const withDigital = [
+      { code: 'mkm', name: 'Murders at Karlov Manor', digital: 0 },
+      { code: 'ymkm', name: 'Alchemy: Karlov Manor', digital: 1 },
+    ] as never;
+    render(<AddBySetTab sets={withDigital} locations={[location]} onChanged={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('Search sets…'), { target: { value: 'Karlov' } });
+    expect(await screen.findByText(/Murders at Karlov Manor/)).toBeInTheDocument();
+    expect(screen.queryByText(/Alchemy: Karlov Manor/)).not.toBeInTheDocument();
+  });
+
+  it('right-click removes one owned copy, the mouse equivalent of a long-press', async () => {
+    vi.mocked(fetchSetChecklist).mockResolvedValue([{ ...card, owned_qty: 2 }] as never);
+    vi.mocked(decrementCollectionCopy).mockResolvedValue({ removed: true } as never);
+    const onChanged = vi.fn();
+    render(<AddBySetTab sets={sets} locations={[location]} onChanged={onChanged} />);
+    await openSet();
+
+    const tile = screen.getByTitle(/to add Test Card/);
+    expect(tile.querySelector('.entry-remove')).toBeInTheDocument();
+    fireEvent.contextMenu(tile);
+    await waitFor(() => expect(decrementCollectionCopy).toHaveBeenCalled());
+    expect(screen.getByText('Removed Test Card')).toBeInTheDocument();
+  });
+
+  it('right-clicking an unowned tile removes nothing — there is no copy to take back', async () => {
+    render(<AddBySetTab sets={sets} locations={[location]} onChanged={vi.fn()} />);
+    await openSet();
+
+    const tile = screen.getByTitle(/to add Test Card/);
+    expect(tile.querySelector('.entry-remove')).not.toBeInTheDocument();
+    fireEvent.contextMenu(tile);
+    expect(decrementCollectionCopy).not.toHaveBeenCalled();
   });
 });

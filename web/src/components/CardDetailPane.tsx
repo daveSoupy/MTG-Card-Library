@@ -42,6 +42,7 @@ export function CardDetailPane({
   wantPending = false,
   onToggleWantList,
   onMakeCover,
+  onAddToCollection,
 }: {
   oracleId: string | null;
   floating: boolean;
@@ -59,6 +60,8 @@ export function CardDetailPane({
   onToggleWantList?: (oracleId: string, currentlyWanted: boolean) => void;
   /** Deck builder only: make the printing on screen the deck's cover art. */
   onMakeCover?: (printingId: string) => Promise<unknown>;
+  /** Opens Add to collection on the printing currently selected in this pane. */
+  onAddToCollection?: (oracleId: string, printingId: string) => void;
 }) {
   const [card, setCard] = useState<CardDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +124,16 @@ export function CardDetailPane({
         <>
           <div className="detail-title-row">
             <h2>{card.name}</h2>
+            {onAddToCollection && printing && (
+              <button
+                type="button"
+                className="btn small"
+                title={`Add to collection — ${printing.setName} #${printing.collectorNumber}`}
+                onClick={() => onAddToCollection(card.oracleId, printing.id)}
+              >
+                + Collection
+              </button>
+            )}
             {canToggleWantList && (() => {
               const wanted = wantOverride?.has(card.oracleId)
                 ? wantOverride.get(card.oracleId) !== null

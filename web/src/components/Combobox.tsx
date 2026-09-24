@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 export interface ComboOption { value: string; label: string; }
 
 /**
  * A search-as-you-type dropdown: the scrollable list people like, with a filter
  * box on top so a long list (every MTG set) is quick to narrow. Closes on an
- * outside click or Escape.
+ * outside click or Escape; arrow keys move the highlight, Enter picks it — the
+ * ARIA combobox pattern, since this sits on the data-entry screen where
+ * keyboard speed matters most.
  */
 export function Combobox({ options, value, onChange, placeholder }: {
   options: ComboOption[];
@@ -15,8 +17,10 @@ export function Combobox({ options, value, onChange, placeholder }: {
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
   // When a choice was just made, so the focus iOS bounces back to the field
   // right afterwards can be ignored instead of re-opening the list.
   const chosenAt = useRef(0);
@@ -40,6 +44,10 @@ export function Combobox({ options, value, onChange, placeholder }: {
   // focus guard below, a selection can't leave it hanging open on iOS.
   useEffect(() => { setOpen(false); }, [value]);
 
+  // The typed filter reshuffles the list under the highlight; keeping an index
+  // that pointed at the wrong row would pick the wrong set on Enter.
+  useEffect(() => { setActive(0); }, [query, open]);
+
   const choose = (next: string) => {
     chosenAt.current = Date.now();
     onChange(next);
@@ -48,10 +56,17 @@ export function Combobox({ options, value, onChange, placeholder }: {
     inputRef.current?.blur();
   };
 
+  const activeId = shown[active] ? `${listId}-${active}` : undefined;
+
   return (
     <div className="combobox" ref={ref}>
       <input
         ref={inputRef}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open ? activeId : undefined}
         value={open ? query : (selected?.label ?? '')}
         placeholder={placeholder}
         onFocus={() => {
@@ -61,20 +76,39 @@ export function Combobox({ options, value, onChange, placeholder }: {
           setOpen(true); setQuery('');
         }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-        onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); (e.target as HTMLInputElement).blur(); } }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') { setOpen(false); (e.target as HTMLInputElement).blur(); return; }
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (!open) { setOpen(true); return; }
+            setActive((i) => Math.min(i + 1, shown.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!open) { setOpen(true); return; }
+            setActive((i) => Math.max(i - 1, 0));
+          } else if (e.key === 'Enter') {
+            if (!open || shown.length === 0) return;
+            e.preventDefault();
+            choose(shown[active].value);
+          }
+        }}
         aria-label={placeholder}
       />
       {open && (
-        <div className="combobox-list">
+        <div className="combobox-list" role="listbox" id={listId}>
           {shown.length === 0 && <div className="combobox-empty">No matches</div>}
-          {shown.map((o) => (
+          {shown.map((o, i) => (
             <button
               key={o.value}
-              className={`combobox-option${o.value === value ? ' on' : ''}`}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              className={`combobox-option${o.value === value ? ' on' : ''}${i === active ? ' active' : ''}`}
               // Select on click, not pointerdown: a click never fires during a
               // scroll drag, so the list stays scrollable on touch. choose()
               // closes the list and blurs the field, so it doesn't linger.
               onClick={() => choose(o.value)}
+              onMouseEnter={() => setActive(i)}
             >
               {o.label}
             </button>

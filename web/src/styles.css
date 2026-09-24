@@ -1546,7 +1546,7 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
   display: block; width: 100%; text-align: left; background: none; border: 0;
   color: var(--text-2); padding: 6px 8px; border-radius: 5px; font-size: 13px;
 }
-.combobox-option:hover { background: var(--accent-dim); color: var(--text); }
+.combobox-option:hover, .combobox-option.active { background: var(--accent-dim); color: var(--text); }
 .combobox-option.on { color: var(--text); font-weight: 600; }
 .combobox-empty { padding: 6px 8px; font-size: 12px; color: var(--text-3); }
 
@@ -1571,11 +1571,23 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
   font-size: 10px; color: var(--text-3); border: 1px solid var(--line);
 }
 .entry-tile:hover img, .entry-tile:hover .placeholder { outline: 2px solid var(--accent); outline-offset: 1px; }
-.entry-tile.owned img, .entry-tile.owned .placeholder { opacity: .45; }
+/* Unowned reads as "not yet got" — faded, the way a binder page or a
+   set-completion app shows a hole to fill. An owned copy is the one you
+   already hold, so it stays full-strength; `.tile-owned` and `.entry-remove`
+   are what mark it, not a dimmer picture. */
+.entry-tile:not(.owned) img, .entry-tile:not(.owned) .placeholder { opacity: .45; }
 .entry-number {
   position: absolute; top: 4px; left: 4px;
   background: rgba(8,10,14,.8); color: #e7ecf5;
   font-family: var(--mono); font-size: 10px; border-radius: 4px; padding: 1px 5px;
+}
+/* The one thing press-and-hold / right-click does, said out loud on the tile
+   itself rather than only in the hint line above the grid. */
+.entry-remove {
+  position: absolute; bottom: 4px; right: 4px;
+  background: rgba(8,10,14,.82); color: var(--bad);
+  font-family: var(--mono); font-weight: 700; font-size: 13px; line-height: 1;
+  border-radius: 999px; width: 18px; height: 18px; display: grid; place-items: center;
 }
 
 /* ---------- value ---------- */
@@ -2252,6 +2264,10 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 .trade-name { font-size: 16px; font-weight: 600; }
 .trade-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .trade-summary { padding: 10px 12px; border-radius: var(--radius); background: var(--accent-dim); border: 1px solid var(--accent); font-size: 13px; }
+.trade-meta-edit { display: flex; gap: 10px; flex-wrap: wrap; }
+.trade-meta-edit label { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--text-3); flex: 1 1 220px; }
+.trade-meta { margin: 0; font-size: 12px; }
+.trade-balance { margin: 0; font-size: 13px; font-weight: 600; }
 .conflict-panel { padding: 12px; border: 1px solid var(--warn); border-radius: var(--radius); background: rgba(216, 167, 66, .16); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
 .conflict-panel ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
 .conflict-flag { font-size: 11px; color: var(--warn); }
@@ -2285,6 +2301,14 @@ h3 .help-btn, h4 .help-btn { margin-left: 6px; }
 }
 .alert-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .alert-actions { display: flex; gap: 4px; }
+.alert-actions.bulk { padding: 0 2px; }
+.alert-title { text-align: left; font-weight: 600; }
+.alerts-legend { font-size: 11px; color: var(--text-3); margin: 0 2px; }
+.alerts-group { display: flex; flex-direction: column; gap: 4px; }
+.alerts-group-head {
+  display: flex; align-items: center; justify-content: space-between; margin: 2px;
+  font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em;
+}
 
 /* Narrow widths: stack the topbar into tidy rows and go one-handed. */
 @media (max-width: 620px) {

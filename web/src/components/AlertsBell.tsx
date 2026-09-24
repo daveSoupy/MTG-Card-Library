@@ -1,18 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { acknowledgeAlert, fetchAlerts, resolveAlert, type Alert } from '../api.ts';
+import {
+  acknowledgeAlert, acknowledgeAllAlerts, fetchAlerts, resolveAlert, resolveAllAlerts, type Alert,
+} from '../api.ts';
+import { alertKindLabel, alertRoute, groupByKind } from '../alerts.ts';
+import type { Route } from '../router.ts';
 
 /**
  * The in-app alert inbox in the topbar — price targets hit, wants fulfilled,
  * deck claims reduced, trade-list quantities clamped. Single-user, so there is
  * nowhere to push; this is where those events land.
  */
-export function AlertsBell({ refreshKey }: { refreshKey?: number }) {
+export function AlertsBell({
+  refreshKey,
+  onNavigate,
+}: {
+  refreshKey?: number;
+  /** Takes the user to what an alert is about (a card in Browse, a want list…). */
+  onNavigate?: (route: Route) => void;
+}) {
   // Active = unread; recent = ones you've marked "Seen" and can still look back
   // at until you dismiss them for good.
   const [active, setActive] = useState<Alert[]>([]);
   const [recent, setRecent] = useState<Alert[]>([]);
   const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   // Close on a tap/click anywhere outside — works on touch, where the desktop
@@ -84,6 +96,34 @@ export function AlertsBell({ refreshKey }: { refreshKey?: number }) {
     setCount(r.activeCount);
   };
 
+  const markAllSeen = async (kind?: string) => {
+    setBusy(true);
+    try {
+      await acknowledgeAllAlerts(kind);
+      load();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const dismissAll = async (kind?: string) => {
+    setBusy(true);
+    try {
+      await resolveAllAlerts(kind);
+      load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const go = (alert: Alert) => {
+    const route = alertRoute(alert);
+    if (!route || !onNavigate) return;
+    onNavigate(route);
+    setOpen(false);
+  };
+
+  const activeGroups = groupByKind(active);
+
   return (
     <div className="alerts-bell" ref={ref}>
       <button className="btn secondary" onClick={() => { setOpen((v) => !v); load(); }} title="Alerts" aria-label="Alerts">
@@ -97,33 +137,85 @@ export function AlertsBell({ refreshKey }: { refreshKey?: number }) {
           </div>
           {active.length === 0 && recent.length === 0 && <p className="empty">No alerts.</p>}
 
-          {active.map((a) => (
-            <div className="alert-item" key={a.id}>
-              <div className="alert-text">
-                <strong>{a.title}</strong>
-                {a.message && <span>{a.message}</span>}
+          {active.length > 0 && (
+            <>
+              <p className="alerts-legend">
+                <strong>Seen</strong> keeps it below, in Recent, until you dismiss it.
+                {' '}<strong>Dismiss</strong> clears it for good.
+              </p>
+              <div className="alert-actions bulk">
+                <button className="btn secondary small" disabled={busy} onClick={() => markAllSeen()}>
+                  Mark all seen
+                </button>
+                <button className="btn secondary small" disabled={busy} onClick={() => dismissAll()}>
+                  Dismiss all
+                </button>
               </div>
-              <div className="alert-actions">
-                <button className="btn secondary small" onClick={() => markSeen(a)}>Seen</button>
-                <button className="btn secondary small" onClick={() => dismiss(a)}>Dismiss</button>
+            </>
+          )}
+
+          {activeGroups.map(({ kind, alerts: group }) => (
+            <div key={kind} className="alerts-group">
+              <div className="alerts-group-head">
+                <span>{alertKindLabel(kind)}</span>
+                {group.length > 1 && (
+                  <div className="alert-actions">
+                    <button className="btn secondary small" disabled={busy} onClick={() => markAllSeen(kind)}>
+                      Seen ({group.length})
+                    </button>
+                    <button className="btn secondary small" disabled={busy} onClick={() => dismissAll(kind)}>
+                      Dismiss ({group.length})
+                    </button>
+                  </div>
+                )}
               </div>
+              {group.map((a) => {
+                const route = alertRoute(a);
+                return (
+                  <div className="alert-item" key={a.id}>
+                    <div className="alert-text">
+                      {route && onNavigate ? (
+                        <button type="button" className="linkish alert-title" onClick={() => go(a)}>
+                          {a.title}
+                        </button>
+                      ) : (
+                        <strong>{a.title}</strong>
+                      )}
+                      {a.message && <span>{a.message}</span>}
+                    </div>
+                    <div className="alert-actions">
+                      <button className="btn secondary small" onClick={() => markSeen(a)}>Seen</button>
+                      <button className="btn secondary small" onClick={() => dismiss(a)}>Dismiss</button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ))}
 
           {recent.length > 0 && (
             <>
               <div className="alerts-recent-label">Recent · seen</div>
-              {recent.slice(0, 20).map((a) => (
-                <div className="alert-item recent" key={a.id}>
-                  <div className="alert-text">
-                    <strong>{a.title}</strong>
-                    {a.message && <span>{a.message}</span>}
+              {recent.slice(0, 20).map((a) => {
+                const route = alertRoute(a);
+                return (
+                  <div className="alert-item recent" key={a.id}>
+                    <div className="alert-text">
+                      {route && onNavigate ? (
+                        <button type="button" className="linkish alert-title" onClick={() => go(a)}>
+                          {a.title}
+                        </button>
+                      ) : (
+                        <strong>{a.title}</strong>
+                      )}
+                      {a.message && <span>{a.message}</span>}
+                    </div>
+                    <div className="alert-actions">
+                      <button className="btn secondary small" onClick={() => dismiss(a)}>Dismiss</button>
+                    </div>
                   </div>
-                  <div className="alert-actions">
-                    <button className="btn secondary small" onClick={() => dismiss(a)}>Dismiss</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </>
           )}
         </div>

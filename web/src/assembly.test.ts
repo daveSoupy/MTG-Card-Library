@@ -60,6 +60,7 @@ const sheet = (over: Partial<AssemblySheet> = {}): AssemblySheet => ({
   },
   movesLots: false,
   movesLotsBlocked: null,
+  alsoPull: [],
   ...over,
 });
 

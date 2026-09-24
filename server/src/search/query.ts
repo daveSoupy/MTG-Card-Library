@@ -394,11 +394,17 @@ export function compileQuery(
     .map((word) => normalizeName(word))
     .filter((word) => word.length > 0);
 
+  // Scryfall's plain-word search matches names, not rules text — the Welcome
+  // page promises "the Scryfall way" — so each term is qualified to the `name`
+  // column of card_search rather than matching across name/type/oracle text
+  // too. "sol ring" used to also return Soldiers that merely mention "the
+  // Ring" in reminder text; text search stays available and precise through
+  // `o:`/`text:`.
   return {
     where,
     params,
     ftsMatch: ftsWords.length > 0
-      ? ftsWords.map((w) => `"${w}"*`).join(' AND ')
+      ? ftsWords.map((w) => `name:"${w}"*`).join(' AND ')
       : null,
     freeText: kept.join(' '),
     warnings,

@@ -228,10 +228,13 @@ export class CardSearchStore {
     const params: (string | number)[] = [...compiled.params];
 
     if (compiled.ftsMatch) {
-      // Two ways in, unioned.
+      // Two ways in, unioned, both name-only for bare words (Phase 41E): a
+      // plain query matches card names, the Scryfall way — text search is
+      // `o:`/`text:`, not automatic, so a word that happens to appear in some
+      // unrelated card's rules text does not surface it.
       //
-      // card_search is word-oriented: it covers name, type line and rules text,
-      // and with the trailing `*` from compileQuery it matches word prefixes.
+      // card_search is word-oriented: compileQuery qualifies each term to its
+      // `name` column and adds the trailing `*` so it matches word prefixes.
       // That alone still cannot find a name by its middle — "ightning bolt" —
       // because FTS5 indexes tokens, not substrings.
       //
@@ -647,7 +650,7 @@ export class CardSearchStore {
 
   sets() {
     return this.db.prepare(`
-      SELECT code, name, released_at, card_count FROM sets
+      SELECT code, name, released_at, card_count, digital FROM sets
       WHERE EXISTS (SELECT 1 FROM card_printings p WHERE p.set_code = sets.code)
       ORDER BY COALESCE(released_at,'0000-00-00') DESC, name`).all() as any[];
   }

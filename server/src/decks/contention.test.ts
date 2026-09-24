@@ -311,6 +311,53 @@ test('one alert per contested card; resolving resolves it; recurring re-raises i
   f.db.close();
 });
 
+test('dismissing a conflict sticks through an unrelated edit to the same deck', () => {
+  // Phase 41E #2: `reconcileAlerts` runs on nearly every deck write and used
+  // to reactivate every still-contested card it touched, whether or not the
+  // fight itself had changed. Editing card b (uncontested) in First reconciles
+  // the whole deck's slots, including card a — and used to flip a's dismissed
+  // alert straight back to active for no reason connected to what was edited.
+  const f = fixture([{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }]);
+  own(f, 'a', 1);
+  own(f, 'b', 5);
+  const first = built(f, 'First', [['a', 1], ['b', 1]]);
+  built(f, 'Second', [['a', 1]]);
+  assert.equal(activeAlerts(f).length, 1);
+  const [alert] = activeAlerts(f);
+
+  f.alerts.resolve(alert.id);
+  assert.equal(activeAlerts(f).length, 0);
+
+  // An edit to b, not a — but it reconciles First's whole claim, a included.
+  const bSlot = f.decks.get(first)!.cards.find((c) => c.oracleId === 'b')!.id;
+  f.decks.setQuantity(first, bSlot, 2);
+
+  assert.equal(activeAlerts(f).length, 0, 'the dismissal stuck — nothing about the a fight changed');
+  assert.equal(f.alerts.list({ state: 'resolved' }).find((row) => row.id === alert.id)?.state, 'resolved');
+  f.db.close();
+});
+
+test('dismissing a conflict that then actually changes re-raises it', () => {
+  const f = fixture();
+  own(f, 'a', 1);
+  const first = built(f, 'First', [['a', 1]]);
+  built(f, 'Second', [['a', 1]]);
+  const third = built(f, 'Third', [['a', 1]]);
+  assert.equal(activeAlerts(f).length, 1);
+  const [alert] = activeAlerts(f);
+
+  f.alerts.resolve(alert.id);
+  assert.equal(activeAlerts(f).length, 0);
+
+  // First giving up its claim changes who holds the card and who is short —
+  // a material change to the payload, worth saying again even under the same
+  // dedupe key that was just dismissed.
+  assert.ok(third > 0);
+  f.decks.update(first, { status: 'brew' }); // First yields its claim to whichever comes next
+  assert.equal(activeAlerts(f).length, 1, 'the shape of the fight changed, so it comes back');
+  f.db.close();
+});
+
 test('trigger: a slot leaving the reserving boards, or dropping to zero', () => {
   const f = fixture();
   own(f, 'a', 1);

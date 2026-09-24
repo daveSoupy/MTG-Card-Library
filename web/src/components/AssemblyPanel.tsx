@@ -38,11 +38,24 @@ export function AssemblyPanel({
   const [pushed, setPushed] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
+  // Nothing ticked yet makes this a preview, not a job in progress — closing it
+  // any of the three ways (✕, backdrop, Escape) quietly discards the run rather
+  // than leaving it open for the deck header to offer "Resume pull sheet 0/61".
+  // Once a line is ticked, closing keeps the run open to resume later.
+  const close = () => {
+    if (sheet.run.status === 'open' && sheet.summary.pickedCards === 0) {
+      cancelAssembly(sheet.run.id).catch(() => undefined).finally(onClose);
+    } else {
+      onClose();
+    }
+  };
+
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet.run.id, sheet.run.status, sheet.summary.pickedCards, onClose]);
 
   const run = async <T,>(action: () => Promise<T>): Promise<T | null> => {
     setBusy(true);
@@ -132,14 +145,14 @@ export function AssemblyPanel({
   const remaining = sheet.summary.cardsToPull - sheet.summary.pickedCards;
 
   return (
-    <div className="sync-overlay" onClick={onClose}>
+    <div className="sync-overlay" onClick={close}>
       <div className="playtest-card assembly-card" onClick={(e) => e.stopPropagation()}>
         <div className="assembly-head">
           <div className="assembly-title">
             <h2>{sheet.deck.name}</h2>
             <span className="dim">{RUN_NOUN[sheet.run.kind]}</span>
           </div>
-          <button className="btn secondary" onClick={onClose}>Close</button>
+          <button className="btn secondary" onClick={close}>Close</button>
         </div>
 
         {/* Sticky, because it is the number you look at between every card. */}
@@ -232,6 +245,13 @@ export function AssemblyPanel({
               </div>
             ))}
           </section>
+        )}
+
+        {sheet.alsoPull.length > 0 && (
+          <p className="hint">
+            Also pull: {sheet.alsoPull.map((line) => `${line.name} ×${line.quantity}`).join(', ')}
+            {' '}— basics aren't tracked.
+          </p>
         )}
 
         <div className="assembly-actions">

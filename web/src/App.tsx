@@ -8,6 +8,7 @@ import {
 } from './api.ts';
 import { EMPTY_FILTERS, FilterPanel, filtersAreActive, type Filters } from './components/FilterPanel.tsx';
 import { CardDetailPane } from './components/CardDetailPane.tsx';
+import { AddCardsDialog } from './components/AddCardsDialog.tsx';
 import { SyncGate } from './components/SyncGate.tsx';
 import { DeckList } from './components/DeckList.tsx';
 import { DeckBuilder } from './components/DeckBuilder.tsx';
@@ -105,6 +106,10 @@ export default function App() {
     setLostPath(null);
     pushRoute(route);
     setView(route);
+    // The search box is its own state (for the debounce), so a navigation
+    // that carries a query — an alert linking to a contested card — has to
+    // seed it explicitly, the same as the popstate handler below does.
+    if (route.name === 'browse') setText(route.q ?? '');
   }, []);
 
   // The address bar is the truth on load and on Back/Forward. The one
@@ -137,6 +142,11 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // "Add to collection" from the detail pane. A card added through here has
+  // no other trigger to re-run search — that bump does it, so an owned badge
+  // appears without leaving Browse.
+  const [addingFromBrowse, setAddingFromBrowse] = useState<{ oracleId: string; printingId: string } | null>(null);
+  const [browseRefresh, setBrowseRefresh] = useState(0);
   // Random draws against whatever the search box and filters currently say.
   // One element, rendered in two places: the top bar at desktop widths, and
   // the filter sheet's header on a phone, where the top bar had no room.
@@ -389,7 +399,7 @@ export default function App() {
     }, 180);
 
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [text, filters, sort, status?.library.hasCardData, reconnectEpoch]);
+  }, [text, filters, sort, status?.library.hasCardData, reconnectEpoch, browseRefresh]);
 
   // "/" focuses search, the way every card database does it.
   useEffect(() => {
@@ -550,7 +560,7 @@ export default function App() {
         {/* Theme and Sync live on the Data page: neither is something you
             reach for mid-search, and the top bar was four rows of buttons on
             a phone. */}
-        <AlertsBell refreshKey={alertKey} />
+        <AlertsBell refreshKey={alertKey} onNavigate={navigate} />
         <button
           className="btn secondary topbar-help"
           onClick={() => setHelp('index')}
@@ -637,6 +647,9 @@ export default function App() {
           onClose={() => setFiltersOpen(false)}
           headActions={randomButton}
           queryText={text}
+          // The scope chips above the search box are this same "owned" concept
+          // already — one control, not two that can read differently.
+          omit={['collection']}
           onApplyPreset={(nextFilters, nextQuery) => {
             setFilters(nextFilters);
             setText(nextQuery);
@@ -653,6 +666,12 @@ export default function App() {
               <span className="count">
                 library: {status.library.oracleCards.toLocaleString()} cards
               </span>
+            )}
+            {/* A hover title says the same thing, but never on a phone — a
+                touch never hovers, so the star's meaning needs saying once
+                here rather than depending on a tooltip nobody on touch sees. */}
+            {wantLists.length > 0 && (
+              <span className="hint">★ adds to your want list</span>
             )}
           </div>
 
@@ -746,6 +765,7 @@ export default function App() {
                           className={`want-toggle${wanted ? ' wanted' : ''}`}
                           disabled={pendingWant.has(card.oracleId)}
                           title={wanted ? 'Remove from want list' : 'Add to want list'}
+                          aria-label={wanted ? `Remove ${card.name} from want list` : `Add ${card.name} to want list`}
                           onClick={(e) => { e.stopPropagation(); toggleWantList(card.oracleId, wanted); }}
                         >
                           ★
@@ -801,7 +821,18 @@ export default function App() {
           wantOverride={wantOverride}
           wantPending={selected != null && pendingWant.has(selected)}
           onToggleWantList={toggleWantList}
+          onAddToCollection={(oracleId, printingId) => setAddingFromBrowse({ oracleId, printingId })}
         />
+
+        {addingFromBrowse && (
+          <AddCardsDialog
+            oracleId={addingFromBrowse.oracleId}
+            printingId={addingFromBrowse.printingId}
+            locations={locations}
+            onClose={() => setAddingFromBrowse(null)}
+            onAdded={() => setBrowseRefresh((n) => n + 1)}
+          />
+        )}
       </div>
       )}
 

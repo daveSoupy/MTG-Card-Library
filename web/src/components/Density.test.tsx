@@ -40,7 +40,7 @@ const collectionCard: CollectionCard = {
 };
 
 const alphaSet: SetRecord = {
-  code: 'lea', name: 'Limited Edition Alpha', released_at: '1993-08-05', card_count: 295,
+  code: 'lea', name: 'Limited Edition Alpha', released_at: '1993-08-05', card_count: 295, digital: 0,
 };
 
 const location: StorageLocation = {

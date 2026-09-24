@@ -74,11 +74,26 @@ export class AlertStore {
     return Number(result.lastInsertRowid);
   }
 
-  /** Marks a keyed alert resolved — used to re-arm a price target once the price rises back. */
+  /**
+   * Marks a keyed alert resolved — used to re-arm a price target once the price
+   * rises back, and by `reconcileAlerts` when a card drops out of the contested
+   * set entirely. The payload is cleared along with it: this closes out *this*
+   * instance of the problem, so a future occurrence under the same key is a
+   * fresh fight with nothing to compare against, never one silently swallowed
+   * by looking identical to the one that just ended.
+   */
   resolveByKey(dedupeKey: string): void {
-    prepared(this.db, 
-      `UPDATE alerts SET state = 'resolved' WHERE dedupe_key = ? AND state <> 'resolved'`,
+    prepared(this.db,
+      `UPDATE alerts SET state = 'resolved', payload = NULL WHERE dedupe_key = ? AND state <> 'resolved'`,
     ).run(dedupeKey);
+  }
+
+  /** For a caller deciding whether a re-raise would be a no-op change to an
+   *  already-acknowledged/resolved row (`contention.ts`'s "materially changed"
+   *  check) — reading the row a write would otherwise blindly overwrite. */
+  getByDedupeKey(dedupeKey: string): AlertRow | null {
+    const row = prepared(this.db, `SELECT * FROM alerts WHERE dedupe_key = ?`).get(dedupeKey);
+    return row ? toAlert(row) : null;
   }
 
   list(options: { state?: AlertState } = {}): AlertRow[] {
@@ -104,6 +119,30 @@ export class AlertStore {
 
   acknowledge(id: number): void { this.setState(id, 'acknowledged'); }
   resolve(id: number): void { this.setState(id, 'resolved'); }
+
+  /** Every active alert marked seen, optionally narrowed to one kind. */
+  acknowledgeAll(kind?: AlertKind): number {
+    const result = kind
+      ? prepared(this.db, `
+          UPDATE alerts SET state = 'acknowledged', acknowledged_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+          WHERE state = 'active' AND kind = ?`).run(kind)
+      : prepared(this.db, `
+          UPDATE alerts SET state = 'acknowledged', acknowledged_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+          WHERE state = 'active'`).run();
+    return result.changes;
+  }
+
+  /** Every unresolved alert (active or acknowledged) resolved, optionally by kind. */
+  resolveAll(kind?: AlertKind): number {
+    const result = kind
+      ? prepared(this.db, `
+          UPDATE alerts SET state = 'resolved', acknowledged_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+          WHERE state <> 'resolved' AND kind = ?`).run(kind)
+      : prepared(this.db, `
+          UPDATE alerts SET state = 'resolved', acknowledged_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+          WHERE state <> 'resolved'`).run();
+    return result.changes;
+  }
 }
 
 function toAlert(row: any): AlertRow {

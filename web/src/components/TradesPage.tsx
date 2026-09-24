@@ -36,6 +36,10 @@ function sumValue(items: Trade['items'], dir: 'out' | 'in') {
 const sideTotal = ({ total, unpriced }: { total: number; unpriced: number }) =>
   `${money(total)}${unpriced > 0 ? ` + ${unpriced} unpriced` : ''}`;
 
+/** Same shape as sideTotal, for the list row's live draft totals. */
+const draftSide = (value: number | undefined, unpriced: number | undefined) =>
+  sideTotal({ total: value ?? 0, unpriced: unpriced ?? 0 });
+
 /**
  * An outgoing card the collection can't supply — its lot was edited or deleted
  * after the trade was drafted. Not a deck conflict: there is nothing to
@@ -156,6 +160,13 @@ export function TradesPage({ openId, onOpen, onAlertsChanged }: {
         <button key={t.id} className="trade-row draft" onClick={() => onOpen(t.id)}>
           <span className="trade-who">{t.counterpartyName}</span>
           <span className="dim">draft{t.tradeDate ? ` · ${t.tradeDate}` : ''}</span>
+          {!!t.draftItemCount && (
+            <span className="trade-value">
+              {count(t.draftCardCount ?? 0)} card{t.draftCardCount === 1 ? '' : 's'}
+              {' · give '}{draftSide(t.draftValueOutUsd, t.draftOutUnpriced)}
+              {' · get '}{draftSide(t.draftValueInUsd, t.draftInUnpriced)}
+            </span>
+          )}
         </button>
       ))}
 
@@ -163,7 +174,10 @@ export function TradesPage({ openId, onOpen, onAlertsChanged }: {
       {history.map((t) => (
         <button key={t.id} className="trade-row" onClick={() => onOpen(t.id)}>
           <span className="trade-who">{t.counterpartyName}</span>
-          <span className="dim">{t.status === 'cancelled' ? 'cancelled' : (t.completedAt?.slice(0, 10) ?? t.tradeDate)}</span>
+          {/* The date the trade happened, not the UTC instant it was recorded
+              complete — an evening trade recorded the next day must not read
+              as though it happened then. */}
+          <span className="dim">{t.status === 'cancelled' ? 'cancelled' : (t.tradeDate ?? t.completedAt?.slice(0, 10))}</span>
           {t.status === 'completed' && (
             <span className="trade-value">out {money(t.valueOutUsd)} · in {money(t.valueInUsd)}</span>
           )}
@@ -319,6 +333,15 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
   const shortReason = shortRows.length === 0 ? null
     : `Can't complete: you don't own ${shortRows.map((i) => `${i.quantity} ${i.name} (own ${i.ownedQuantity})`).join(', ')}.`;
 
+  // The one number the two columns never say outright: who came out ahead.
+  // Unpriced lines make it a lower bound rather than the whole truth, so it
+  // says that too rather than reading as more precise than it is.
+  const net = valueIn.total - valueOut.total;
+  const netUnpriced = valueOut.unpriced + valueIn.unpriced;
+  const balanceLabel = net > 0 ? `You're up ${money(net)}`
+    : net < 0 ? `You're down ${money(Math.abs(net))}`
+    : 'Even';
+
   return (
     <div className="list-page trade-editor">
       {error && <div className="error" onClick={() => setError(null)}>{error}</div>}
@@ -332,9 +355,11 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
             onChange={(e) => setTrade({ ...trade, counterpartyName: e.target.value })}
             onBlur={(e) => updateTrade(tradeId, { counterpartyName: e.target.value })} />
         )}
-        {!readOnly && (
+        {!readOnly ? (
           <input type="date" value={trade.tradeDate ?? ''}
             onChange={(e) => { setTrade({ ...trade, tradeDate: e.target.value }); updateTrade(tradeId, { tradeDate: e.target.value || null }); }} />
+        ) : trade.tradeDate && (
+          <span className="dim">{trade.tradeDate}</span>
         )}
         <span className={`verdict-chip ${trade.status === 'completed' ? 'ok' : ''}`}>{trade.status}</span>
       </div>
@@ -345,6 +370,27 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
           {done.clampedTradeListItems ? `${done.clampedTradeListItems} trade-list item(s) clamped. ` : ''}
           {done.resolvedConflicts?.length ? `${done.resolvedConflicts.length} deck claim(s) reduced.` : ''}
         </div>
+      )}
+
+      {!readOnly ? (
+        <div className="trade-meta-edit">
+          <label>
+            <span>Where</span>
+            <input value={trade.locationNote ?? ''} placeholder="A shop, a table at a draft…"
+              onChange={(e) => setTrade({ ...trade, locationNote: e.target.value })}
+              onBlur={(e) => updateTrade(tradeId, { locationNote: e.target.value || null })} />
+          </label>
+          <label>
+            <span>Notes</span>
+            <input value={trade.notes ?? ''} placeholder="Anything worth remembering about this one"
+              onChange={(e) => setTrade({ ...trade, notes: e.target.value })}
+              onBlur={(e) => updateTrade(tradeId, { notes: e.target.value || null })} />
+          </label>
+        </div>
+      ) : (trade.locationNote || trade.notes) && (
+        <p className="dim trade-meta">
+          {trade.locationNote}{trade.locationNote && trade.notes ? ' · ' : ''}{trade.notes}
+        </p>
       )}
 
       <div className="trade-columns">
@@ -367,9 +413,13 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
                         {String(item.setCode).toUpperCase()}{item.finish !== 'nonfoil' ? ` ${item.finish}` : ''} · {item.condition} · {money(item.unitValueUsd)}
                       </button>
                     : <span className="dim">{String(item.setCode).toUpperCase()} · {item.condition}</span>}
-                  {isShort(item)
+                  {/* Today's ownership means nothing once the trade is done —
+                      the card already left, for this trade or a dozen others
+                      since — so the flag (and the count it is built from) is
+                      a draft-only concern. */}
+                  {!readOnly && (isShort(item)
                     ? <span className="conflict-flag" title="The lot this came from has changed since you drafted the trade.">only own {item.ownedQuantity}</span>
-                    : <span className="dim">own {item.ownedQuantity}</span>}
+                    : <span className="dim">own {item.ownedQuantity}</span>)}
                 </span>
               </span>
               <span className="trade-value">{money(item.unitValueUsd == null ? null : item.unitValueUsd * item.quantity)}</span>
@@ -430,6 +480,13 @@ function TradeEditor({ tradeId, onClose, onCompleted }: {
             : <button className="btn secondary small" onClick={() => setAddingIn(true)}>+ Add incoming card</button>)}
         </section>
       </div>
+
+      {(out.length > 0 || incoming.length > 0) && (
+        <p className={`trade-balance ${net > 0 ? 'gain-up' : net < 0 ? 'gain-down' : ''}`}>
+          {balanceLabel}
+          {netUnpriced > 0 && ` — ${netUnpriced} line${netUnpriced === 1 ? '' : 's'} unpriced, so this is a lower bound`}
+        </p>
+      )}
 
       {confirm?.shortfalls?.length ? (
         <div className="conflict-panel">

@@ -255,6 +255,36 @@ test('basic lands never reach the sheet while the exemption is on', () => {
 
   const sheet = openAssemblyRun(db, deckId);
   assert.deepEqual(lines(sheet).map((line) => line.name), ['Alpha']);
+  // Left out of the plan, not left unsaid: the sheet still names the basics the
+  // deck needs, because they don't stop being cards you have to go get.
+  assert.deepEqual(sheet.alsoPull, [{ oracleId: 'i', name: 'Island', quantity: 15 }]);
+  db.close();
+});
+
+test('a run with no basics reports nothing to also pull', () => {
+  const { db, decks, collection, location } = fixture([{ id: 'a', name: 'Alpha' }]);
+  const binder = location('Binder');
+  collection.addLot({ printingId: 'p-a', locationId: binder, quantity: 1 });
+  const deckId = deckOf(decks, 'Plain', ['a']);
+  const sheet = openAssemblyRun(db, deckId);
+  assert.deepEqual(sheet.alsoPull, []);
+  db.close();
+});
+
+test('a completed run reports no also-pull note — it is a record, not a shopping list', () => {
+  const { db, decks, collection, location } = fixture([
+    { id: 'a', name: 'Alpha' }, { id: 'i', name: 'Island', basic: true },
+  ]);
+  const binder = location('Binder');
+  collection.addLot({ printingId: 'p-a', locationId: binder, quantity: 1 });
+  collection.addLot({ printingId: 'p-i', locationId: binder, quantity: 20 });
+  const deckId = deckOf(decks, 'Lands', ['a']);
+  decks.addCard(deckId, 'i', { quantity: 15, fromCollection: 0 });
+
+  const sheet = pickAll(db, openAssemblyRun(db, deckId));
+  const summary = completeRun(db, sheet.run.id)!;
+  const reread = assemblySheet(db, summary.runId)!;
+  assert.deepEqual(reread.alsoPull, []);
   db.close();
 });
 

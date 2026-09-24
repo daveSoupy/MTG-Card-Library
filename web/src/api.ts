@@ -164,6 +164,9 @@ export interface SetRecord {
   name: string;
   released_at: string | null;
   card_count: number;
+  /** 1 for a digital-only set (Alchemy, Historic…) — offered nowhere a paper
+   *  collection is being entered, e.g. Add by set. */
+  digital: number;
 }
 
 export interface FormatRecord {
@@ -835,6 +838,8 @@ export interface AssemblySheet {
   };
   movesLots: boolean;
   movesLotsBlocked: string | null;
+  /** Basic lands the deck needs that the plan leaves out — they aren't tracked. */
+  alsoPull: Array<{ oracleId: string; name: string; quantity: number }>;
 }
 
 export interface AssemblyCompletion {
@@ -1757,6 +1762,14 @@ export interface TradeSummary {
   id: number; counterpartyName: string; counterpartyContact: string | null; status: TradeStatus;
   tradeDate: string | null; completedAt: string | null; locationNote: string | null; notes: string | null;
   valueOutUsd: number | null; valueInUsd: number | null; createdAt: string; updatedAt: string;
+  /** Live totals for a draft row — undefined once it is completed or cancelled,
+   *  when valueOutUsd/valueInUsd above are the frozen, authoritative figures. */
+  draftItemCount?: number;
+  draftCardCount?: number;
+  draftValueOutUsd?: number;
+  draftOutUnpriced?: number;
+  draftValueInUsd?: number;
+  draftInUnpriced?: number;
 }
 
 export interface Trade extends TradeSummary { items: TradeItem[]; }
@@ -1874,6 +1887,14 @@ export const acknowledgeAlert = (id: number) =>
   send<{ activeCount: number }>(`/api/v1/alerts/${id}/acknowledge`, 'POST', {});
 export const resolveAlert = (id: number) =>
   send<{ activeCount: number }>(`/api/v1/alerts/${id}/resolve`, 'POST', {});
+export const acknowledgeAllAlerts = (kind?: string) =>
+  send<{ changed: number; activeCount: number }>(
+    `/api/v1/alerts/acknowledge-all${kind ? `?kind=${kind}` : ''}`, 'POST', {},
+  );
+export const resolveAllAlerts = (kind?: string) =>
+  send<{ changed: number; activeCount: number }>(
+    `/api/v1/alerts/resolve-all${kind ? `?kind=${kind}` : ''}`, 'POST', {},
+  );
 
 // -- events and the game log (Phase 11) --------------------------------------
 

@@ -456,3 +456,35 @@ test('the trade log searches by person, sorts, and totals exactly what it return
     ['Alex', 'alexandra', 'Bo']);
   db.close();
 });
+
+test('a draft row reports live card count and value — it has no frozen total yet', () => {
+  const { db, collection, trades } = fixture();
+  collection.addLot({ printingId: 'p-bolt', locationId: binderId(db), quantity: 4, condition: 'NM' });
+  const id = trades.create({ counterpartyName: 'Dave' });
+  trades.addItem(id, { direction: 'out', printingId: 'p-bolt', quantity: 2, condition: 'NM', unitValueUsd: 2.5 });
+  trades.addItem(id, { direction: 'in', printingId: 'p-goyf', quantity: 1, unitValueUsd: 30 });
+  // Unpriced on purpose: an incoming card nobody has put a number on yet.
+  trades.addItem(id, { direction: 'in', printingId: 'p-bs', quantity: 1 });
+
+  const [row] = trades.list({ status: 'draft' }).trades;
+  assert.equal(row.draftItemCount, 3);
+  assert.equal(row.draftCardCount, 4); // 2 + 1 + 1, by quantity
+  assert.equal(row.draftValueOutUsd, 5);
+  assert.equal(row.draftOutUnpriced, 0);
+  assert.equal(row.draftValueInUsd, 30); // the unpriced Brainstorm contributes 0, not null
+  assert.equal(row.draftInUnpriced, 1);
+  // valueOutUsd/valueInUsd are the completed-trade columns and stay unset.
+  assert.equal(row.valueOutUsd, null);
+  assert.equal(row.valueInUsd, null);
+  db.close();
+});
+
+test('a completed or cancelled row carries no draft totals — the frozen columns are the answer', () => {
+  const { db, trades } = fixture();
+  const id = trades.create({ counterpartyName: 'Dave' });
+  db.prepare(`UPDATE trades SET status = 'cancelled' WHERE id = ?`).run(id);
+  const [row] = trades.list().trades;
+  assert.equal(row.draftItemCount, undefined);
+  assert.equal(row.draftValueOutUsd, undefined);
+  db.close();
+});

@@ -142,6 +142,14 @@ export interface AssemblySheet {
    * deck has no home location". Said out loud rather than silently downgraded.
    */
   movesLotsBlocked: string | null;
+  /**
+   * Basic lands the deck needs that never entered the plan — they are exempt
+   * from allocation, so no lot was ever pulled for them. Live, not persisted
+   * on the run: unlike the pull list, there is nothing to tick, only to say.
+   * Empty once the run is no longer open (a finished run reports what it did,
+   * not what to fetch).
+   */
+  alsoPull: Array<{ oracleId: string; name: string; quantity: number }>;
 }
 
 export interface TradeListAdjustment {
@@ -800,10 +808,11 @@ export function assemblySheet(db: Database.Database, runId: number): AssemblyShe
   // Prices for the buy list are today's, and only worth fetching while the run
   // is open: a finished run is a record of what happened, not a shopping list.
   const prices = new Map<string, BuildabilityRow>();
+  let alsoPull: AssemblySheet['alsoPull'] = [];
   if (run.status === 'open') {
-    for (const row of buildabilityDetail(db, run.deckId)?.rows ?? []) {
-      prices.set(row.oracleId, row);
-    }
+    const detail = buildabilityDetail(db, run.deckId);
+    for (const row of detail?.rows ?? []) prices.set(row.oracleId, row);
+    alsoPull = detail?.exemptBasics ?? [];
   }
 
   const toLine = (row: any): SheetLine => {
@@ -910,6 +919,7 @@ export function assemblySheet(db: Database.Database, runId: number): AssemblyShe
       ? 'This deck has no home location, so there is nowhere to move cards to. '
         + 'Set one on the deck and start a new run to move lots.'
       : null,
+    alsoPull,
   };
 }
 
