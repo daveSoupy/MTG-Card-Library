@@ -743,9 +743,12 @@ describe('DeckPanes deck-card preview', () => {
     });
   });
 
-  it('tiles do not raise the popup — only Ultra-compact rows, which show no art', () => {
+  // A tile shows its own art, so beside it a tooltip would only repeat it —
+  // but with the stats pane docked, the hover goes to the big card there.
+  const hoverTile = (statsDocked: boolean) => {
     render(
       <DeckPanes
+        statsDocked={statsDocked}
         deck={{ ...deck, cards: [printed] }}
         apply={vi.fn()}
         problemFor={() => null}
@@ -768,7 +771,15 @@ describe('DeckPanes deck-card preview', () => {
     );
     const tile = screen.getByLabelText('Remove Sol Ring').closest('.deck-tile')!;
     fireEvent.pointerEnter(tile, { pointerType: 'mouse', clientX: 300, clientY: 200 });
-    expect(getHoverPreview()).toBeNull();
+    return getHoverPreview();
+  };
+
+  it('with the stats pane not docked, tiles do not raise the popup — only Ultra-compact rows, which show no art', () => {
+    expect(hoverTile(false)).toBeNull();
+  });
+
+  it('with the stats pane docked, hovering a tile sends the card to the stats pane', () => {
+    expect(hoverTile(true)).toMatchObject({ oracleId: 'ORACLE-1', printingId: 'PRINT-ORACLE-1' });
   });
 
   const linedPanes = (apply = vi.fn(), preview: PickerPreview | null = null) => (
