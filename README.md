@@ -6,9 +6,9 @@ a card shop to record a trade. All your data lives in one SQLite file on your
 own box.
 
 > **Download the desktop app** (latest release, updates itself):
-> [**macOS, Apple silicon**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.8-mac-arm64.dmg) (signed and notarised) ·
-> [**macOS, Intel**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.8-mac-x64.dmg) ·
-> [**Windows**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.8-win-x64-setup.exe) (unsigned for now — click *More info → Run anyway*) ·
+> [**macOS, Apple silicon**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.9-mac-arm64.dmg) (signed and notarised) ·
+> [**macOS, Intel**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.9-mac-x64.dmg) ·
+> [**Windows**](https://github.com/daveSoupy/MTG-Card-Library/releases/latest/download/MTG-Library-1.0.9-win-x64-setup.exe) (unsigned for now — click *More info → Run anyway*) ·
 > [all releases](https://github.com/daveSoupy/MTG-Card-Library/releases).
 > Prefer a server? See [Running it](#running-it).
 
